@@ -182,7 +182,10 @@ interface AppContextValue {
   /** Replace present worker ids (does not scrub assignments beyond toggleWorker rules). */
   applyPresentSelection: (
     workerIds: string[],
-    opts?: { gateManagerWorkerId?: string | null },
+    opts?: {
+      gateManagerWorkerId?: string | null
+      workerWindows?: Record<string, string>
+    },
   ) => void
   /** Set תקן for a lane in the current shift only (does not change the lane catalog). */
   setLaneStaffingStandard: (laneId: string, standard: StaffingStandard) => void
@@ -893,7 +896,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const applyPresentSelection = useCallback(
-    (workerIds: string[], opts?: { gateManagerWorkerId?: string | null }) => {
+    (
+      workerIds: string[],
+      opts?: {
+        gateManagerWorkerId?: string | null
+        workerWindows?: Record<string, string>
+      },
+    ) => {
       setDraft((d) => {
         if (!d) return d
         const known = new Set(
@@ -942,6 +951,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             presentWorkerIds,
             gateManagerWorkerId,
             assignments,
+            ...(opts?.workerWindows ? { workerWindows: opts.workerWindows } : {}),
           },
           data.lanes,
         )
