@@ -342,3 +342,166 @@ export function openWhatsAppShare(text: string): void {
   const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
   window.open(url, '_blank', 'noopener,noreferrer')
 }
+
+export interface ExportRoundCell {
+  label: string
+  /** Lane name → worker names in that round */
+  lanes: { laneName: string; workers: string[] }[]
+}
+
+function buildRoundsExportNode(
+  date: string,
+  shiftType: ShiftType,
+  rounds: ExportRoundCell[],
+  laneNames: string[],
+  meta: ExportMeta = {},
+): HTMLDivElement {
+  const root = document.createElement('div')
+  root.setAttribute('dir', 'rtl')
+  root.style.cssText = [
+    'position:fixed',
+    'left:-10000px',
+    'top:0',
+    'width:1100px',
+    'background:#ffffff',
+    'color:#0f1c2e',
+    "font-family:Heebo,Arial,sans-serif",
+    'box-sizing:border-box',
+    'padding:32px 28px 24px',
+    'border:1px solid #c5d0dc',
+  ].join(';')
+
+  const issued = formatTimeHe()
+  const by = meta.preparedBy ? escapeHtml(meta.preparedBy) : '—'
+  const head = laneNames
+    .map(
+      (name) =>
+        `<th style="text-align:right;background:#0f3350;color:#fff;padding:8px 10px;font-weight:700;border:1px solid #0f3350">${escapeHtml(name)}</th>`,
+    )
+    .join('')
+  const body = rounds
+    .map((round) => {
+      const cells = round.lanes
+        .map((lane) => {
+          const names = lane.workers.length ? lane.workers.join(' · ') : '—'
+          return `<td style="padding:8px 10px;border:1px solid #d5dee8;vertical-align:top">${escapeHtml(names)}</td>`
+        })
+        .join('')
+      return `<tr><th style="text-align:right;padding:8px 10px;border:1px solid #d5dee8;white-space:nowrap;background:#f4f7fb">${escapeHtml(round.label)}</th>${cells}</tr>`
+    })
+    .join('')
+
+  root.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #0f3350;padding-bottom:14px;margin-bottom:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#c45c26">CHECK IN</div>
+        <div style="font-size:26px;font-weight:800;color:#0f3350;margin-top:2px">שיבוץ סלקטורים</div>
+        <div style="font-size:14px;color:#3d4f66;margin-top:6px">${formatDateHe(date)}</div>
+      </div>
+      <div style="text-align:left;font-size:13px;color:#3d4f66;line-height:1.55">
+        <div><span style="color:#6b7c90">משמרת:</span> <strong>${SHIFT_TYPE_LABELS[shiftType]}</strong></div>
+        <div><span style="color:#6b7c90">הופק:</span> ${issued}</div>
+        <div><span style="color:#6b7c90">ע״י:</span> ${by}</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr><th style="text-align:right;background:#0f3350;color:#fff;padding:8px 10px;border:1px solid #0f3350">שעה</th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `
+  return root
+}
+
+async function captureRoundsPng(
+  date: string,
+  shiftType: ShiftType,
+  rounds: ExportRoundCell[],
+  laneNames: string[],
+  meta: ExportMeta = {},
+): Promise<string> {
+  const node = buildRoundsExportNode(date, shiftType, rounds, laneNames, meta)
+  document.body.appendChild(node)
+  await document.fonts?.ready.catch(() => undefined)
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+  try {
+    const scale = isTouchMobile() ? 1.5 : 2
+    const dataUrl = await domToPng(node, {
+      scale,
+      backgroundColor: '#ffffff',
+      quality: 1,
+    })
+    if (!dataUrl || dataUrl === 'data:,') {
+      throw new Error('יצירת התמונה נכשלה')
+    }
+    return dataUrl
+  } finally {
+    node.remove()
+  }
+}
+
+export async function downloadRoundsImage(
+  date: string,
+  shiftType: ShiftType,
+  rounds: ExportRoundCell[],
+  laneNames: string[],
+  meta: ExportMeta = {},
+): Promise<void> {
+  const dataUrl = await captureRoundsPng(
+    date,
+    shiftType,
+    rounds,
+    laneNames,
+    meta,
+  )
+  await savePngBlob(
+    dataUrlToBlob(dataUrl),
+    `shibutz-selectors-${date}-${shiftType}.png`,
+  )
+}
+
+export function buildRoundsWhatsAppText(
+  date: string,
+  shiftType: ShiftType,
+  rounds: ExportRoundCell[],
+): string {
+  const header = `*שיבוץ סלקטורים — ${formatDateHe(date)} · ${SHIFT_TYPE_LABELS[shiftType]}*`
+  const body = rounds
+    .map((round) => {
+      const lines = round.lanes
+        .map((lane) => {
+          const names = lane.workers.length ? lane.workers.join(', ') : '—'
+          return `• *${lane.laneName}:* ${names}`
+        })
+        .join('\n')
+      return `*${round.label}*\n${lines}`
+    })
+    .join('\n\n')
+  return `${header}\n\n${body}\n\n_מסמך שיבוצון_`
+}
+
+export async function shareRoundsImage(
+  date: string,
+  shiftType: ShiftType,
+  rounds: ExportRoundCell[],
+  laneNames: string[],
+  meta: ExportMeta = {},
+  text?: string,
+): Promise<'shared' | 'text'> {
+  const dataUrl = await captureRoundsPng(
+    date,
+    shiftType,
+    rounds,
+    laneNames,
+    meta,
+  )
+  const name = `shibutz-selectors-${date}-${shiftType}.png`
+  const blob = dataUrlToBlob(dataUrl)
+  const file = new File([blob], name, { type: 'image/png' })
+  const shared = await tryShareFile(file, {
+    title: 'שיבוץ סלקטורים',
+    text,
+  })
+  if (shared) return 'shared'
+  await savePngBlob(blob, name, text)
+  return 'text'
+}

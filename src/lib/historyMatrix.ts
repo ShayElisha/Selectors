@@ -4,7 +4,9 @@ import type { Lane, ShiftSchedule, ShiftType, Worker } from '../types'
 const SHIFT_ORDER: Record<ShiftType, number> = {
   morning: 0,
   afternoon: 1,
-  night: 2,
+  afternoonA: 1,
+  afternoonB: 2,
+  night: 3,
 }
 
 export interface HistoryColumn {

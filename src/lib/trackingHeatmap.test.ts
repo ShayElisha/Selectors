@@ -5,15 +5,20 @@ import {
   compareTrackingRows,
   filterLanesByIntensity,
   formatLoadOneDecimal,
+  formatShiftShare,
   formatVisitRecency,
   heatLevel,
   inclusiveRangeDays,
+  laneReturnKey,
   listWorkerLaneVisits,
   maxLaneCount,
   normalizeHeSearch,
+  roundsAreSplit,
   teamAverageLoad,
+  workerLaneReturnKeys,
   workerMatchesSearch,
 } from './trackingHeatmap'
+import type { SelectorRound } from '../types'
 
 describe('heatLevel', () => {
   it('returns 0 for empty cells', () => {
@@ -29,6 +34,7 @@ describe('heatLevel', () => {
 
   it('never marks a single visit as hottest', () => {
     expect(heatLevel(1, { maxInData: 1, rangeDays: 14 })).toBeLessThan(3)
+    expect(heatLevel(0.5, { maxInData: 0.5, rangeDays: 14 })).toBeLessThan(3)
   })
 
   it('is deterministic for mid values', () => {
@@ -62,6 +68,22 @@ describe('formatVisitRecency', () => {
     expect(formatVisitRecency(0)).toBe('מוקדם יותר היום')
     expect(formatVisitRecency(1)).toBe('אתמול')
     expect(formatVisitRecency(5)).toBe('לפני 5 ימים')
+  })
+})
+
+describe('formatShiftShare / roundsAreSplit', () => {
+  it('prints whole shares without a decimal', () => {
+    expect(formatShiftShare(1)).toBe('1')
+    expect(formatShiftShare(2)).toBe('2')
+    expect(formatShiftShare(0.5)).toBe('0.5')
+    expect(formatShiftShare(1.04)).toBe('1')
+    expect(formatShiftShare(0)).toBe('0')
+  })
+
+  it('flags a gap between rounds on the same lane', () => {
+    expect(roundsAreSplit([0, 1])).toBe(false)
+    expect(roundsAreSplit([0, 2])).toBe(true)
+    expect(roundsAreSplit([1])).toBe(false)
   })
 })
 
@@ -110,7 +132,55 @@ describe('listWorkerLaneVisits', () => {
       date: '2026-09-10',
       shiftType: 'morning',
       daysAgo: 10,
+      share: 1,
+      rounds: [],
+      returned: false,
     })
+  })
+
+  it('folds selector rounds into one shift and marks a return', () => {
+    const rounds: SelectorRound[] = [
+      {
+        startMinutes: 360,
+        endMinutes: 480,
+        label: '06:00–08:00',
+        assignments: [{ laneId: 'l1', workerIds: ['w1'] }],
+      },
+      {
+        startMinutes: 480,
+        endMinutes: 600,
+        label: '08:00–10:00',
+        assignments: [{ laneId: 'l2', workerIds: ['w1'] }],
+      },
+      {
+        startMinutes: 600,
+        endMinutes: 720,
+        label: '10:00–12:00',
+        assignments: [{ laneId: 'l1', workerIds: ['w1'] }],
+      },
+    ]
+    const history: ShiftSchedule[] = [
+      {
+        ...shift('2026-09-10', 'morning', 'w1', 'l1'),
+        id: 'sel',
+        audience: 'selector',
+        assignments: [],
+        rounds,
+      },
+    ]
+    const visits = listWorkerLaneVisits(history, 'w1', 'l1', {
+      today: '2026-09-20',
+    })
+    expect(visits).toHaveLength(1)
+    expect(visits[0]?.share).toBeCloseTo(2 / 3)
+    expect(visits[0]?.rounds).toEqual(['06:00–08:00', '10:00–12:00'])
+    expect(visits[0]?.returned).toBe(true)
+    expect(workerLaneReturnKeys(history).has(laneReturnKey('w1', 'l1'))).toBe(
+      true,
+    )
+    expect(workerLaneReturnKeys(history).has(laneReturnKey('w1', 'l2'))).toBe(
+      false,
+    )
   })
 })
 
@@ -144,6 +214,8 @@ function stubStats(
     hardByShift: partial.hardByShift ?? {
       morning: 0,
       afternoon: 0,
+      afternoonA: 0,
+      afternoonB: 0,
       night: 0,
     },
     totalAssignments: partial.totalAssignments ?? 0,

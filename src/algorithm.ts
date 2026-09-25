@@ -12,6 +12,7 @@ import type {
   ShiftType,
   Worker,
 } from './types'
+import { shiftPlacements } from './lib/shiftPlacements'
 
 /** Why a specific worker was placed on a specific lane */
 export interface PlacementExplanation {
@@ -46,7 +47,7 @@ export interface AssignmentContext {
 
 export interface WorkerLaneStats {
   workerId: string
-  /** laneId → times assigned */
+  /** laneId → shift-equivalents (a selector round counts as its share of the shift) */
   byLane: Record<string, number>
   hardCount: number
   mediumCount: number
@@ -199,18 +200,24 @@ export const ROTATION_SHIFT_WEIGHT: Record<ShiftType, number> = {
   night: 1.5,
   morning: 1.2,
   afternoon: 1.0,
+  afternoonA: 1.0,
+  afternoonB: 1.0,
 }
 
 /** Chronological order within a calendar day (for same-day D = 0.5). */
 const SHIFT_SEQUENCE: Record<ShiftType, number> = {
   morning: 0,
   afternoon: 1,
-  night: 2,
+  afternoonA: 1,
+  afternoonB: 2,
+  night: 3,
 }
 
 const EMPTY_HARD_BY_SHIFT: Record<ShiftType, number> = {
   morning: 0,
   afternoon: 0,
+  afternoonA: 0,
+  afternoonB: 0,
   night: 0,
 }
 
@@ -466,7 +473,7 @@ function workerAssignedOnShift(
 ): boolean {
   if (shift.presentWorkerIds?.includes(workerId)) return true
   if (shift.gateManagerWorkerId?.trim() === workerId) return true
-  return (shift.assignments ?? []).some((a) => a.workerIds.includes(workerId))
+  return shiftPlacements(shift).some((p) => p.workerId === workerId)
 }
 
 /** True when the worker was present or assigned on any shift that calendar day. */
@@ -533,11 +540,13 @@ export function dayPlacementLoadSummary(
     if (filter?.onlyShiftType && shift.shiftType !== filter.onlyShiftType) {
       continue
     }
-    for (const assignment of shift.assignments ?? []) {
-      if (!assignment.workerIds.includes(workerId)) continue
-      const lane = laneMap.get(assignment.laneId)
+    for (const placement of shiftPlacements(shift)) {
+      if (placement.workerId !== workerId) continue
+      const lane = laneMap.get(placement.laneId)
       if (!lane) continue
-      points += placementScoreForLoad(lane.intensity, shift.shiftType)
+      points +=
+        placementScoreForLoad(lane.intensity, shift.shiftType) *
+        placement.weight
       placementCount += 1
       if (!countsAsDayEasy(lane.intensity, shift.shiftType)) allEasy = false
     }
@@ -2450,6 +2459,10 @@ export function runAssignmentAlgorithm(
   }
 }
 
+function addShare(current: number, share: number): number {
+  return Math.round((current + share) * 1e6) / 1e6
+}
+
 export function computeWorkerLaneStats(
   workers: Worker[],
   lanes: Lane[],
@@ -2479,21 +2492,28 @@ export function computeWorkerLaneStats(
       // Position / lane summary: day shifts only (nights excluded).
       if (shift.shiftType === 'night') continue
 
-      for (const assignment of shift.assignments) {
-        if (!assignment.workerIds.includes(w.id)) continue
-        byLane[assignment.laneId] = (byLane[assignment.laneId] ?? 0) + 1
-        totalAssignments += 1
-        const lane = laneMap.get(assignment.laneId)
+      for (const placement of shiftPlacements(shift)) {
+        if (placement.workerId !== w.id) continue
+        const share = placement.weight
+        byLane[placement.laneId] = addShare(
+          byLane[placement.laneId] ?? 0,
+          share,
+        )
+        totalAssignments = addShare(totalAssignments, share)
+        const lane = laneMap.get(placement.laneId)
         if (!lane) continue
 
         if (lane.intensity === 'hard') {
-          hardCount += 1
-          hardByShift[shift.shiftType] += 1
+          hardCount = addShare(hardCount, share)
+          hardByShift[shift.shiftType] = addShare(
+            hardByShift[shift.shiftType],
+            share,
+          )
         } else if (lane.intensity === 'medium') {
-          mediumCount += 1
+          mediumCount = addShare(mediumCount, share)
         } else {
-          easyCount += 1
-          dayEasyCount += 1
+          easyCount = addShare(easyCount, share)
+          dayEasyCount = addShare(dayEasyCount, share)
         }
       }
     }

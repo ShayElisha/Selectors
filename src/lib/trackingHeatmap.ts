@@ -1,4 +1,5 @@
 import { daysBetweenLocal } from '../algorithm'
+import { shiftPlacements } from './shiftPlacements'
 import type { Intensity, ShiftSchedule, ShiftType, Worker } from '../types'
 import type { WorkerLaneStats } from '../algorithm'
 
@@ -39,8 +40,8 @@ export function heatLevel(
 
   const score = relative * boost
 
-  // A single visit never looks “hot”, even if it is the matrix max.
-  if (count === 1) return score >= 0.95 ? 2 : 1
+  // At most one full shift never looks “hot”, even if it is the matrix max.
+  if (count <= 1) return score >= 0.95 ? 2 : 1
   if (score < 0.28) return 1
   if (score < 0.48) return 2
   if (score < 0.72) return 3
@@ -142,9 +143,37 @@ export function compareTrackingRows(
 }
 
 export interface LaneVisit {
+  id: string
   date: string
   shiftType: ShiftType
   daysAgo: number
+  /** Shift-equivalents spent on this lane (1 = a full inspector placement). */
+  share: number
+  /** Clock labels of selector rounds on this lane, in board order. */
+  rounds: string[]
+  /** Left this lane and came back later in the same shift. */
+  returned: boolean
+}
+
+/** Whole numbers stay bare; fractions show one decimal. */
+export function formatShiftShare(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  const rounded = Math.round(n * 10) / 10
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
+    return String(Math.round(rounded))
+  }
+  return rounded.toFixed(1)
+}
+
+/** True when the round indexes skip a gap (left and came back). */
+export function roundsAreSplit(indexes: number[]): boolean {
+  const sorted = [...new Set(indexes)].sort((a, b) => a - b)
+  if (sorted.length < 2) return false
+  return sorted[sorted.length - 1]! - sorted[0]! + 1 !== sorted.length
+}
+
+export function laneReturnKey(workerId: string, laneId: string): string {
+  return `${workerId}\0${laneId}`
 }
 
 /** Visits behind a matrix cell, newest first. */
@@ -166,15 +195,26 @@ export function listWorkerLaneVisits(
     if (shift.shiftType === 'night') continue
     if (options?.fromDate && shift.date < options.fromDate) continue
     if (options?.toDate && shift.date > options.toDate) continue
-    for (const assignment of shift.assignments) {
-      if (assignment.laneId !== laneId) continue
-      if (!assignment.workerIds.includes(workerId)) continue
-      visits.push({
-        date: shift.date,
-        shiftType: shift.shiftType,
-        daysAgo: daysBetweenLocal(shift.date, today),
-      })
+    const rounds: string[] = []
+    const indexes: number[] = []
+    let share = 0
+    for (const placement of shiftPlacements(shift)) {
+      if (placement.workerId !== workerId) continue
+      if (placement.laneId !== laneId) continue
+      share += placement.weight
+      if (placement.roundLabel) rounds.push(placement.roundLabel)
+      if (placement.roundIndex != null) indexes.push(placement.roundIndex)
     }
+    if (share <= 0) continue
+    visits.push({
+      id: shift.id,
+      date: shift.date,
+      shiftType: shift.shiftType,
+      daysAgo: daysBetweenLocal(shift.date, today),
+      share,
+      rounds,
+      returned: roundsAreSplit(indexes),
+    })
   }
 
   visits.sort((a, b) => {
@@ -182,6 +222,34 @@ export function listWorkerLaneVisits(
     return shiftTypeOrder(b.shiftType) - shiftTypeOrder(a.shiftType)
   })
   return visits
+}
+
+/**
+ * Worker×lane pairs where the person left a lane and returned later
+ * in the same selector shift, inside the selected date window.
+ */
+export function workerLaneReturnKeys(
+  history: ShiftSchedule[],
+  options?: { fromDate?: string; toDate?: string },
+): Set<string> {
+  const keys = new Set<string>()
+  for (const shift of history) {
+    if (shift.shiftType === 'night') continue
+    if (options?.fromDate && shift.date < options.fromDate) continue
+    if (options?.toDate && shift.date > options.toDate) continue
+    const indexes = new Map<string, number[]>()
+    for (const placement of shiftPlacements(shift)) {
+      if (placement.roundIndex == null) continue
+      const key = laneReturnKey(placement.workerId, placement.laneId)
+      const list = indexes.get(key)
+      if (list) list.push(placement.roundIndex)
+      else indexes.set(key, [placement.roundIndex])
+    }
+    for (const [key, list] of indexes) {
+      if (roundsAreSplit(list)) keys.add(key)
+    }
+  }
+  return keys
 }
 
 function shiftTypeOrder(t: ShiftType): number {

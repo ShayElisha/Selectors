@@ -23,13 +23,16 @@ import {
   compareTrackingRows,
   filterLanesByIntensity,
   formatLoadOneDecimal,
+  formatShiftShare,
   formatVisitRecency,
   heatCellClass,
   heatLevel,
   inclusiveRangeDays,
+  laneReturnKey,
   listWorkerLaneVisits,
   maxLaneCount,
   teamAverageLoad,
+  workerLaneReturnKeys,
   workerMatchesSearch,
   type HeatLevel,
   type LaneVisit,
@@ -58,8 +61,14 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function CountCell({ value }: { value: number }) {
-  if (value <= 0) {
+function CountCell({
+  value,
+  returned,
+}: {
+  value: number
+  returned?: boolean
+}) {
+  if (value <= 1e-9) {
     return (
       <>
         <span className="text-line" aria-hidden>
@@ -69,7 +78,17 @@ function CountCell({ value }: { value: number }) {
       </>
     )
   }
-  return <Ltr>{String(value)}</Ltr>
+  return (
+    <span className="inline-flex items-center justify-center gap-1">
+      <Ltr>{formatShiftShare(value)}</Ltr>
+      {returned ? (
+        <span
+          className="size-1.5 shrink-0 rounded-full bg-accent"
+          title="יצא וחזר לנתיב באותה משמרת"
+        />
+      ) : null}
+    </span>
+  )
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
@@ -203,9 +222,10 @@ function HeatLegend() {
           </span>
         ))}
       </div>
-      <span aria-hidden>יותר ביקורים בנתיב</span>
-      <span className="text-ink-soft/90">
-        · חזרות לאותו נתיב = פחות רוטציה
+      <span aria-hidden>יותר זמן בנתיב</span>
+      <span className="inline-flex items-center gap-1 text-ink-soft/90">
+        <span className="size-1.5 rounded-full bg-accent" aria-hidden />
+        יצא וחזר באותה משמרת
       </span>
     </div>
   )
@@ -288,17 +308,34 @@ function VisitPopover({
         <ul className="max-h-56 overflow-y-auto py-1">
           {visits.map((v) => (
             <li
-              key={`${v.date}-${v.shiftType}`}
-              className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]"
+              key={v.id}
+              className="px-3 py-1.5 text-[11px]"
             >
-              <span className="font-medium text-ink">
-                <Ltr>{formatShiftDate(v.date)}</Ltr>
-                <span className="mx-1 text-ink-soft">·</span>
-                {SHIFT_TYPE_LABELS[v.shiftType]}
-              </span>
-              <span className="shrink-0 text-ink-soft">
-                {formatVisitRecency(v.daysAgo)}
-              </span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-ink">
+                  <Ltr>{formatShiftDate(v.date)}</Ltr>
+                  <span className="mx-1 text-ink-soft">·</span>
+                  {SHIFT_TYPE_LABELS[v.shiftType]}
+                </span>
+                <span className="shrink-0 text-ink-soft">
+                  {formatVisitRecency(v.daysAgo)}
+                </span>
+              </div>
+              {v.rounds.length > 0 || v.returned ? (
+                <p className="mt-0.5 flex flex-wrap items-center gap-1 text-ink-soft">
+                  <Ltr className="font-semibold text-ink">
+                    {formatShiftShare(v.share)}
+                  </Ltr>
+                  {v.rounds.length > 0 ? (
+                    <Ltr>{v.rounds.join(' · ')}</Ltr>
+                  ) : null}
+                  {v.returned ? (
+                    <span className="rounded bg-accent-soft px-1 font-semibold text-accent">
+                      חזרה
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -402,6 +439,11 @@ export function TrackingPage() {
     [stats, avgLoad],
   )
 
+  const returnKeys = useMemo(
+    () => workerLaneReturnKeys(data.history, { fromDate, toDate }),
+    [data.history, fromDate, toDate],
+  )
+
   const openVisits = useMemo(() => {
     if (!openCell) return [] as LaneVisit[]
     return listWorkerLaneVisits(
@@ -460,7 +502,7 @@ export function TrackingPage() {
     <div className="space-y-4">
       <SectionCard
         title="מעקב נתיבים"
-        subtitle="כמה פעמים כל בודק שובץ בכל עמדה — לפי היסטוריית השיבוצים השמורים"
+        subtitle="כמה משמרת כל בודק בילה בכל נתיב. סבב נספר לפי חלקו במשמרת, לא כביקור נפרד"
         actions={
           <button
             type="button"
@@ -569,7 +611,7 @@ export function TrackingPage() {
                     <div className="mb-1.5 flex items-start justify-between gap-2">
                       <p className="text-sm font-bold text-ink">{w.fullName}</p>
                       <p className="text-xs font-bold tabular-nums text-ink">
-                        <Ltr>{String(s.totalAssignments || 0)}</Ltr> סה״כ
+                        <Ltr>{formatShiftShare(s.totalAssignments || 0)}</Ltr> סה״כ
                       </p>
                     </div>
                     <div className="mb-2 flex flex-wrap gap-1.5 text-[10px]">
@@ -578,15 +620,15 @@ export function TrackingPage() {
                           className="size-3 text-hard"
                           aria-hidden
                         />
-                        קשה <Ltr>{String(s.hardCount || 0)}</Ltr>
+                        קשה <Ltr>{formatShiftShare(s.hardCount || 0)}</Ltr>
                       </span>
                       <span className="inline-flex items-center gap-1 rounded-md bg-mid-soft px-1.5 py-0.5 font-semibold text-ink ring-1 ring-mid/15">
                         <MinusCircle className="size-3 text-mid" aria-hidden />
-                        בינוני <Ltr>{String(s.mediumCount || 0)}</Ltr>
+                        בינוני <Ltr>{formatShiftShare(s.mediumCount || 0)}</Ltr>
                       </span>
                       <span className="inline-flex items-center gap-1 rounded-md bg-easy-soft px-1.5 py-0.5 font-semibold text-ink ring-1 ring-easy/15">
                         <CheckCircle2 className="size-3 text-easy" aria-hidden />
-                        קל יום <Ltr>{String(s.dayEasyCount || 0)}</Ltr>
+                        קל יום <Ltr>{formatShiftShare(s.dayEasyCount || 0)}</Ltr>
                       </span>
                       <span className="rounded-md bg-card px-1.5 py-0.5 font-semibold text-ink ring-1 ring-line">
                         עומס <Ltr>{formatLoadOneDecimal(s.effectiveLoad)}</Ltr>
@@ -599,9 +641,17 @@ export function TrackingPage() {
                             key={lane.id}
                             className="flex justify-between gap-2"
                           >
-                            <span>{lane.name}</span>
+                            <span className="inline-flex items-center gap-1">
+                              {lane.name}
+                              {returnKeys.has(laneReturnKey(w.id, lane.id)) ? (
+                                <span
+                                  className="size-1.5 rounded-full bg-accent"
+                                  title="יצא וחזר לנתיב באותה משמרת"
+                                />
+                              ) : null}
+                            </span>
                             <Ltr className="font-semibold text-ink">
-                              {String(n)}
+                              {formatShiftShare(n)}
                             </Ltr>
                           </li>
                         ))}
@@ -766,6 +816,9 @@ export function TrackingPage() {
                         </td>
                         {visibleLanes.map((lane) => {
                           const n = s.byLane[lane.id] ?? 0
+                          const returned = returnKeys.has(
+                            laneReturnKey(w.id, lane.id),
+                          )
                           const open =
                             openCell?.workerId === w.id &&
                             openCell?.laneId === lane.id
@@ -786,7 +839,7 @@ export function TrackingPage() {
                               <button
                                 type="button"
                                 className="mx-auto block min-h-7 min-w-7 rounded-md px-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand"
-                                aria-label={`${w.fullName}, ${lane.name}: ${n}`}
+                                aria-label={`${w.fullName}, ${lane.name}: ${formatShiftShare(n)}${returned ? ', יצא וחזר באותה משמרת' : ''}`}
                                 onClick={() =>
                                   setOpenCell(
                                     open
@@ -809,7 +862,7 @@ export function TrackingPage() {
                                   setHoverCol(lane.id)
                                 }}
                               >
-                                <CountCell value={n} />
+                                <CountCell value={n} returned={returned} />
                               </button>
                               {open && openWorker && openLane ? (
                                 <VisitPopover
@@ -874,8 +927,8 @@ export function TrackingPage() {
             </div>
 
             <p className="mt-3 text-[11px] leading-relaxed text-ink-soft sm:text-xs">
-              הייצוא כולל את הטווח הנבחר (CSV לאקסל). לחצו על תא בטבלה לרשימת
-              הביקורים.
+              המספר הוא חלקי משמרת (1 = משמרת מלאה בנתיב). נקודה כתומה בתא
+              מסמנת יציאה וחזרה באמצע אותה משמרת. לחצו על תא לשעות הסבבים.
             </p>
           </>
         )}

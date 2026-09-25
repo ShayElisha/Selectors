@@ -42,9 +42,11 @@ const SHIFT_WINDOWS: Record<
   ShiftType,
   { start: string; end: string; nextDay?: boolean }
 > = {
-  morning: { start: '06:00', end: '14:30' },
+  morning: { start: '06:00', end: '15:00' },
+  afternoonA: { start: '14:30', end: '18:30' },
+  afternoonB: { start: '18:00', end: '21:30' },
   afternoon: { start: '14:30', end: '21:30' },
-  night: { start: '21:30', end: '06:00', nextDay: true },
+  night: { start: '21:00', end: '06:30', nextDay: true },
 }
 
 /** Human-readable shift window; night marks next-day end. */

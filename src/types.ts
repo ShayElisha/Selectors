@@ -1,6 +1,11 @@
 export type Intensity = 'easy' | 'medium' | 'hard'
 export type WorkerStatus = 'active' | 'inactive'
-export type ShiftType = 'morning' | 'afternoon' | 'night'
+export type ShiftType =
+  | 'morning'
+  | 'afternoonA'
+  | 'afternoonB'
+  | 'afternoon'
+  | 'night'
 /** Per-lane / per-shift staffing תקן (max participants). */
 export type StaffingStandard = 1 | 2 | 3 | 4 | 5
 
@@ -80,6 +85,11 @@ export interface ShiftSchedule {
    * When absent, the shift default is 1.
    */
   staffingOverrides?: Record<string, StaffingStandard>
+  /**
+   * Personal hours for present workers (window preset id).
+   * Missing means the person covers the whole main shift.
+   */
+  workerWindows?: Record<string, string>
   createdAt: string
   updatedAt: string
 }

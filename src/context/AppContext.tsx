@@ -79,6 +79,7 @@ import {
   setSelectorCell,
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
+import { roundCutsForWindows, SELECTABLE_SHIFT_TYPES } from '../lib/shiftCatalog'
 import type {
   AppData,
   BriefingSection,
@@ -135,6 +136,8 @@ export interface ShiftDraft {
   unassignedWorkerIds: string[]
   /** Filled by auto-assign; cleared on manual board edits */
   explanations: PlacementExplanation[]
+  /** Personal hours keyed by worker id. */
+  workerWindows: Record<string, string>
   /** Per-shift תקן (1…5); falls back to lane catalog when absent */
   staffingOverrides: StaffingOverrides
 }
@@ -184,6 +187,7 @@ interface AppContextValue {
   /** Set תקן for a lane in the current shift only (does not change the lane catalog). */
   setLaneStaffingStandard: (laneId: string, standard: StaffingStandard) => void
   toggleWorker: (workerId: string) => void
+  setWorkerWindow: (workerId: string, windowId: string | null) => void
   /** Activate/deactivate מנהל שער for a manager (at most one per shift). */
   setGateManager: (workerId: string | null) => void
   setAllActiveLanes: (on: boolean) => void
@@ -344,6 +348,10 @@ function restoreDraft(): ShiftDraft | null {
       ...parsed,
       audience: parsed.audience === 'selector' ? 'selector' : 'inspector',
       rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
+      workerWindows:
+        parsed.workerWindows && typeof parsed.workerWindows === 'object'
+          ? parsed.workerWindows
+          : {},
       explanations: Array.isArray(parsed.explanations) ? parsed.explanations : [],
       staffingOverrides: normalizeStaffingOverrides(parsed.staffingOverrides),
       gateManagerWorkerId: parsed.gateManagerWorkerId?.trim() || undefined,
@@ -367,6 +375,7 @@ function snapshotDraft(d: ShiftDraft): string {
     shiftType: d.shiftType,
     audience: d.audience ?? 'inspector',
     rounds: d.rounds ?? [],
+    workerWindows: d.workerWindows ?? {},
     activeLaneIds: d.activeLaneIds,
     presentWorkerIds: d.presentWorkerIds,
     gateManagerWorkerId: d.gateManagerWorkerId ?? '',
@@ -721,6 +730,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             item.audience === 'selector' && Array.isArray(item.rounds)
               ? item.rounds
               : [],
+          workerWindows: item.workerWindows ?? {},
           warnings: [],
           unassignedWorkerIds: [],
           explanations: [],
@@ -756,7 +766,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       assignments:
         d.audience === 'selector' ? [] : stripEmpty(d.assignments),
       ...(d.audience === 'selector'
-        ? { audience: 'selector' as const, rounds: d.rounds ?? [] }
+        ? {
+            audience: 'selector' as const,
+            rounds: d.rounds ?? [],
+            ...(Object.keys(d.workerWindows ?? {}).length > 0
+              ? { workerWindows: d.workerWindows }
+              : {}),
+          }
         : {}),
       ...(Object.keys(overrides).length > 0
         ? { staffingOverrides: overrides }
@@ -772,9 +788,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Prefer a free slot for today so work can start immediately, but never
     // refuse to open — user can always pick another date/type on the shift page.
     if (findShiftForSlot(data.history, date, shiftType, undefined, audience)) {
-      const freeType = (
-        ['morning', 'afternoon', 'night'] as const
-      ).find((t) => !findShiftForSlot(data.history, date, t, undefined, audience))
+      const freeType = SELECTABLE_SHIFT_TYPES.find(
+        (t) => !findShiftForSlot(data.history, date, t, undefined, audience),
+      )
       if (freeType) shiftType = freeType
     }
 
@@ -787,6 +803,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       presentWorkerIds: [],
       assignments: [],
       rounds: [],
+      workerWindows: {},
       warnings: [],
       unassignedWorkerIds: [],
       explanations: [],
@@ -1163,6 +1180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         activeLaneIds: d.activeLaneIds,
         workers: present,
         overrides: d.staffingOverrides,
+        workerWindows: d.workerWindows,
       })
       return withGateManagerSync(
         {
@@ -1178,6 +1196,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [data.lanes, data.workers])
 
+  const setWorkerWindow = useCallback(
+    (workerId: string, windowId: string | null) => {
+      setDraft((d) => {
+        if (!d) return d
+        const workerWindows = { ...(d.workerWindows ?? {}) }
+        if (!windowId) delete workerWindows[workerId]
+        else workerWindows[workerId] = windowId
+        const next = { ...d, workerWindows }
+        if ((d.rounds?.length ?? 0) === 0) return next
+        const present = data.workers.filter(
+          (w) => d.presentWorkerIds.includes(w.id) && w.isInspector,
+        )
+        const result = assignSelectorRounds({
+          shiftType: d.shiftType,
+          lanes: data.lanes,
+          activeLaneIds: d.activeLaneIds,
+          workers: present,
+          overrides: d.staffingOverrides,
+          workerWindows,
+        })
+        return withGateManagerSync(
+          {
+            ...next,
+            audience: 'selector',
+            rounds: result.rounds,
+            warnings: result.warnings,
+          },
+          data.lanes,
+        )
+      })
+    },
+    [data.lanes, data.workers],
+  )
+
   const runAutoAssign = useCallback(() => {
     setDraft((d) => {
       if (!d) return d
@@ -1190,6 +1242,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         activeLaneIds: d.activeLaneIds,
         workers: present,
         overrides: d.staffingOverrides,
+        workerWindows: d.workerWindows,
       })
       const filled = result.rounds.reduce(
         (n, r) =>
@@ -1238,6 +1291,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               data.lanes,
               d.activeLaneIds,
               d.staffingOverrides,
+              roundCutsForWindows(
+                d.shiftType,
+                d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
+              ),
             ),
             warnings: [],
             explanations: [],
@@ -2147,6 +2204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyPresentSelection,
       setLaneStaffingStandard,
       toggleWorker,
+      setWorkerWindow,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,
@@ -2210,6 +2268,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyPresentSelection,
       setLaneStaffingStandard,
       toggleWorker,
+      setWorkerWindow,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,

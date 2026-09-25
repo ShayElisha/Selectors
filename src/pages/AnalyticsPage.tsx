@@ -26,6 +26,7 @@ import {
   type WorkerAnalyticsRow,
 } from '../lib/analytics'
 import { computeShortReturnRate } from '../lib/assignmentQuality'
+import { formatShiftShare } from '../lib/trackingHeatmap'
 import { downloadAnalyticsExcel } from '../lib/analyticsExport'
 import { notify } from '../lib/notify'
 import { IntensityBadge, Ltr, SectionCard, Skeleton } from '../components/ui'
@@ -246,7 +247,7 @@ function LoadOverview({
               key={w.workerId}
               type="button"
               title={`${w.fullName}: ${formatLoadOneDecimal(w.effectiveLoad)}`}
-              aria-label={`${w.fullName}, עומס ${formatLoadOneDecimal(w.effectiveLoad)}, קשה ${w.hardCount}`}
+              aria-label={`${w.fullName}, עומס ${formatLoadOneDecimal(w.effectiveLoad)}, קשה ${formatShiftShare(w.hardCount)}`}
               onFocus={() => setFocusId(w.workerId)}
               onBlur={() => setFocusId(null)}
               onMouseEnter={() => setFocusId(w.workerId)}
@@ -275,9 +276,9 @@ function LoadOverview({
           {' · עומס '}
           <Ltr className="font-bold">{formatLoadOneDecimal(focused.effectiveLoad)}</Ltr>
           {' · קשה '}
-          <Ltr>{String(focused.hardCount)}</Ltr>
+          <Ltr>{formatShiftShare(focused.hardCount)}</Ltr>
           {' · קל יום '}
-          <Ltr>{String(focused.dayEasyCount)}</Ltr>
+          <Ltr>{formatShiftShare(focused.dayEasyCount)}</Ltr>
         </p>
       ) : (
         <p className="text-[13px] text-ink-soft">
@@ -879,10 +880,10 @@ export function AnalyticsPage() {
                             />
                           </td>
                           <td className="border-b border-line px-2 py-2 text-center tabular-nums">
-                            <Ltr>{String(w.hardCount)}</Ltr>
+                            <Ltr>{formatShiftShare(w.hardCount)}</Ltr>
                           </td>
                           <td className="border-b border-line px-2 py-2 text-center tabular-nums">
-                            <Ltr>{String(w.dayEasyCount)}</Ltr>
+                            <Ltr>{formatShiftShare(w.dayEasyCount)}</Ltr>
                           </td>
                           <td className="border-b border-line px-2 py-2">
                             <div className="flex justify-center">
@@ -1000,11 +1001,11 @@ function WorkerRankList({
               </span>
               <span aria-hidden>·</span>
               <span>
-                קשה <Ltr>{String(w.hardCount)}</Ltr>
+                קשה <Ltr>{formatShiftShare(w.hardCount)}</Ltr>
               </span>
               <span aria-hidden>·</span>
               <span>
-                קל יום <Ltr>{String(w.dayEasyCount)}</Ltr>
+                קל יום <Ltr>{formatShiftShare(w.dayEasyCount)}</Ltr>
               </span>
               {w.topLaneName && w.topLaneCount >= 2 ? (
                 <button
@@ -1014,7 +1015,7 @@ function WorkerRankList({
                 >
                   <Table2 className="size-3 shrink-0 text-brand" aria-hidden />
                   <span className="truncate">
-                    {w.topLaneName} ×<Ltr>{String(w.topLaneCount)}</Ltr>
+                    {w.topLaneName} ×<Ltr>{formatShiftShare(w.topLaneCount)}</Ltr>
                   </span>
                 </button>
               ) : null}

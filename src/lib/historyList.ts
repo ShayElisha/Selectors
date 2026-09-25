@@ -3,7 +3,13 @@ import { normalizeHeSearch, workerMatchesSearch } from './trackingHeatmap'
 import { effectiveStaffingStandard } from './shiftStaffing'
 import type { Lane, ShiftSchedule, ShiftType, Worker } from '../types'
 
-export const SHIFT_SLOT_ORDER: ShiftType[] = ['morning', 'afternoon', 'night']
+export const SHIFT_SLOT_ORDER: ShiftType[] = [
+  'morning',
+  'afternoonA',
+  'afternoon',
+  'afternoonB',
+  'night',
+]
 
 export interface DaySlot {
   shiftType: ShiftType

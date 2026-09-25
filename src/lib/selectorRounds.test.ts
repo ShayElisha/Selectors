@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Lane, Worker } from '../types'
+import { roundCutsForWindows } from './shiftCatalog'
 import {
   assignSelectorRounds,
   buildRoundWindows,
@@ -34,19 +35,19 @@ describe('buildRoundWindows', () => {
       '06:00–08:00',
       '08:00–10:00',
       '10:00–12:00',
-      '12:00–14:30',
+      '12:00–14:00',
+      '14:00–15:00',
     ])
-    expect(buildRoundWindows('afternoon').map((w) => w.label)).toEqual([
+    expect(buildRoundWindows('afternoonA').map((w) => w.label)).toEqual([
       '14:30–16:30',
       '16:30–18:30',
-      '18:30–20:30',
-      '20:30–21:30',
     ])
     expect(buildRoundWindows('night').map((w) => w.label)).toEqual([
-      '21:30–23:30',
-      '23:30–01:30',
-      '01:30–03:30',
-      '03:30–06:00',
+      '21:00–23:00',
+      '23:00–01:00',
+      '01:00–03:00',
+      '03:00–05:00',
+      '05:00–06:30',
     ])
   })
 })
@@ -108,5 +109,23 @@ describe('setSelectorCell', () => {
     const ids = next[0]!.assignments.flatMap((a) => a.workerIds.filter(Boolean))
     expect(ids.filter((id) => id === onA)).toHaveLength(1)
     expect(next[0]!.assignments[1]!.workerIds[0]).toBe(onA)
+  })
+})
+
+describe('personal windows', () => {
+  it('stops a 17:30 window before the end of afternoon A', () => {
+    const cuts = roundCutsForWindows('afternoonA', ['0600-1730', '0600-1830'])
+    const labels = buildRoundWindows('afternoonA', cuts).map((w) => w.label)
+    expect(labels).toEqual(['14:30–16:30', '16:30–17:30', '17:30–18:30'])
+    const { rounds } = assignSelectorRounds({
+      shiftType: 'afternoonA',
+      lanes: [lane('a', 'נתיב 1')],
+      activeLaneIds: ['a'],
+      workers: [worker('early', 'מוקדם'), worker('late', 'מאוחר')],
+      workerWindows: { early: '0600-1730', late: '0600-1830' },
+    })
+    const last = rounds[rounds.length - 1]!
+    expect(last.label).toBe('17:30–18:30')
+    expect(last.assignments[0]!.workerIds).toEqual(['late'])
   })
 })

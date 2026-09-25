@@ -236,6 +236,48 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(stats?.nightEasyCount).toBe(0)
   })
 
+  it('computeWorkerLaneStats counts selector rounds as shares of one shift', () => {
+    const rounds = (laneId: string) => [
+      {
+        startMinutes: 360,
+        endMinutes: 480,
+        label: '06:00–08:00',
+        assignments: [{ laneId, workerIds: ['a'] }],
+      },
+      {
+        startMinutes: 480,
+        endMinutes: 600,
+        label: '08:00–10:00',
+        assignments: [{ laneId: 'easy', workerIds: ['a'] }],
+      },
+    ]
+    const history = [
+      {
+        ...shift('s1', '2026-03-05', 'morning', [], ['a'], ['hard', 'easy']),
+        audience: 'selector' as const,
+        rounds: rounds('hard'),
+      },
+      {
+        ...shift('s2', '2026-03-06', 'morning', [], ['a'], ['hard']),
+        audience: 'selector' as const,
+        rounds: rounds('hard').map((r) =>
+          r.label === '08:00–10:00'
+            ? { ...r, assignments: [{ laneId: 'hard', workerIds: ['a'] }] }
+            : r,
+        ),
+      },
+    ]
+    const [stats] = computeWorkerLaneStats(
+      [worker('a', 'A')],
+      [hard, easy],
+      history,
+    )
+    expect(stats?.byLane.hard).toBeCloseTo(1.5)
+    expect(stats?.byLane.easy).toBeCloseTo(0.5)
+    expect(stats?.totalAssignments).toBeCloseTo(2)
+    expect(stats?.hardCount).toBeCloseTo(1.5)
+  })
+
   it('Test 4 — morning → afternoon handoff prefers afternoon-only on handoff lane', () => {
     const continuer = worker('c', 'Continuer')
     const afternoonOnly = worker('o', 'AfternoonOnly')

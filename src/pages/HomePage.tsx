@@ -32,6 +32,7 @@ import {
   pluralizeHe,
 } from '../lib/hebrew'
 import { notify } from '../lib/notify'
+import { formatShiftShare } from '../lib/trackingHeatmap'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import {
   EmptyState,
@@ -278,10 +279,12 @@ export function HomePage() {
     const gap = maxVal - minVal
     const names = (list: { name: string }[]) =>
       list.map((r) => r.name).join(', ')
+    const maxLabel = formatShiftShare(maxVal)
+    const minLabel = formatShiftShare(minVal)
     const why =
       gap === 0
-        ? 'כל הבודקים הפעילים קיבלו אותו מספר עמדות קשות בהיסטוריה.'
-        : `הפער הוא ההפרש בין מי שקיבל הכי הרבה עמדות קשות (${maxVal}) לבין מי שקיבל הכי מעט (${minVal}).`
+        ? 'כל הבודקים הפעילים קיבלו אותו זמן בעמדות קשות בהיסטוריה.'
+        : `הפער הוא ההפרש בין מי שבילה הכי הרבה בעמדות קשות (${maxLabel}) לבין מי שבילה הכי מעט (${minLabel}).`
     return { gap, max, min, why, namesMax: names(max), namesMin: names(min) }
   }, [data.workers, data.lanes, data.history])
 
@@ -577,11 +580,13 @@ export function HomePage() {
         }
       >
         <p className="mb-3 text-[13px] text-ink-soft">
-          חלונות: בוקר <Ltr>06:00–14:30</Ltr>
+          חלונות: בוקר <Ltr>06:00–15:00</Ltr>
           {' · '}
-          צהריים <Ltr>14:30–21:30</Ltr>
+          צהריים א <Ltr>14:30–18:30</Ltr>
           {' · '}
-          לילה <Ltr>21:30–06:00</Ltr> (למחרת)
+          צהריים ב <Ltr>18:00–21:30</Ltr>
+          {' · '}
+          לילה <Ltr>21:00–06:30</Ltr> (למחרת)
         </p>
 
         {shiftHealth && (
@@ -803,7 +808,7 @@ export function HomePage() {
           </MetricIconBadge>
           <p className="mt-3 text-[13px] font-medium text-ink-soft">פער עמדות קשות</p>
           <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {hardGapInfo.gap}
+            {formatShiftShare(hardGapInfo.gap)}
           </p>
           <p className="mt-1 text-[13px] text-ink-soft">בין בודקים פעילים</p>
 
@@ -812,19 +817,21 @@ export function HomePage() {
             role="tooltip"
             className="pointer-events-none absolute inset-x-2 bottom-[calc(100%+0.5rem)] z-[80] hidden rounded-xl border border-line/80 bg-card px-3.5 py-3 text-start text-[12px] leading-relaxed text-ink shadow-[var(--shadow-panel-hover)] group-hover:block group-focus-within:block sm:inset-x-auto sm:start-0 sm:w-72"
           >
-            <p className="font-semibold text-ink">למה הפער {hardGapInfo.gap}?</p>
+            <p className="font-semibold text-ink">
+              למה הפער {formatShiftShare(hardGapInfo.gap)}?
+            </p>
             <p className="mt-1.5 text-ink-soft">{hardGapInfo.why}</p>
             {hardGapInfo.gap > 0 && (
               <ul className="mt-2 space-y-1.5 border-t border-line/60 pt-2">
                 <li>
                   <span className="font-semibold text-hard">
-                    הכי הרבה ({hardGapInfo.max[0]?.hardCount ?? 0}):{' '}
+                    הכי הרבה ({formatShiftShare(hardGapInfo.max[0]?.hardCount ?? 0)}):{' '}
                   </span>
                   <span className="text-ink">{hardGapInfo.namesMax}</span>
                 </li>
                 <li>
                   <span className="font-semibold text-ok">
-                    הכי מעט ({hardGapInfo.min[0]?.hardCount ?? 0}):{' '}
+                    הכי מעט ({formatShiftShare(hardGapInfo.min[0]?.hardCount ?? 0)}):{' '}
                   </span>
                   <span className="text-ink">{hardGapInfo.namesMin}</span>
                 </li>
