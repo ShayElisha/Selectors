@@ -29,14 +29,21 @@ export interface WorkerWindowPreset {
 /** Personal hours chosen on attendance. End is exclusive of later rounds. */
 export const WORKER_WINDOWS: WorkerWindowPreset[] = [
   { id: '0445-1500', label: '04:45–15:00', start: 4 * 60 + 45, end: 15 * 60 },
+  { id: '0445-1645', label: '04:45–16:45', start: 4 * 60 + 45, end: 16 * 60 + 45 },
   { id: '0445-1730', label: '04:45–17:30', start: 4 * 60 + 45, end: 17 * 60 + 30 },
   { id: '0445-1830', label: '04:45–18:30', start: 4 * 60 + 45, end: 18 * 60 + 30 },
   { id: '0600-1500', label: '06:00–15:00', start: 6 * 60, end: 15 * 60 },
+  { id: '0600-1645', label: '06:00–16:45', start: 6 * 60, end: 16 * 60 + 45 },
   { id: '0600-1730', label: '06:00–17:30', start: 6 * 60, end: 17 * 60 + 30 },
   { id: '0600-1830', label: '06:00–18:30', start: 6 * 60, end: 18 * 60 + 30 },
   { id: '1430-2130', label: '14:30–21:30', start: 14 * 60 + 30, end: 21 * 60 + 30 },
   { id: '1800-0630', label: '18:00–06:30', start: 18 * 60, end: 6 * 60 + 30 },
 ]
+
+/** Afternoon that continues the same-day morning shift. */
+export function shiftFollowsMorning(shiftType: ShiftType): boolean {
+  return shiftType === 'afternoonA' || shiftType === 'afternoon'
+}
 
 export function workerWindowById(id: string | undefined): WorkerWindowPreset | undefined {
   if (!id) return undefined

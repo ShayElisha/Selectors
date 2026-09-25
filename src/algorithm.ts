@@ -617,7 +617,9 @@ export function needsAfternoonNightRecovery(
   currentDate: string,
   currentShiftType: ShiftType,
 ): boolean {
-  if (currentShiftType !== 'afternoon') return false
+  if (currentShiftType !== 'afternoon' && currentShiftType !== 'afternoonA') {
+    return false
+  }
   const nightDate = previousLocalDate(currentDate)
   if (!nightDate) return false
   return history.some(

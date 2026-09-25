@@ -43,7 +43,9 @@ import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRounds'
 import {
-  presetsOverlappingShift,
+  shiftFollowsMorning,
+  WORKER_WINDOWS,
+  workerWindowById,
   SELECTABLE_SHIFT_TYPES,
 } from '../lib/shiftCatalog'
 import {
@@ -237,7 +239,7 @@ export function ShiftPage() {
   }, [draft, data.history])
 
   const morningCtx = useMemo(() => {
-    if (!draft || draft.shiftType !== 'afternoon') return null
+    if (!draft || !shiftFollowsMorning(draft.shiftType)) return null
     return buildSameDayMorningContext(data.history, draft.date)
   }, [draft, data.history])
 
@@ -284,24 +286,54 @@ export function ShiftPage() {
     draft?.presentWorkerIds.length ?? 0,
   )
 
+  const morningShift = useMemo(() => {
+    if (!draft || !shiftFollowsMorning(draft.shiftType)) return null
+    const audience = draft.audience ?? 'inspector'
+    const matches = data.history.filter(
+      (shift) =>
+        shift.date === draft.date &&
+        shift.shiftType === 'morning' &&
+        (shift.audience ?? 'inspector') === audience,
+    )
+    return (
+      matches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+    )
+  }, [draft, data.history])
+
   const filteredAttendance = useMemo(() => {
     const q = attendanceWorkers.filter((w) =>
       workerMatchesNameQuery(w, attendanceQuery),
     )
-    if (draft?.shiftType !== 'afternoon' || !morningCtx?.found) return q
-    // Prefer morning gate manager / morning managers at the top (like night chips).
+    if (!draft || !morningShift) return q
+    const morningIds = new Set(morningShift.presentWorkerIds)
     return [...q].sort((a, b) => {
-      const aGate = morningCtx.gateManagerWorkerId === a.id ? 0 : 1
-      const bGate = morningCtx.gateManagerWorkerId === b.id ? 0 : 1
+      const aGate = morningShift.gateManagerWorkerId === a.id ? 0 : 1
+      const bGate = morningShift.gateManagerWorkerId === b.id ? 0 : 1
       if (aGate !== bGate) return aGate - bGate
-      const aM =
-        a.isManager && morningCtx.morningWorkerIds.has(a.id) ? 0 : 1
-      const bM =
-        b.isManager && morningCtx.morningWorkerIds.has(b.id) ? 0 : 1
+      const aM = a.isManager && morningIds.has(a.id) ? 0 : 1
+      const bM = b.isManager && morningIds.has(b.id) ? 0 : 1
       if (aM !== bM) return aM - bM
+      const aStay = morningIds.has(a.id) ? 0 : 1
+      const bStay = morningIds.has(b.id) ? 0 : 1
+      if (aStay !== bStay) return aStay - bStay
       return 0
     })
-  }, [attendanceWorkers, attendanceQuery, draft?.shiftType, morningCtx])
+  }, [attendanceWorkers, attendanceQuery, draft, morningShift])
+
+  const continuersSeeded = useRef<string | null>(null)
+  useEffect(() => {
+    if (!draft || !morningShift) return
+    if (draft.presentWorkerIds.length > 0) return
+    const key = `${draft.id}|${draft.date}|${draft.shiftType}`
+    if (continuersSeeded.current === key) return
+    const workerWindows: Record<string, string> = {}
+    for (const id of morningShift.presentWorkerIds) {
+      const saved = morningShift.workerWindows?.[id]
+      if (saved && workerWindowById(saved)) workerWindows[id] = saved
+    }
+    continuersSeeded.current = key
+    applyPresentSelection(morningShift.presentWorkerIds, { workerWindows })
+  }, [draft, morningShift, applyPresentSelection])
 
   const handleAutoAssign = () => {
     if (
@@ -892,14 +924,13 @@ export function ShiftPage() {
                   >
                     כמו במשמרת הקודמת
                   </button>
-                  {draft.shiftType === 'afternoon' &&
-                  morningCtx?.gateManagerWorkerId &&
+                  {morningShift?.gateManagerWorkerId &&
                   draft.gateManagerWorkerId !==
-                    morningCtx.gateManagerWorkerId ? (
+                    morningShift.gateManagerWorkerId ? (
                     <button
                       type="button"
                       onClick={() =>
-                        setGateManager(morningCtx.gateManagerWorkerId!)
+                        setGateManager(morningShift.gateManagerWorkerId!)
                       }
                       className="ui-btn ui-btn-secondary !py-1.5 text-xs"
                       title="העדפה כמו לילה: המשך מנהל שער מהבוקר"
@@ -939,7 +970,7 @@ export function ShiftPage() {
                     w.certifications,
                   )
                   const nightRec =
-                    draft.shiftType === 'afternoon' &&
+                    shiftFollowsMorning(draft.shiftType) &&
                     needsAfternoonNightRecovery(
                       w.id,
                       data.history,
@@ -947,15 +978,12 @@ export function ShiftPage() {
                       draft.shiftType,
                     )
                   const wasMorning =
-                    draft.shiftType === 'afternoon' &&
-                    Boolean(morningCtx?.found) &&
-                    morningCtx!.morningWorkerIds.has(w.id)
+                    Boolean(morningShift?.presentWorkerIds.includes(w.id))
                   const wasMorningGate =
-                    draft.shiftType === 'afternoon' &&
-                    morningCtx?.gateManagerWorkerId === w.id
+                    morningShift?.gateManagerWorkerId === w.id
                   const managerOnly = w.isManager && !w.isInspector
                   return (
-                    <li key={w.id}>
+                    <li key={w.id} className="min-w-0">
                       <div
                         className={`flex w-full flex-col rounded-xl border transition ${
                           on || isGate
@@ -1078,11 +1106,15 @@ export function ShiftPage() {
                         ) : null}
                         </div>
                         {on ? (
-                          <div className="flex flex-wrap gap-1 px-2.5 pb-2">
+                          <div
+                            className="flex w-full min-w-0 gap-1 overflow-x-auto px-2.5 pb-2"
+                            role="group"
+                            aria-label={`שעות של ${w.fullName}`}
+                          >
                             <button
                               type="button"
                               onClick={() => setWorkerWindow(w.id, null)}
-                              className={`rounded-md px-2 py-1 text-[10px] font-bold ${
+                              className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold ${
                                 !draft.workerWindows?.[w.id]
                                   ? 'bg-brand text-white'
                                   : 'bg-surface text-ink-soft ring-1 ring-line'
@@ -1090,24 +1122,22 @@ export function ShiftPage() {
                             >
                               כל המשמרת
                             </button>
-                            {presetsOverlappingShift(draft.shiftType).map(
-                              (preset) => (
-                                <button
-                                  key={preset.id}
-                                  type="button"
-                                  onClick={() =>
-                                    setWorkerWindow(w.id, preset.id)
-                                  }
-                                  className={`rounded-md px-2 py-1 text-[10px] font-bold ${
-                                    draft.workerWindows?.[w.id] === preset.id
-                                      ? 'bg-brand text-white'
-                                      : 'bg-surface text-ink-soft ring-1 ring-line'
-                                  }`}
-                                >
-                                  <Ltr>{preset.label}</Ltr>
-                                </button>
-                              ),
-                            )}
+                            {WORKER_WINDOWS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() =>
+                                  setWorkerWindow(w.id, preset.id)
+                                }
+                                className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold ${
+                                  draft.workerWindows?.[w.id] === preset.id
+                                    ? 'bg-brand text-white'
+                                    : 'bg-surface text-ink-soft ring-1 ring-line'
+                                }`}
+                              >
+                                <Ltr>{preset.label}</Ltr>
+                              </button>
+                            ))}
                           </div>
                         ) : null}
                       </div>
