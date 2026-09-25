@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="GATE OUT">
+  <rect width="64" height="64" rx="14" fill="#1a4a6e"/>
+  <path fill="#ffffff" d="M16 16h22v32H16V16zm26 8h8v16h-8V24z"/>
+  <rect x="20" y="22" width="6" height="6" rx="1" fill="#1a4a6e"/>
+  <rect x="30" y="22" width="6" height="6" rx="1" fill="#1a4a6e"/>
+  <rect x="20" y="32" width="6" height="6" rx="1" fill="#1a4a6e"/>
+  <rect x="30" y="32" width="6" height="6" rx="1" fill="#1a4a6e"/>
+</svg>
