@@ -31,13 +31,22 @@ function smtpUser() {
 
 function createTransport() {
   const port = Number(process.env.SMTP_PORT || 587)
+  const host = String(process.env.SMTP_HOST || '').trim()
   const user = smtpUser()
   const pass = smtpPass()
+  const secure = port === 465
   return nodemailer.createTransport({
-    host: String(process.env.SMTP_HOST || '').trim(),
+    host,
     port,
-    secure: port === 465,
+    secure,
+    // Gmail often answers TLS alert 80 over IPv6; force IPv4 + TLS 1.2.
+    family: 4,
+    requireTLS: !secure,
     auth: user && pass ? { user, pass } : undefined,
+    tls: {
+      minVersion: 'TLSv1.2',
+      servername: host,
+    },
   })
 }
 

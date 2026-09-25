@@ -119,11 +119,19 @@ export function LoginPage() {
       setError('נא להזין מספר טלפון')
       return
     }
+    if (password) {
+      await submitLogin()
+      return
+    }
     setBusy(true)
     setError(null)
     setInfo(null)
     try {
       const next = await checkLogin(phoneTrimmed)
+      if (next === 'login') {
+        setStep('login')
+        return
+      }
       resetPasswordFields()
       setStep(next)
     } catch (err) {
@@ -218,16 +226,14 @@ export function LoginPage() {
   }
 
   const subtitle =
-    step === 'phone'
-      ? 'התחברות מנהלים עם מספר טלפון וסיסמה'
-      : step === 'login'
-        ? 'הזנת סיסמה (זמנית או קבועה)'
-        : step === 'change_password'
-          ? 'יש להגדיר סיסמה קבועה חדשה'
+    step === 'phone' || step === 'login'
+      ? 'התחברות עם מספר הטלפון והסיסמה הקיימת'
+      : step === 'change_password'
+          ? 'הסיסמה הזו זמנית. יש להגדיר סיסמה קבועה חדשה'
           : step === 'await_email'
-            ? 'ממתינים לסיסמה זמנית במייל'
+            ? 'לחשבון הזה עדיין אין סיסמה'
             : step === 'reset'
-              ? 'איפוס סיסמה — נשלח מייל עם סיסמה זמנית'
+              ? 'איפוס סיסמה — נשלח מייל עם קוד זמני'
               : 'בדקו את תיבת המייל'
 
   return (
@@ -275,7 +281,7 @@ export function LoginPage() {
             </div>
           )}
 
-          {step === 'login' && (
+          {(step === 'phone' || step === 'login') && (
             <PasswordField
               id="login-password"
               label="סיסמה"
@@ -389,9 +395,11 @@ export function LoginPage() {
               {busy ? (
                 <>
                   <span className="page-loader page-loader--sm" aria-hidden />
-                  {step === 'phone' || step === 'reset' ? 'שולח…' : 'מתחבר…'}
+                  {step === 'reset' || (step === 'phone' && !password)
+                    ? 'שולח…'
+                    : 'מתחבר…'}
                 </>
-              ) : step === 'phone' ? (
+              ) : step === 'phone' && !password ? (
                 'המשך'
               ) : step === 'reset' ? (
                 <>
@@ -441,7 +449,7 @@ export function LoginPage() {
             </button>
           )}
 
-          {(step === 'login' || step === 'await_email') && (
+          {(step === 'phone' || step === 'login' || step === 'await_email') && (
             <button
               type="button"
               className="ui-btn ui-btn-ghost w-full text-xs"

@@ -221,7 +221,7 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
       <tr>
         <td style="padding:16px 18px;text-align:center;">
           <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.14em;color:${BRAND.accent};text-transform:uppercase;margin-bottom:8px;">
-            סיסמה זמנית
+            קוד זמני — 6 ספרות
           </div>
           <div style="font-family:Consolas,'Courier New',monospace;font-size:22px;font-weight:700;letter-spacing:0.08em;color:${BRAND.deep};direction:ltr;unicode-bidi:bidi-override;">
             ${escapeHtml(tempPassword)}

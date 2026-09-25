@@ -1,4 +1,4 @@
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { randomBytes, randomInt, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 
 const scryptAsync = promisify(scrypt)
@@ -26,27 +26,9 @@ export function validatePasswordRules(password) {
   return null
 }
 
-/** Temporary password that always satisfies the strength rules. */
+/** First-login / reset code sent by email: exactly 6 digits. */
 export function generateTempPassword() {
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  const lower = 'abcdefghijkmnopqrstuvwxyz'
-  const digits = '23456789'
-  const symbols = '!@#$%&*'
-  const pick = (alphabet) => alphabet[randomBytes(1)[0] % alphabet.length]
-  const chars = [
-    pick(upper),
-    pick(lower),
-    pick(digits),
-    pick(symbols),
-    ...Array.from({ length: 8 }, () =>
-      pick(upper + lower + digits + symbols),
-    ),
-  ]
-  for (let i = chars.length - 1; i > 0; i -= 1) {
-    const j = randomBytes(1)[0] % (i + 1)
-    ;[chars[i], chars[j]] = [chars[j], chars[i]]
-  }
-  return chars.join('')
+  return String(randomInt(0, 1_000_000)).padStart(6, '0')
 }
 
 /** @param {string} password */
