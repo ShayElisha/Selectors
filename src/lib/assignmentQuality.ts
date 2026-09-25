@@ -36,7 +36,7 @@ export function computeShortReturnRate(
     })
     .sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date)
-      const order = { morning: 0, afternoon: 1, night: 2 }
+      const order = { morning: 0, afternoon: 1, afternoonA: 1, afternoonB: 2, night: 3 }
       return order[a.shiftType] - order[b.shiftType]
     })
 

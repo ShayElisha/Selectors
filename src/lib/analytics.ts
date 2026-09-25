@@ -1,4 +1,5 @@
 import { computeWorkerLaneStats } from '../algorithm'
+import { shiftPlacements } from './shiftPlacements'
 import type { Lane, ShiftSchedule, ShiftType, Worker } from '../types'
 
 export interface WorkerAnalyticsRow {
@@ -68,6 +69,8 @@ export interface TeamAnalytics {
 const EMPTY_SHIFT: Record<ShiftType, number> = {
   morning: 0,
   afternoon: 0,
+  afternoonA: 0,
+  afternoonB: 0,
   night: 0,
 }
 
@@ -143,7 +146,9 @@ function sortChronological(history: ShiftSchedule[]): ShiftSchedule[] {
   const order: Record<ShiftType, number> = {
     morning: 0,
     afternoon: 1,
-    night: 2,
+    afternoonA: 1,
+    afternoonB: 2,
+    night: 3,
   }
   return [...history].sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date)
@@ -183,11 +188,11 @@ function collectHardAfterNight(
   for (const shift of historyAsc) {
     let placed = false
     let hardLaneId: string | null = null
-    for (const a of shift.assignments) {
-      if (!a.workerIds.includes(workerId)) continue
+    for (const placement of shiftPlacements(shift)) {
+      if (placement.workerId !== workerId) continue
       placed = true
-      if (laneIntensity.get(a.laneId) === 'hard' && !hardLaneId) {
-        hardLaneId = a.laneId
+      if (laneIntensity.get(placement.laneId) === 'hard' && !hardLaneId) {
+        hardLaneId = placement.laneId
       }
     }
     if (!placed) continue
@@ -259,8 +264,8 @@ export function computeTeamAnalytics(
     let shiftsCount = 0
 
     for (const shift of filtered) {
-      const placed = shift.assignments.some((a) =>
-        a.workerIds.includes(s.workerId),
+      const placed = shiftPlacements(shift).some(
+        (p) => p.workerId === s.workerId,
       )
       if (!placed) continue
       shiftsCount += 1
@@ -326,14 +331,15 @@ export function computeTeamAnalytics(
   const laneWorkerCounts = new Map<string, Map<string, number>>()
   for (const shift of filtered) {
     if (shift.shiftType === 'night') continue
-    for (const a of shift.assignments) {
-      if (!laneMap.has(a.laneId)) continue
-      const map = laneWorkerCounts.get(a.laneId) ?? new Map()
-      for (const wid of a.workerIds) {
-        if (!wid) continue
-        map.set(wid, (map.get(wid) ?? 0) + 1)
-      }
-      laneWorkerCounts.set(a.laneId, map)
+    const seen = new Set<string>()
+    for (const placement of shiftPlacements(shift)) {
+      if (!laneMap.has(placement.laneId)) continue
+      const visit = `${placement.workerId}\0${placement.laneId}`
+      if (seen.has(visit)) continue
+      seen.add(visit)
+      const map = laneWorkerCounts.get(placement.laneId) ?? new Map()
+      map.set(placement.workerId, (map.get(placement.workerId) ?? 0) + 1)
+      laneWorkerCounts.set(placement.laneId, map)
     }
   }
 

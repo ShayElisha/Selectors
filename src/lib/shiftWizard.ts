@@ -7,6 +7,8 @@ import {
 } from './shiftStaffing'
 import { orderedCertifications } from './workersHelpers'
 import { formatShiftDate, pluralizeHe } from './hebrew'
+import { formatClock } from './selectorRounds'
+import { MAIN_SHIFT_BOUNDS } from './shiftCatalog'
 import type { Lane, ShiftSchedule, ShiftType, Worker } from '../types'
 
 /**
@@ -250,9 +252,12 @@ export function formatSetupDateLine(isoDate: string, now = new Date()): string {
 }
 
 export function shiftWindowDisplay(shiftType: ShiftType): string {
-  if (shiftType === 'morning') return '06:00 עד 14:30'
-  if (shiftType === 'afternoon') return '14:30 עד 21:30'
-  return '21:30 עד 06:00 (למחרת)'
+  const window = MAIN_SHIFT_BOUNDS[shiftType]
+  const endNext = window.end > 24 * 60
+  const endLabel = formatClock(window.end)
+  const startLabel = formatClock(window.start)
+  if (endNext || shiftType === 'night') return `${startLabel} עד ${endLabel} (למחרת)`
+  return `${startLabel} עד ${endLabel}`
 }
 
 export function deficitMessage(preview: FeasibilityPreview): string | null {

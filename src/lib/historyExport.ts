@@ -41,7 +41,7 @@ export function buildHistoryCsv(
 
   const sorted = [...shifts].sort((a, b) => {
     if (a.date !== b.date) return b.date.localeCompare(a.date)
-    const order = { morning: 0, afternoon: 1, night: 2 } as const
+    const order = { morning: 0, afternoon: 1, afternoonA: 1, afternoonB: 2, night: 3 } as const
     return order[a.shiftType] - order[b.shiftType]
   })
 

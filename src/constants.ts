@@ -19,6 +19,8 @@ export const INTENSITY_SCORE: Record<Intensity, number> = {
 export const SHIFT_LOAD_MULTIPLIER: Record<ShiftType, number> = {
   morning: 1,
   afternoon: 1,
+  afternoonA: 1,
+  afternoonB: 1,
   night: 1.75,
 }
 
@@ -47,6 +49,8 @@ export function countsAsDayEasy(
 
 export const SHIFT_TYPE_LABELS: Record<ShiftType, string> = {
   morning: 'בוקר',
+  afternoonA: 'צהריים א',
+  afternoonB: 'צהריים ב',
   afternoon: 'צהריים',
   night: 'לילה',
 }
@@ -91,9 +95,11 @@ export function shiftSlotConflictMessage(
 
 /** Display hours for each shift window */
 export const SHIFT_WINDOW_LABELS: Record<ShiftType, string> = {
-  morning: '06:00–14:30',
+  morning: '06:00–15:00',
+  afternoonA: '14:30–18:30',
+  afternoonB: '18:00–21:30',
   afternoon: '14:30–21:30',
-  night: '21:30–06:00',
+  night: '21:00–06:30',
 }
 
 function toDateISO(d: Date): string {
@@ -102,8 +108,8 @@ function toDateISO(d: Date): string {
 
 /**
  * Current operational shift by clock:
- * morning 06:00–14:30, afternoon 14:30–21:30, night 21:30–06:00.
- * Night after midnight still belongs to the previous calendar date.
+ * morning 06:00–15:00, afternoon A 14:30–18:00, afternoon B 18:00–21:00,
+ * night 21:00–06:30. Night after midnight still belongs to the previous calendar date.
  */
 export function getCurrentShiftContext(now = new Date()): {
   date: string
@@ -112,21 +118,29 @@ export function getCurrentShiftContext(now = new Date()): {
 } {
   const minutes = now.getHours() * 60 + now.getMinutes()
   const morningStart = 6 * 60
-  const afternoonStart = 14 * 60 + 30
-  const nightStart = 21 * 60 + 30
+  const afternoonAStart = 14 * 60 + 30
+  const afternoonBStart = 18 * 60
+  const nightStart = 21 * 60
 
-  if (minutes >= morningStart && minutes < afternoonStart) {
+  if (minutes >= morningStart && minutes < afternoonAStart) {
     return {
       date: toDateISO(now),
       shiftType: 'morning',
       windowLabel: SHIFT_WINDOW_LABELS.morning,
     }
   }
-  if (minutes >= afternoonStart && minutes < nightStart) {
+  if (minutes >= afternoonAStart && minutes < afternoonBStart) {
     return {
       date: toDateISO(now),
-      shiftType: 'afternoon',
-      windowLabel: SHIFT_WINDOW_LABELS.afternoon,
+      shiftType: 'afternoonA',
+      windowLabel: SHIFT_WINDOW_LABELS.afternoonA,
+    }
+  }
+  if (minutes >= afternoonBStart && minutes < nightStart) {
+    return {
+      date: toDateISO(now),
+      shiftType: 'afternoonB',
+      windowLabel: SHIFT_WINDOW_LABELS.afternoonB,
     }
   }
   if (minutes >= nightStart) {

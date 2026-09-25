@@ -63,12 +63,14 @@ describe('groupHistoryDays', () => {
     expect(days.map((d) => d.date)).toEqual(['2026-09-20', '2026-09-19'])
     expect(days[0]!.slots.map((s) => s.shiftType)).toEqual([
       'morning',
+      'afternoonA',
       'afternoon',
+      'afternoonB',
       'night',
     ])
     expect(days[0]!.slots[0]!.shift?.id).toBe('a')
     expect(days[0]!.slots[1]!.shift).toBeNull()
-    expect(days[0]!.slots[2]!.shift?.id).toBe('b')
+    expect(days[0]!.slots[4]!.shift?.id).toBe('b')
   })
 })
 

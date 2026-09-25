@@ -1,5 +1,6 @@
 import type { Lane, Worker } from '../types'
 import type { WorkerLaneStats } from '../algorithm'
+import { formatShiftShare } from './trackingHeatmap'
 
 /** Escape a CSV cell (Excel-friendly, UTF-8) */
 function csvCell(value: string | number): string {
@@ -32,13 +33,13 @@ export function buildTrackingCsv(
     const s = statsByWorker.get(w.id)
     return [
       w.fullName,
-      ...lanes.map((l) => s?.byLane[l.id] ?? 0),
-      s?.dayEasyCount ?? 0,
-      s?.nightEasyCount ?? 0,
-      s?.mediumCount ?? 0,
-      s?.hardCount ?? 0,
+      ...lanes.map((l) => formatShiftShare(s?.byLane[l.id] ?? 0)),
+      formatShiftShare(s?.dayEasyCount ?? 0),
+      formatShiftShare(s?.nightEasyCount ?? 0),
+      formatShiftShare(s?.mediumCount ?? 0),
+      formatShiftShare(s?.hardCount ?? 0),
       s?.effectiveLoad ?? 0,
-      s?.totalAssignments ?? 0,
+      formatShiftShare(s?.totalAssignments ?? 0),
     ]
   })
 

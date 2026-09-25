@@ -8,6 +8,11 @@ import type {
 } from '../types'
 import { isGateManagerLane } from './gateManager'
 import {
+  MAIN_SHIFT_BOUNDS,
+  roundCutsForWindows,
+  windowCoversRound,
+} from './shiftCatalog'
+import {
   effectiveStaffingStandard,
   type StaffingOverrides,
 } from './shiftStaffing'
@@ -16,10 +21,30 @@ const ROUND_MINUTES = 120
 /** A leftover shorter than this is folded into the previous round. */
 const MIN_OWN_ROUND = 45
 
-const SHIFT_BOUNDS: Record<ShiftType, { start: number; end: number }> = {
-  morning: { start: 6 * 60, end: 14 * 60 + 30 },
-  afternoon: { start: 14 * 60 + 30, end: 21 * 60 + 30 },
-  night: { start: 21 * 60 + 30, end: 24 * 60 + 6 * 60 },
+export function buildRoundWindows(
+  shiftType: ShiftType,
+  cutMinutes: number[] = [],
+): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
+  const { start, end } = MAIN_SHIFT_BOUNDS[shiftType]
+  const cuts = [...cutMinutes]
+    .filter((point) => point > start && point < end)
+    .sort((a, b) => a - b)
+  const windows: Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] =
+    []
+  let t = start
+  while (t < end) {
+    let next = Math.min(t + ROUND_MINUTES, end)
+    const cut = cuts.find((point) => point > t && point < next)
+    if (cut != null) next = cut
+    if (next < end && end - next < MIN_OWN_ROUND && cut == null) next = end
+    windows.push({
+      startMinutes: t,
+      endMinutes: next,
+      label: roundLabel(t, next),
+    })
+    t = next
+  }
+  return windows
 }
 
 export function formatClock(minutes: number): string {
@@ -32,46 +57,6 @@ export function formatClock(minutes: number): string {
 
 export function roundLabel(startMinutes: number, endMinutes: number): string {
   return `${formatClock(startMinutes)}–${formatClock(endMinutes)}`
-}
-
-/**
- * Time rows for a selector board: every two hours from the shift start.
- * A leftover under 45 minutes is attached to the last full round.
- */
-export function buildRoundWindows(
-  shiftType: ShiftType,
-): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
-  const { start, end } = SHIFT_BOUNDS[shiftType]
-  const windows: Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] =
-    []
-  let t = start
-  while (t < end) {
-    const next = t + ROUND_MINUTES
-    if (next >= end) {
-      windows.push({
-        startMinutes: t,
-        endMinutes: end,
-        label: roundLabel(t, end),
-      })
-      break
-    }
-    const leftover = end - next
-    if (leftover > 0 && leftover < MIN_OWN_ROUND) {
-      windows.push({
-        startMinutes: t,
-        endMinutes: end,
-        label: roundLabel(t, end),
-      })
-      break
-    }
-    windows.push({
-      startMinutes: t,
-      endMinutes: next,
-      label: roundLabel(t, next),
-    })
-    t = next
-  }
-  return windows
 }
 
 export function selectorLanes(lanes: Lane[], activeLaneIds: string[]): Lane[] {
@@ -103,9 +88,10 @@ export function emptySelectorRounds(
   lanes: Lane[],
   activeLaneIds: string[],
   overrides?: StaffingOverrides | null,
+  cutMinutes: number[] = [],
 ): SelectorRound[] {
   const active = selectorLanes(lanes, activeLaneIds)
-  return buildRoundWindows(shiftType).map((w) => ({
+  return buildRoundWindows(shiftType, cutMinutes).map((w) => ({
     ...w,
     assignments: emptyAssignments(active, overrides),
   }))
@@ -228,12 +214,20 @@ export function assignSelectorRounds(args: {
   activeLaneIds: string[]
   workers: Worker[]
   overrides?: StaffingOverrides | null
+  /** workerId → personal window preset id */
+  workerWindows?: Record<string, string>
 }): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
     a.fullName.localeCompare(b.fullName, 'he'),
   )
-  const windows = buildRoundWindows(args.shiftType)
+  const windows = buildRoundWindows(
+    args.shiftType,
+    roundCutsForWindows(
+      args.shiftType,
+      args.workers.map((w) => args.workerWindows?.[w.id]),
+    ),
+  )
   const warnings: string[] = []
 
   if (active.length === 0) {
@@ -254,9 +248,17 @@ export function assignSelectorRounds(args: {
       const std = effectiveStaffingStandard(lane, args.overrides)
       const workerIds: string[] = []
       for (let slot = 0; slot < std; slot++) {
+        const eligible = workers.filter((worker) =>
+          windowCoversRound(
+            args.workerWindows?.[worker.id],
+            args.shiftType,
+            w.startMinutes,
+            w.endMinutes,
+          ),
+        )
         const pick = pickWorker(
           lane,
-          workers,
+          eligible,
           used,
           prevLane,
           visits,

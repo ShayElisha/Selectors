@@ -61,6 +61,8 @@ const PAGE_SIZE = 7
 const SHIFT_ICONS: Record<ShiftType, typeof Sun> = {
   morning: Sun,
   afternoon: Sunset,
+  afternoonA: Sunset,
+  afternoonB: Sunset,
   night: Moon,
 }
 
@@ -511,7 +513,13 @@ export function HistoryPage() {
   }, [shiftsInRange, typeFilter, search, workersById])
 
   const shiftMix = useMemo(() => {
-    const mix = { morning: 0, afternoon: 0, night: 0 }
+    const mix: Record<ShiftType, number> = {
+      morning: 0,
+      afternoon: 0,
+      afternoonA: 0,
+      afternoonB: 0,
+      night: 0,
+    }
     for (const h of shiftsInRange) mix[h.shiftType] += 1
     return mix
   }, [shiftsInRange])

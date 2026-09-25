@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   CircleAlert,
   Shield,
+  Download,
+  MessageCircle,
 } from 'lucide-react'
 import {
   isQualified,
@@ -40,6 +42,18 @@ import { IntensityBadge, Ltr } from '../components/ui'
 import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRounds'
+import {
+  presetsOverlappingShift,
+  SELECTABLE_SHIFT_TYPES,
+} from '../lib/shiftCatalog'
+import {
+  buildRoundsWhatsAppText,
+  downloadRoundsImage,
+  openWhatsAppShare,
+  shareRoundsImage,
+  type ExportRoundCell,
+} from '../lib/export'
+import { postAuditEvent } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
 import {
@@ -86,6 +100,7 @@ export function ShiftPage() {
     commitSelectorBoard,
     startManualAssign,
     updateSelectorCell,
+    setWorkerWindow,
     addExtraWorkerToLane,
     saveCurrentShift,
     startShift,
@@ -93,6 +108,7 @@ export function ShiftPage() {
     loadShiftFromHistory,
     draftDirty,
     setView,
+    user,
   } = useApp()
 
   const [extraFlow, setExtraFlow] = useState<ExtraFlow>('closed')
@@ -144,6 +160,70 @@ export function ShiftPage() {
       (id) => data.workers.find((w) => w.id === id)?.fullName ?? id,
     )
   }, [draft, data.workers])
+
+  const roundExport = useMemo(() => {
+    if (!draft || draft.audience !== 'selector') {
+      return { laneNames: [] as string[], rounds: [] as ExportRoundCell[] }
+    }
+    const lanes = selectorLanes(data.lanes, draft.activeLaneIds)
+    const nameOf = (id: string) =>
+      data.workers.find((w) => w.id === id)?.fullName ?? id
+    return {
+      laneNames: lanes.map((lane) => lane.name),
+      rounds: (draft.rounds ?? []).map((round) => ({
+        label: round.label,
+        lanes: lanes.map((lane) => ({
+          laneName: lane.name,
+          workers: (round.assignments.find((a) => a.laneId === lane.id)
+            ?.workerIds ?? []
+          )
+            .filter(Boolean)
+            .map(nameOf),
+        })),
+      })),
+    }
+  }, [draft, data.lanes, data.workers])
+
+  const exportSelectorBoard = async (mode: 'download' | 'whatsapp') => {
+    if (!draft) return
+    const meta = { preparedBy: user?.fullName }
+    const text = buildRoundsWhatsAppText(
+      draft.date,
+      draft.shiftType,
+      roundExport.rounds,
+    )
+    try {
+      if (mode === 'download') {
+        await downloadRoundsImage(
+          draft.date,
+          draft.shiftType,
+          roundExport.rounds,
+          roundExport.laneNames,
+          meta,
+        )
+        notify.success('השיבוץ יוצא')
+      } else {
+        const shareMode = await shareRoundsImage(
+          draft.date,
+          draft.shiftType,
+          roundExport.rounds,
+          roundExport.laneNames,
+          meta,
+          text,
+        )
+        if (shareMode === 'text') openWhatsAppShare(text)
+        notify.success('השיתוף הוכן')
+      }
+      void postAuditEvent(
+        'export_board',
+        `${draft.date} · ${SHIFT_TYPE_LABELS[draft.shiftType]} · ייצוא סלקטורים · ${roundExport.rounds.length} סבבים`,
+      )
+    } catch {
+      notify.error(
+        mode === 'download' ? 'ייצוא השיבוץ נכשל' : 'שיתוף השיבוץ נכשל',
+      )
+    }
+  }
 
   const slotConflict = useMemo(() => {
     if (!draft) return null
@@ -407,7 +487,7 @@ export function ShiftPage() {
               updateDraftMeta({ shiftType: e.target.value as ShiftType })
             }
           >
-            {(Object.keys(SHIFT_TYPE_LABELS) as ShiftType[]).map((k) => {
+            {SELECTABLE_SHIFT_TYPES.map((k) => {
               const taken = Boolean(
                 findShiftForSlot(
                   data.history,
@@ -877,12 +957,13 @@ export function ShiftPage() {
                   return (
                     <li key={w.id}>
                       <div
-                        className={`flex min-h-14 w-full items-stretch gap-1 rounded-xl border transition sm:gap-1.5 ${
+                        className={`flex w-full flex-col rounded-xl border transition ${
                           on || isGate
                             ? 'border-brand bg-brand/5 ring-1 ring-brand/30'
                             : 'border-line bg-card'
                         }`}
                       >
+                        <div className="flex min-h-14 items-stretch gap-1 sm:gap-1.5">
                         <button
                           type="button"
                           role="checkbox"
@@ -994,6 +1075,40 @@ export function ShiftPage() {
                             <Shield className="size-3.5" aria-hidden />
                             מנהל שער
                           </button>
+                        ) : null}
+                        </div>
+                        {on ? (
+                          <div className="flex flex-wrap gap-1 px-2.5 pb-2">
+                            <button
+                              type="button"
+                              onClick={() => setWorkerWindow(w.id, null)}
+                              className={`rounded-md px-2 py-1 text-[10px] font-bold ${
+                                !draft.workerWindows?.[w.id]
+                                  ? 'bg-brand text-white'
+                                  : 'bg-surface text-ink-soft ring-1 ring-line'
+                              }`}
+                            >
+                              כל המשמרת
+                            </button>
+                            {presetsOverlappingShift(draft.shiftType).map(
+                              (preset) => (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setWorkerWindow(w.id, preset.id)
+                                  }
+                                  className={`rounded-md px-2 py-1 text-[10px] font-bold ${
+                                    draft.workerWindows?.[w.id] === preset.id
+                                      ? 'bg-brand text-white'
+                                      : 'bg-surface text-ink-soft ring-1 ring-line'
+                                  }`}
+                                >
+                                  <Ltr>{preset.label}</Ltr>
+                                </button>
+                              ),
+                            )}
+                          </div>
                         ) : null}
                       </div>
                     </li>
@@ -1290,6 +1405,22 @@ export function ShiftPage() {
                 className="ui-btn ui-btn-ghost"
               >
                 חזרה לנוכחות
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportSelectorBoard('whatsapp')}
+                className="ui-btn ui-btn-secondary gap-2"
+              >
+                <MessageCircle className="size-4" aria-hidden />
+                וואטסאפ
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportSelectorBoard('download')}
+                className="ui-btn ui-btn-secondary gap-2"
+              >
+                <Download className="size-4" aria-hidden />
+                ייצוא
               </button>
               <button
                 type="button"
