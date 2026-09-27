@@ -322,6 +322,11 @@ function ShiftAccordion({
                 shift.presentWorkerIds.includes(w.id),
               )}
               overrides={shift.staffingOverrides}
+              ramashName={
+                shift.gateManagerWorkerId
+                  ? workersById.get(shift.gateManagerWorkerId)?.fullName ?? ''
+                  : ''
+              }
             />
           ) : rows.length === 0 ? (
             <p className="text-[13px] text-ink-soft">אין שיבוצים בנתיבים</p>

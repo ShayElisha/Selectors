@@ -1,3 +1,4 @@
+import { Shield } from 'lucide-react'
 import { IntensityBadge, Ltr } from './ui'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { laneOpenDuring } from '../lib/shiftCatalog'
@@ -9,6 +10,7 @@ export function SelectorRoundTable({
   lanes,
   workers,
   overrides,
+  ramashName,
   editable = false,
   onChange,
 }: {
@@ -16,6 +18,8 @@ export function SelectorRoundTable({
   lanes: Lane[]
   workers: Worker[]
   overrides?: StaffingOverrides | null
+  /** Gate manager (רמ״ש) shown above the round table. */
+  ramashName?: string
   editable?: boolean
   onChange?: (
     roundIndex: number,
@@ -36,6 +40,15 @@ export function SelectorRoundTable({
   }
 
   return (
+    <div className="space-y-2">
+      {ramashName !== undefined ? (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-ink">
+          <Shield className="size-4 text-brand" aria-hidden />
+          <span>רמ״ש</span>
+          <span className="font-medium text-ink-soft">מנהל שער</span>
+          <span>{ramashName.trim() || 'לא סומן'}</span>
+        </p>
+      ) : null}
     <div className="max-w-full overflow-hidden rounded-xl border border-line/70">
       <div className="max-w-full overflow-x-auto overscroll-x-contain">
         <table className="w-max min-w-full border-collapse text-right text-[13px]">
@@ -137,6 +150,7 @@ export function SelectorRoundTable({
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   )
 }

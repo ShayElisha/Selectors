@@ -1493,6 +1493,12 @@ export function ShiftPage() {
               draft.gateManagerWorkerId,
             )}
             overrides={draft.staffingOverrides}
+            ramashName={
+              draft.gateManagerWorkerId
+                ? data.workers.find((w) => w.id === draft.gateManagerWorkerId)
+                    ?.fullName ?? ''
+                : ''
+            }
             editable
             onChange={updateSelectorCell}
           />
