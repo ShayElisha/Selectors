@@ -55,7 +55,7 @@ describe('groupHistoryDays', () => {
       shift('b', '2026-09-20', 'night', {
         assignments: [{ laneId: 'l1', workerIds: ['w2'] }],
       }),
-      shift('c', '2026-09-19', 'afternoon', {
+      shift('c', '2026-09-19', 'afternoonA', {
         assignments: [{ laneId: 'l1', workerIds: ['w1'] }],
       }),
     ]
@@ -64,13 +64,12 @@ describe('groupHistoryDays', () => {
     expect(days[0]!.slots.map((s) => s.shiftType)).toEqual([
       'morning',
       'afternoonA',
-      'afternoon',
       'afternoonB',
       'night',
     ])
     expect(days[0]!.slots[0]!.shift?.id).toBe('a')
     expect(days[0]!.slots[1]!.shift).toBeNull()
-    expect(days[0]!.slots[4]!.shift?.id).toBe('b')
+    expect(days[0]!.slots[3]!.shift?.id).toBe('b')
   })
 })
 

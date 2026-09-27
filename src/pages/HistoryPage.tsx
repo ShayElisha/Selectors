@@ -491,7 +491,12 @@ export function HistoryPage() {
     () =>
       filterDayCards(allDays, {
         search,
-        shiftTypes: typeFilter === 'all' ? 'all' : new Set([typeFilter]),
+        shiftTypes:
+          typeFilter === 'all'
+            ? 'all'
+            : typeFilter === 'afternoon'
+              ? new Set(['afternoonA', 'afternoonB'])
+              : new Set([typeFilter]),
         workersById,
       }),
     [allDays, search, typeFilter, workersById],
@@ -509,7 +514,14 @@ export function HistoryPage() {
 
   const shiftsForExport = useMemo(() => {
     return shiftsInRange.filter((h) => {
-      if (typeFilter !== 'all' && h.shiftType !== typeFilter) return false
+      if (
+        typeFilter !== 'all' &&
+        !(typeFilter === 'afternoon'
+          ? h.shiftType === 'afternoonA' || h.shiftType === 'afternoonB'
+          : h.shiftType === typeFilter)
+      ) {
+        return false
+      }
       if (search.trim() && !shiftMatchesSearch(h, search, workersById)) {
         return false
       }
@@ -665,7 +677,8 @@ export function HistoryPage() {
               many: 'משמרות',
             })}
             {' · '}
-            {shiftMix.morning} בוקר · {shiftMix.afternoon} צהריים ·{' '}
+            {shiftMix.morning} בוקר ·{' '}
+            {shiftMix.afternoonA + shiftMix.afternoonB} צהריים ·{' '}
             {shiftMix.night} לילה
           </p>
 
