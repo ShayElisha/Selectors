@@ -44,6 +44,8 @@ import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRounds'
 import {
+  continuesIntoShift,
+  earlierShiftsToContinue,
   shiftFollowsMorning,
   WORKER_WINDOWS,
   workerWindowById,
@@ -323,18 +325,46 @@ export function ShiftPage() {
 
   const continuersSeeded = useRef<string | null>(null)
   useEffect(() => {
-    if (!draft || !morningShift) return
+    if (!draft) return
+    const sourceTypes = earlierShiftsToContinue(draft.shiftType)
+    if (sourceTypes.length === 0) return
     if (draft.presentWorkerIds.length > 0) return
     const key = `${draft.id}|${draft.date}|${draft.shiftType}`
     if (continuersSeeded.current === key) return
+    const audience = draft.audience ?? 'inspector'
+    const ids: string[] = []
     const workerWindows: Record<string, string> = {}
-    for (const id of morningShift.presentWorkerIds) {
-      const saved = morningShift.workerWindows?.[id]
-      if (saved && workerWindowById(saved)) workerWindows[id] = saved
+    for (const sourceType of sourceTypes) {
+      const source = data.history
+        .filter(
+          (shift) =>
+            shift.date === draft.date &&
+            shift.shiftType === sourceType &&
+            (shift.audience ?? 'inspector') === audience,
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+      if (!source) continue
+      for (const id of source.presentWorkerIds) {
+        const saved = source.workerWindows?.[id]
+        if (
+          !continuesIntoShift(
+            sourceType,
+            saved,
+            draft.shiftType,
+          )
+        ) {
+          continue
+        }
+        if (!ids.includes(id)) ids.push(id)
+        if (saved && workerWindowById(saved) && !workerWindows[id]) {
+          workerWindows[id] = saved
+        }
+      }
     }
     continuersSeeded.current = key
-    applyPresentSelection(morningShift.presentWorkerIds, { workerWindows })
-  }, [draft, morningShift, applyPresentSelection])
+    if (ids.length === 0) return
+    applyPresentSelection(ids, { workerWindows })
+  }, [draft, data.history, applyPresentSelection])
 
   const handleAutoAssign = () => {
     if (

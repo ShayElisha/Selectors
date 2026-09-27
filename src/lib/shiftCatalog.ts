@@ -40,9 +40,41 @@ export const WORKER_WINDOWS: WorkerWindowPreset[] = [
   { id: '1800-0630', label: '18:00–06:30', start: 18 * 60, end: 6 * 60 + 30 },
 ]
 
-/** Afternoon that continues the same-day morning shift. */
+/** Afternoon A continues morning; afternoon B continues morning and afternoon A. */
+export function earlierShiftsToContinue(shiftType: ShiftType): ShiftType[] {
+  if (shiftType === 'afternoonA' || shiftType === 'afternoon') return ['morning']
+  if (shiftType === 'afternoonB') return ['morning', 'afternoonA']
+  return []
+}
+
 export function shiftFollowsMorning(shiftType: ShiftType): boolean {
   return shiftType === 'afternoonA' || shiftType === 'afternoon'
+}
+
+/**
+ * True when someone on an earlier shift is still inside the target shift's hours.
+ * No personal window means they stay only until that earlier shift ends.
+ */
+export function continuesIntoShift(
+  sourceType: ShiftType,
+  windowId: string | undefined,
+  targetType: ShiftType,
+): boolean {
+  const target = MAIN_SHIFT_BOUNDS[targetType]
+  const preset = workerWindowById(windowId)
+  const source = MAIN_SHIFT_BOUNDS[sourceType]
+  const span = preset
+    ? windowInterval(preset, targetType)
+    : windowInterval(
+        {
+          id: 'full',
+          label: '',
+          start: source.start % (24 * 60),
+          end: source.end % (24 * 60),
+        },
+        targetType,
+      )
+  return span.start < target.end && span.end > target.start
 }
 
 export function workerWindowById(id: string | undefined): WorkerWindowPreset | undefined {
