@@ -4,7 +4,6 @@ import {
   defaultBriefingSeed,
   defaultQuestionSeed,
 } from './lib/briefings'
-import { seedCustomsBrokers } from './lib/customsBrokers'
 import type { AppData, Lane, Worker } from './types'
 
 /** Real gate roster — phones normalized without dashes */
@@ -120,7 +119,7 @@ export function createSeedData(): AppData {
     certificationsCatalog: [...DEFAULT_CERTIFICATIONS],
     briefingSections: defaultBriefingSeed(),
     questionBank: defaultQuestionSeed(),
-    customsBrokers: seedCustomsBrokers(),
+    customsBrokers: [],
     revision: 0,
   }
 }

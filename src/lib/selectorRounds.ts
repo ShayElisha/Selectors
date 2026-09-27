@@ -9,6 +9,7 @@ import type {
 import { isGateManagerLane } from './gateManager'
 import {
   boardStartMinutes,
+  laneOpenDuring,
   MAIN_SHIFT_BOUNDS,
   onShiftClock,
   roundCutsForWindows,
@@ -261,7 +262,12 @@ export function assignSelectorRounds(args: {
     const pool =
       w.startMinutes < earlyCutoff ? [...workers, ...partners] : workers
     const assignments = active.map((lane) => {
-      const std = effectiveStaffingStandard(lane, args.overrides)
+      const open = laneOpenDuring(
+        lane.activeHours,
+        w.startMinutes,
+        w.endMinutes,
+      )
+      const std = open ? effectiveStaffingStandard(lane, args.overrides) : 0
       const workerIds: string[] = []
       for (let slot = 0; slot < std; slot++) {
         const eligible = pool.filter((worker) =>

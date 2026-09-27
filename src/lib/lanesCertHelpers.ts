@@ -215,6 +215,17 @@ export function formsLaneEqual(
   if (a.staffingStandard !== b.staffingStandard) return false
   if (a.intensity !== b.intensity) return false
   if (Boolean(a.afternoonHandoff) !== Boolean(b.afternoonHandoff)) return false
+  const hoursA = a.activeHours ?? []
+  const hoursB = b.activeHours ?? []
+  if (hoursA.length !== hoursB.length) return false
+  if (
+    hoursA.some(
+      (span, i) =>
+        span.start !== hoursB[i]?.start || span.end !== hoursB[i]?.end,
+    )
+  ) {
+    return false
+  }
   if (a.requiredCertifications.length !== b.requiredCertifications.length)
     return false
   const setB = new Set(b.requiredCertifications)

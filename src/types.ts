@@ -35,6 +35,11 @@ export interface Lane {
    * Long-shift continuers (morning→afternoon) are fallbacks only.
    */
   afternoonHandoff?: boolean
+  /**
+   * Hours the lane is open, as minutes from midnight. Empty means always open.
+   * Several ranges are allowed, e.g. 06:00–08:00 and 10:00–12:00.
+   */
+  activeHours?: { start: number; end: number }[]
 }
 
 export interface LaneAssignment {
