@@ -1106,38 +1106,26 @@ export function ShiftPage() {
                         ) : null}
                         </div>
                         {on ? (
-                          <div
-                            className="flex w-full min-w-0 gap-1 overflow-x-auto px-2.5 pb-2"
-                            role="group"
-                            aria-label={`שעות של ${w.fullName}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setWorkerWindow(w.id, null)}
-                              className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold ${
-                                !draft.workerWindows?.[w.id]
-                                  ? 'bg-brand text-white'
-                                  : 'bg-surface text-ink-soft ring-1 ring-line'
-                              }`}
+                          <div className="px-2.5 pb-2">
+                            <select
+                              value={draft.workerWindows?.[w.id] ?? ''}
+                              aria-label={`שעות של ${w.fullName}`}
+                              onChange={(e) => {
+                                const windowId = e.target.value
+                                if (!windowId) return
+                                setWorkerWindow(w.id, windowId)
+                              }}
+                              className="ui-field w-full py-1.5 text-[13px]"
                             >
-                              כל המשמרת
-                            </button>
-                            {WORKER_WINDOWS.map((preset) => (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                onClick={() =>
-                                  setWorkerWindow(w.id, preset.id)
-                                }
-                                className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold ${
-                                  draft.workerWindows?.[w.id] === preset.id
-                                    ? 'bg-brand text-white'
-                                    : 'bg-surface text-ink-soft ring-1 ring-line'
-                                }`}
-                              >
-                                <Ltr>{preset.label}</Ltr>
-                              </button>
-                            ))}
+                              {!draft.workerWindows?.[w.id] ? (
+                                <option value="">בחר שעות</option>
+                              ) : null}
+                              {WORKER_WINDOWS.map((preset) => (
+                                <option key={preset.id} value={preset.id}>
+                                  {preset.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         ) : null}
                       </div>
