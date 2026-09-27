@@ -72,11 +72,6 @@ import {
   reindexOrders,
 } from '../lib/briefings'
 import {
-  normalizeCustomsBrokers,
-  normalizeBrokerPhoneDigits,
-  formatBrokerPhone,
-} from '../lib/customsBrokers'
-import {
   assignSelectorRounds,
   clearWorkerFromRounds,
   emptySelectorRounds,
@@ -87,8 +82,6 @@ import { roundCutsForWindows, SELECTABLE_SHIFT_TYPES } from '../lib/shiftCatalog
 import type {
   AppData,
   BriefingSection,
-  CustomsBroker,
-  CustomsBrokerContact,
   InspectorQuestion,
   Lane,
   LaneAssignment,
@@ -116,9 +109,7 @@ function normalizeAppData(data: AppData): AppData {
     lanes: ensureGateManagerLane(data.lanes ?? [], () => uuid()),
     briefingSections: normalizeBriefingSections(data.briefingSections),
     questionBank: normalizeQuestionBank(data.questionBank),
-    customsBrokers: normalizeCustomsBrokers(data.customsBrokers, {
-      seedIfEmpty: false,
-    }),
+    customsBrokers: Array.isArray(data.customsBrokers) ? data.customsBrokers : [],
   }
 }
 
@@ -252,13 +243,6 @@ interface AppContextValue {
   ) => void
   deleteInspectorQuestion: (id: string) => void
   reorderInspectorQuestions: (orderedIds: string[]) => void
-  upsertCustomsBroker: (broker: { id?: string; name: string }) => void
-  deleteCustomsBroker: (id: string) => void
-  upsertCustomsBrokerContact: (
-    brokerId: string,
-    contact: { id?: string; name: string; phone: string },
-  ) => void
-  deleteCustomsBrokerContact: (brokerId: string, contactId: string) => void
   resetToSeed: () => Promise<void>
   refreshFromServer: () => Promise<void>
 }
@@ -2095,127 +2079,6 @@ function nightPartnersForMorning(
     [patchData],
   )
 
-  const upsertCustomsBroker = useCallback(
-    (broker: { id?: string; name: string }) => {
-      const name = broker.name.trim()
-      if (!name) return
-      patchData((prev) => {
-        const list = normalizeCustomsBrokers(prev.customsBrokers, {
-          seedIfEmpty: false,
-        })
-        if (broker.id) {
-          return {
-            ...prev,
-            customsBrokers: normalizeCustomsBrokers(
-              list.map((b) => (b.id === broker.id ? { ...b, name } : b)),
-              { seedIfEmpty: false },
-            ),
-          }
-        }
-        const next: CustomsBroker = {
-          id: uuid(),
-          name,
-          contacts: [],
-        }
-        return {
-          ...prev,
-          customsBrokers: normalizeCustomsBrokers([...list, next], {
-            seedIfEmpty: false,
-          }),
-        }
-      })
-    },
-    [patchData],
-  )
-
-  const deleteCustomsBroker = useCallback(
-    (id: string) => {
-      patchData((prev) => ({
-        ...prev,
-        customsBrokers: normalizeCustomsBrokers(
-          (prev.customsBrokers ?? []).filter((b) => b.id !== id),
-          { seedIfEmpty: false },
-        ),
-      }))
-    },
-    [patchData],
-  )
-
-  const upsertCustomsBrokerContact = useCallback(
-    (
-      brokerId: string,
-      contact: { id?: string; name: string; phone: string },
-    ) => {
-      const digits = normalizeBrokerPhoneDigits(contact.phone)
-      if (!digits) return
-      const name = contact.name.trim()
-      const phone = formatBrokerPhone(digits)
-      patchData((prev) => {
-        const list = normalizeCustomsBrokers(prev.customsBrokers, {
-          seedIfEmpty: false,
-        })
-        return {
-          ...prev,
-          customsBrokers: normalizeCustomsBrokers(
-            list.map((b) => {
-              if (b.id !== brokerId) return b
-              if (contact.id) {
-                return {
-                  ...b,
-                  contacts: b.contacts.map((c) =>
-                    c.id === contact.id
-                      ? { ...c, name, phone, phoneDigits: digits }
-                      : c,
-                  ),
-                }
-              }
-              // Prevent duplicate phone on same company
-              if (b.contacts.some((c) => c.phoneDigits === digits)) {
-                return {
-                  ...b,
-                  contacts: b.contacts.map((c) =>
-                    c.phoneDigits === digits
-                      ? { ...c, name: name || c.name, phone, phoneDigits: digits }
-                      : c,
-                  ),
-                }
-              }
-              const next: CustomsBrokerContact = {
-                id: uuid(),
-                name,
-                phone,
-                phoneDigits: digits,
-              }
-              return { ...b, contacts: [...b.contacts, next] }
-            }),
-            { seedIfEmpty: false },
-          ),
-        }
-      })
-    },
-    [patchData],
-  )
-
-  const deleteCustomsBrokerContact = useCallback(
-    (brokerId: string, contactId: string) => {
-      patchData((prev) => ({
-        ...prev,
-        customsBrokers: normalizeCustomsBrokers(
-          (prev.customsBrokers ?? []).map((b) =>
-            b.id === brokerId
-              ? {
-                  ...b,
-                  contacts: b.contacts.filter((c) => c.id !== contactId),
-                }
-              : b,
-          ),
-          { seedIfEmpty: false },
-        ),
-      }))
-    },
-    [patchData],
-  )
-
   const resetToSeed = useCallback(async () => {
     setSyncing(true)
     try {
@@ -2302,10 +2165,6 @@ function nightPartnersForMorning(
       upsertInspectorQuestion,
       deleteInspectorQuestion,
       reorderInspectorQuestions,
-      upsertCustomsBroker,
-      deleteCustomsBroker,
-      upsertCustomsBrokerContact,
-      deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
     }),
@@ -2366,10 +2225,6 @@ function nightPartnersForMorning(
       upsertInspectorQuestion,
       deleteInspectorQuestion,
       reorderInspectorQuestions,
-      upsertCustomsBroker,
-      deleteCustomsBroker,
-      upsertCustomsBrokerContact,
-      deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
     ],

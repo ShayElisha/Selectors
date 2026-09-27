@@ -17,7 +17,6 @@ import {
   Circle,
   Settings2,
   BookOpen,
-  Briefcase,
 } from 'lucide-react'
 import type { View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -35,7 +34,6 @@ const DAILY: NavItem[] = [
   { id: 'home', label: 'ראשי', icon: Home },
   { id: 'shift', label: 'שיבוץ', icon: ClipboardList },
   { id: 'briefings', label: 'תדריכים', icon: BookOpen },
-  { id: 'customsBrokers', label: 'עמילי מכס', icon: Briefcase },
 ]
 
 const DATA: NavItem[] = [
@@ -54,7 +52,6 @@ const MANAGE: NavItem[] = [
 const MOBILE_PRIMARY: View[] = ['home', 'shift', 'workers', 'history']
 const MOBILE_MORE: View[] = [
   'briefings',
-  'customsBrokers',
   'lanes',
   'certs',
   'tracking',
