@@ -746,6 +746,13 @@ export function HomePage() {
             lanes={selectorLanes(data.lanes, selectorShift.activeLaneIds)}
             workers={data.workers}
             overrides={selectorShift.staffingOverrides}
+            ramashName={
+              selectorShift.gateManagerWorkerId
+                ? data.workers.find(
+                    (w) => w.id === selectorShift.gateManagerWorkerId,
+                  )?.fullName ?? ''
+                : ''
+            }
           />
         </SectionCard>
       ) : null}
