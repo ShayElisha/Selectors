@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { getStateCollection } from './db.js'
+import {
+  getDb,
+  getMetaCollection,
+  getStateCollection,
+  withDbTransaction,
+} from './db.js'
 import { appendAuditLog, diffAppDataAuditEvents, shiftAuditHeader, summarizeAssignmentChanges } from './audit.js'
 import { sendTempPasswordEmail } from './mail.js'
 import {
@@ -11,21 +13,6 @@ import {
   validatePasswordRules,
   verifyPassword,
 } from './password.js'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-function loadCustomsBrokersSeed() {
-  try {
-    const raw = readFileSync(
-      join(__dirname, 'customsBrokersSeed.json'),
-      'utf8',
-    )
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
 
 export const DEFAULT_CERTIFICATIONS = [
   'בדיקת דרכונים',
@@ -190,7 +177,7 @@ export function createSeedData() {
         updatedAt: new Date().toISOString(),
       },
     ],
-    customsBrokers: loadCustomsBrokersSeed(),
+    customsBrokers: [],
   }
 }
 
@@ -234,6 +221,23 @@ function normalizeLane(l) {
         ? l.intensity
         : 'medium',
     afternoonHandoff: Boolean(l.afternoonHandoff),
+    ...(Array.isArray(l.activeHours) && l.activeHours.length > 0
+      ? {
+          activeHours: l.activeHours
+            .map((h) => ({
+              start: Math.trunc(Number(h?.start)),
+              end: Math.trunc(Number(h?.end)),
+            }))
+            .filter(
+              (h) =>
+                Number.isFinite(h.start) &&
+                Number.isFinite(h.end) &&
+                h.start >= 0 &&
+                h.end <= 36 * 60 &&
+                h.end > h.start,
+            ),
+        }
+      : {}),
   }
 }
 
@@ -262,9 +266,8 @@ function normalizeCustomsBrokerContact(c, brokerId) {
 }
 
 function normalizeCustomsBrokersList(list) {
-  const seed = loadCustomsBrokersSeed()
   const raw = Array.isArray(list) ? list : []
-  if (raw.length === 0) return seed
+  if (raw.length === 0) return []
   const out = []
   const seen = new Set()
   for (const item of raw) {
@@ -509,27 +512,156 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
   return { workers: nextWorkers, mailErrors }
 }
 
-export async function readState() {
-  const col = await getStateCollection()
-  const doc = await col.findOne({ _id: 'main' })
-  if (!doc) {
-    const seed = createSeedData()
-    const revision = 1
-    await col.insertOne({
-      _id: 'main',
-      ...seed,
-      revision,
-      updatedAt: new Date(),
-    })
-    return { ...seed, revision }
+const MODEL_COLLECTIONS = {
+  workers: 'workers',
+  lanes: 'lanes',
+  shifts: 'shifts',
+  certifications: 'certifications',
+  briefingSections: 'briefing_sections',
+  questionBank: 'questions',
+  customsBrokers: 'customs_brokers',
+}
+
+function orderedDocs(items) {
+  return items.map((item, listOrder) => {
+    const id = item?.id || randomUUID()
+    return { ...item, id, _id: id, listOrder }
+  })
+}
+
+function fromOrderedDocs(docs) {
+  return [...docs]
+    .sort((a, b) => (a.listOrder ?? 0) - (b.listOrder ?? 0))
+    .map(({ _id: _ignored, listOrder: _order, ...item }) => item)
+}
+
+async function loadModelDocs(db, name, session) {
+  const query = db.collection(name).find({}, session ? { session } : {})
+  return query.toArray()
+}
+
+async function assembleState(revision, session) {
+  const db = await getDb()
+  const read = (name) => loadModelDocs(db, name, session)
+  const workers = fromOrderedDocs(await read(MODEL_COLLECTIONS.workers))
+  const lanes = fromOrderedDocs(await read(MODEL_COLLECTIONS.lanes))
+  const history = fromOrderedDocs(await read(MODEL_COLLECTIONS.shifts))
+  const certifications = fromOrderedDocs(
+    await read(MODEL_COLLECTIONS.certifications),
+  )
+  const briefingSections = fromOrderedDocs(
+    await read(MODEL_COLLECTIONS.briefingSections),
+  )
+  const questionBank = fromOrderedDocs(await read(MODEL_COLLECTIONS.questionBank))
+  const customsBrokers = fromOrderedDocs(
+    await read(MODEL_COLLECTIONS.customsBrokers),
+  )
+  return normalizeData({
+    workers,
+    lanes,
+    history,
+    certificationsCatalog: certifications.map((item) => item.name),
+    briefingSections,
+    questionBank,
+    customsBrokers,
+    revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
+  })
+}
+
+async function replaceModels(snapshot, revision, session) {
+  const db = await getDb()
+  const models = [
+    [MODEL_COLLECTIONS.workers, orderedDocs(snapshot.workers || [])],
+    [MODEL_COLLECTIONS.lanes, orderedDocs(snapshot.lanes || [])],
+    [MODEL_COLLECTIONS.shifts, orderedDocs(snapshot.history || [])],
+    [
+      MODEL_COLLECTIONS.certifications,
+      (snapshot.certificationsCatalog || []).map((name, listOrder) => ({
+        _id: `cert:${listOrder}`,
+        name: String(name),
+        listOrder,
+      })),
+    ],
+    [
+      MODEL_COLLECTIONS.briefingSections,
+      orderedDocs(snapshot.briefingSections || []),
+    ],
+    [MODEL_COLLECTIONS.questionBank, orderedDocs(snapshot.questionBank || [])],
+    [
+      MODEL_COLLECTIONS.customsBrokers,
+      orderedDocs(snapshot.customsBrokers || []),
+    ],
+  ]
+  for (const [name, docs] of models) {
+    const col = db.collection(name)
+    const opts = session ? { session } : {}
+    await col.deleteMany({}, opts)
+    if (docs.length > 0) await col.insertMany(docs, opts)
   }
-  return normalizeData(doc)
+  const meta = await getMetaCollection()
+  await meta.updateOne(
+    { _id: 'main' },
+    {
+      $set: {
+        schema: 'collections',
+        revision,
+        updatedAt: new Date(),
+      },
+    },
+    { upsert: true, ...(session ? { session } : {}) },
+  )
+}
+
+async function migrateLegacyState(session) {
+  const metaCol = await getMetaCollection()
+  const opts = session ? { session } : {}
+  const meta = await metaCol.findOne({ _id: 'main' }, opts)
+  if (meta?.schema === 'collections') {
+    return assembleState(meta.revision, session)
+  }
+
+  const legacyCol = await getStateCollection()
+  const legacy = await legacyCol.findOne({ _id: 'main' }, opts)
+  const source = legacy ? normalizeData(legacy) : createSeedData()
+  const revision = legacy
+    ? Number.isFinite(Number(legacy.revision))
+      ? Number(legacy.revision)
+      : 1
+    : 1
+  await replaceModels(
+    {
+      workers: source.workers,
+      lanes: source.lanes,
+      history: source.history,
+      certificationsCatalog: source.certificationsCatalog,
+      briefingSections: source.briefingSections,
+      questionBank: source.questionBank,
+      customsBrokers: source.customsBrokers,
+    },
+    revision,
+    session,
+  )
+  if (legacy) {
+    await legacyCol.updateOne(
+      { _id: 'main' },
+      { $set: { archivedAt: new Date(), supersededBy: 'collections' } },
+      opts,
+    )
+  }
+  return { ...source, revision }
+}
+
+export async function readState() {
+  const metaCol = await getMetaCollection()
+  const meta = await metaCol.findOne({ _id: 'main' })
+  if (meta?.schema === 'collections') {
+    return assembleState(meta.revision)
+  }
+  return withDbTransaction((session) => migrateLegacyState(session))
 }
 
 export async function writeState(data, options = {}) {
-  const col = await getStateCollection()
-  const prevDoc = await col.findOne({ _id: 'main' })
-  const prev = prevDoc ? normalizeData(prevDoc) : null
+  const prev = await readState()
   const currentRevision = prev?.revision ?? 0
 
   if (
@@ -566,11 +698,25 @@ export async function writeState(data, options = {}) {
     briefingSections: payload.briefingSections ?? [],
     questionBank: payload.questionBank ?? [],
     customsBrokers: payload.customsBrokers ?? [],
-    revision: nextRevision,
-    updatedAt: new Date(),
   }
 
-  await col.updateOne({ _id: 'main' }, { $set: toStore }, { upsert: true })
+  await withDbTransaction(async (session) => {
+    const metaCol = await getMetaCollection()
+    const opts = session ? { session } : {}
+    const meta = await metaCol.findOne({ _id: 'main' }, opts)
+    const liveRevision = Number(meta?.revision ?? 0)
+    if (
+      options.expectedRevision != null &&
+      Number(options.expectedRevision) !== liveRevision
+    ) {
+      const err = new Error(
+        'הנתונים עודכנו ע״י מנהל אחר. רעננו את המסך וחזרו על השינוי.',
+      )
+      err.status = 409
+      throw err
+    }
+    await replaceModels(toStore, nextRevision, session)
+  })
 
   const result = { ...payload, revision: nextRevision }
 

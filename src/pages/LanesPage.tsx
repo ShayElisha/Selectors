@@ -58,7 +58,31 @@ const emptyForm = (): Omit<Lane, 'id'> => ({
   requiredCertifications: [],
   intensity: 'medium',
   afternoonHandoff: false,
+  activeHours: [],
 })
+
+function minutesToInput(minutes: number): string {
+  const v = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60)
+  const h = Math.floor(v / 60)
+  const min = v % 60
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
+function inputToMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const hours = Number(match[1])
+  const mins = Number(match[2])
+  if (hours > 23 || mins > 59) return null
+  return hours * 60 + mins
+}
+
+function formatActiveHours(hours: Lane['activeHours']): string {
+  if (!hours || hours.length === 0) return 'כל השעות'
+  return hours
+    .map((span) => `${minutesToInput(span.start)}–${minutesToInput(span.end)}`)
+    .join(' · ')
+}
 
 function ConfirmDialog({
   open,
@@ -376,6 +400,95 @@ function LaneForm({
           <p className="mt-1.5 text-[13px] text-ink-soft">
             העצימות משמשת בחישובי עומס וספירת משמרות קשות ברוטציה.
           </p>
+        </div>
+
+        <div className="sm:col-span-2">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-medium text-ink-soft sm:text-sm">
+                שעות פעילות
+              </p>
+              <p className="mt-1 text-[13px] text-ink-soft">
+                בלי שעות — הנתיב פתוח כל המשמרת. אפשר כמה טווחים, למשל 06:00–08:00 ו־10:00–12:00. השיבוץ ימלא את הנתיב רק בטווחים האלה.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setForm((f) => ({
+                  ...f,
+                  activeHours: [
+                    ...(f.activeHours ?? []),
+                    { start: 6 * 60, end: 8 * 60 },
+                  ],
+                }))
+              }
+              className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+            >
+              <Plus className="size-3.5" aria-hidden />
+              הוספת שעות
+            </button>
+          </div>
+          {(form.activeHours ?? []).length === 0 ? (
+            <p className="text-[13px] font-medium text-ink-soft">פתוח כל השעות</p>
+          ) : (
+            <ul className="space-y-2">
+              {(form.activeHours ?? []).map((span, index) => (
+                <li key={`${span.start}-${span.end}-${index}`} className="flex flex-wrap items-center gap-2">
+                  <label className="text-[12px] text-ink-soft">
+                    מ־
+                    <input
+                      type="time"
+                      value={minutesToInput(span.start)}
+                      onChange={(e) => {
+                        const start = inputToMinutes(e.target.value)
+                        if (start == null) return
+                        setForm((f) => ({
+                          ...f,
+                          activeHours: (f.activeHours ?? []).map((row, i) =>
+                            i === index ? { ...row, start } : row,
+                          ),
+                        }))
+                      }}
+                      className="ui-field ms-1 !w-auto !py-1.5 !text-xs"
+                    />
+                  </label>
+                  <label className="text-[12px] text-ink-soft">
+                    עד
+                    <input
+                      type="time"
+                      value={minutesToInput(span.end)}
+                      onChange={(e) => {
+                        const end = inputToMinutes(e.target.value)
+                        if (end == null) return
+                        setForm((f) => ({
+                          ...f,
+                          activeHours: (f.activeHours ?? []).map((row, i) =>
+                            i === index ? { ...row, end } : row,
+                          ),
+                        }))
+                      }}
+                      className="ui-field ms-1 !w-auto !py-1.5 !text-xs"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        activeHours: (f.activeHours ?? []).filter(
+                          (_, i) => i !== index,
+                        ),
+                      }))
+                    }
+                    className="ui-btn ui-btn-ghost !py-1.5 text-xs"
+                  >
+                    הסרה
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="sm:col-span-2">
@@ -713,6 +826,7 @@ export function LanesPage() {
         requiredCertifications: [...l.requiredCertifications],
         intensity: l.intensity,
         afternoonHandoff: Boolean(l.afternoonHandoff),
+        activeHours: (l.activeHours ?? []).map((span) => ({ ...span })),
       }
       setForm(next)
       setBaseline(next)
@@ -738,10 +852,14 @@ export function LanesPage() {
     }
     if (isDuplicateLaneName(data.lanes, form.name, editingLane?.id)) return
     if (editingLane && isGateManagerLane(editingLane)) return
+    const activeHours = (form.activeHours ?? []).filter(
+      (span) => span.end > span.start,
+    )
     const payload = {
       ...form,
       name: form.name.trim(),
       afternoonHandoff: Boolean(form.afternoonHandoff) || undefined,
+      activeHours: activeHours.length > 0 ? activeHours : undefined,
     }
     if (editingLane) {
       updateLane({
@@ -954,6 +1072,9 @@ export function LanesPage() {
                       <tr key={l.id} className="h-14 border-b border-line/70">
                         <td className="px-2 py-1.5 font-semibold text-ink">
                           {l.name}
+                          <p className="mt-0.5 text-[11px] font-medium text-ink-soft">
+                            {formatActiveHours(l.activeHours)}
+                          </p>
                         </td>
                         <td className="px-2 py-1.5">
                           <IntensityBadge intensity={l.intensity} />
@@ -1051,6 +1172,9 @@ export function LanesPage() {
                             </span>
                           ) : null}
                         </div>
+                        <p className="mt-1 text-[12px] font-medium text-ink-soft">
+                          {formatActiveHours(l.activeHours)}
+                        </p>
                         <p className="mt-1 text-[13px] text-ink-soft tabular-nums">
                           תקן מקס׳:{' '}
                           {l.staffingStandard === 1

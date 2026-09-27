@@ -1,5 +1,6 @@
 import { IntensityBadge, Ltr } from './ui'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
+import { laneOpenDuring } from '../lib/shiftCatalog'
 import type { Lane, SelectorRound, Worker } from '../types'
 import type { StaffingOverrides } from '../lib/shiftStaffing'
 
@@ -69,6 +70,20 @@ export function SelectorRoundTable({
                   <Ltr>{round.label}</Ltr>
                 </th>
                 {lanes.map((lane) => {
+                  const open = laneOpenDuring(
+                    lane.activeHours,
+                    round.startMinutes,
+                    round.endMinutes,
+                  )
+                  if (!open) {
+                    return (
+                      <td key={lane.id} className="px-2 py-2 align-top">
+                        <span className="text-[12px] font-medium text-ink-soft">
+                          סגור
+                        </span>
+                      </td>
+                    )
+                  }
                   const assignment = round.assignments.find(
                     (a) => a.laneId === lane.id,
                   )

@@ -117,7 +117,7 @@ function normalizeAppData(data: AppData): AppData {
     briefingSections: normalizeBriefingSections(data.briefingSections),
     questionBank: normalizeQuestionBank(data.questionBank),
     customsBrokers: normalizeCustomsBrokers(data.customsBrokers, {
-      seedIfEmpty: true,
+      seedIfEmpty: false,
     }),
   }
 }

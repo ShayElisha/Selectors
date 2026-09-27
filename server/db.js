@@ -35,12 +35,45 @@ export async function getDb() {
   return client.db()
 }
 
+export async function getClient() {
+  await getDb()
+  return globalForMongo.__mongoClientPromise
+}
+
 export async function getStateCollection() {
   const db = await getDb()
   return db.collection('app_state')
 }
 
+export async function getMetaCollection() {
+  const db = await getDb()
+  return db.collection('app_meta')
+}
+
 export async function getAuditCollection() {
   const db = await getDb()
   return db.collection('audit_logs')
+}
+
+/** Run writes together so a save does not leave half the models updated. */
+export async function withDbTransaction(fn) {
+  const client = await getClient()
+  const session = client.startSession()
+  try {
+    let result
+    await session.withTransaction(async () => {
+      result = await fn(session)
+    })
+    return result
+  } catch (err) {
+    const message = String(err?.message || '')
+    const unsupported =
+      err?.code === 20 ||
+      /transaction numbers are only allowed/i.test(message) ||
+      /Transaction numbers/.test(message)
+    if (!unsupported) throw err
+    return fn(undefined)
+  } finally {
+    await session.endSession()
+  }
 }

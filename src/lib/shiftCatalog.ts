@@ -71,6 +71,25 @@ export function continuesIntoShift(
   return personalEnd > source.end
 }
 
+/** Lane is open for a round only when the round sits inside one activity window. */
+export function laneOpenDuring(
+  hours: { start: number; end: number }[] | undefined,
+  roundStart: number,
+  roundEnd: number,
+): boolean {
+  if (!hours || hours.length === 0) return true
+  return hours.some((span) => {
+    let start = span.start
+    let end = span.end
+    if (roundStart >= 24 * 60 && start < 12 * 60) {
+      start += 24 * 60
+      end += 24 * 60
+    }
+    if (end <= start) end += 24 * 60
+    return roundStart >= start && roundEnd <= end
+  })
+}
+
 export function workerWindowById(id: string | undefined): WorkerWindowPreset | undefined {
   if (!id) return undefined
   return WORKER_WINDOWS.find((w) => w.id === id)
