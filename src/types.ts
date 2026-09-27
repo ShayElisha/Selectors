@@ -162,4 +162,3 @@ export type View =
   | 'audit'
   | 'certs'
   | 'briefings'
-  | 'customsBrokers'
