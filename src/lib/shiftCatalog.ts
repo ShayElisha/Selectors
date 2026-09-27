@@ -52,29 +52,23 @@ export function shiftFollowsMorning(shiftType: ShiftType): boolean {
 }
 
 /**
- * True when someone on an earlier shift is still inside the target shift's hours.
- * No personal window means they stay only until that earlier shift ends.
+ * True when someone on an earlier shift is still working after that shift
+ * ends and their hours reach the target shift.
+ * "כל המשמרת" ends with the earlier shift and does not continue.
  */
 export function continuesIntoShift(
   sourceType: ShiftType,
   windowId: string | undefined,
   targetType: ShiftType,
 ): boolean {
-  const target = MAIN_SHIFT_BOUNDS[targetType]
   const preset = workerWindowById(windowId)
+  if (!preset) return false
   const source = MAIN_SHIFT_BOUNDS[sourceType]
-  const span = preset
-    ? windowInterval(preset, targetType)
-    : windowInterval(
-        {
-          id: 'full',
-          label: '',
-          start: source.start % (24 * 60),
-          end: source.end % (24 * 60),
-        },
-        targetType,
-      )
-  return span.start < target.end && span.end > target.start
+  const target = MAIN_SHIFT_BOUNDS[targetType]
+  const span = windowInterval(preset, targetType)
+  if (!(span.start < target.end && span.end > target.start)) return false
+  const personalEnd = windowInterval(preset, sourceType).end
+  return personalEnd > source.end
 }
 
 export function workerWindowById(id: string | undefined): WorkerWindowPreset | undefined {
