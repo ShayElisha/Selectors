@@ -6,7 +6,6 @@ import type { Lane, ShiftSchedule, ShiftType, Worker } from '../types'
 export const SHIFT_SLOT_ORDER: ShiftType[] = [
   'morning',
   'afternoonA',
-  'afternoon',
   'afternoonB',
   'night',
 ]
@@ -87,14 +86,25 @@ export function groupHistoryDays(
       const map = byDate.get(date)!
       return {
         date,
-        slots: SHIFT_SLOT_ORDER.map((shiftType) => {
-          const pair = map.get(shiftType)
-          return {
-            shiftType,
-            shift: pair?.inspector ?? null,
-            selectorShift: pair?.selector ?? null,
+        slots: (() => {
+          const slots = SHIFT_SLOT_ORDER.map((shiftType) => {
+            const pair = map.get(shiftType)
+            return {
+              shiftType,
+              shift: pair?.inspector ?? null,
+              selectorShift: pair?.selector ?? null,
+            }
+          })
+          const legacy = map.get('afternoon')
+          if (legacy?.inspector || legacy?.selector) {
+            slots.push({
+              shiftType: 'afternoon',
+              shift: legacy.inspector,
+              selectorShift: legacy.selector,
+            })
           }
-        }),
+          return slots
+        })(),
       }
     })
 }
