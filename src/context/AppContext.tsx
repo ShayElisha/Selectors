@@ -10,7 +10,10 @@ import {
 } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
-import { type PlacementExplanation } from '../algorithm'
+import {
+  previousLocalDate,
+  type PlacementExplanation,
+} from '../algorithm'
 import {
   ApiError,
   checkLoginRemote,
@@ -60,6 +63,7 @@ import {
   findGateManagerLane,
   isGateManagerLane,
   normalizeGateManagerId,
+  selectorStaff,
   syncGateManagerPlacement,
 } from '../lib/gateManager'
 import {
@@ -1096,6 +1100,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...d,
             presentWorkerIds,
             gateManagerWorkerId: workerId,
+            rounds: clearWorkerFromRounds(d.rounds ?? [], workerId),
           },
           data.lanes,
         )
@@ -1178,11 +1183,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [data.lanes, data.workers],
   )
 
+function nightPartnersForMorning(
+  date: string,
+  shiftType: ShiftType,
+  history: ShiftSchedule[],
+  workers: Worker[],
+  presentIds: string[],
+): Worker[] {
+  if (shiftType !== 'morning') return []
+  const nightDate = previousLocalDate(date)
+  if (!nightDate) return []
+  const night = history
+    .filter((item) => item.date === nightDate && item.shiftType === 'night')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+  if (!night) return []
+  const present = new Set(presentIds)
+  return workers.filter(
+    (worker) =>
+      worker.status === 'active' &&
+      worker.isInspector &&
+      night.presentWorkerIds.includes(worker.id) &&
+      !present.has(worker.id),
+  )
+}
+
   const commitSelectorBoard = useCallback(() => {
     setDraft((d) => {
       if (!d || d.audience === 'selector') return d
-      const present = data.workers.filter(
-        (w) => d.presentWorkerIds.includes(w.id) && w.isInspector,
+      const present = selectorStaff(
+        data.workers,
+        d.presentWorkerIds,
+        d.gateManagerWorkerId,
       )
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
@@ -1191,6 +1222,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workers: present,
         overrides: d.staffingOverrides,
         workerWindows: d.workerWindows,
+        nightPartners: nightPartnersForMorning(
+          d.date,
+          d.shiftType,
+          data.history,
+          data.workers,
+          d.presentWorkerIds,
+        ),
       })
       return withGateManagerSync(
         {
@@ -1204,7 +1242,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data.lanes,
       )
     })
-  }, [data.lanes, data.workers])
+  }, [data.history, data.lanes, data.workers])
 
   const setWorkerWindow = useCallback(
     (workerId: string, windowId: string | null) => {
@@ -1215,8 +1253,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         else workerWindows[workerId] = windowId
         const next = { ...d, workerWindows }
         if ((d.rounds?.length ?? 0) === 0) return next
-        const present = data.workers.filter(
-          (w) => d.presentWorkerIds.includes(w.id) && w.isInspector,
+        const present = selectorStaff(
+          data.workers,
+          d.presentWorkerIds,
+          d.gateManagerWorkerId,
         )
         const result = assignSelectorRounds({
           shiftType: d.shiftType,
@@ -1225,6 +1265,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workers: present,
           overrides: d.staffingOverrides,
           workerWindows,
+          nightPartners: nightPartnersForMorning(
+            d.date,
+            d.shiftType,
+            data.history,
+            data.workers,
+            d.presentWorkerIds,
+          ),
         })
         return withGateManagerSync(
           {
@@ -1237,14 +1284,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.lanes, data.workers],
+    [data.history, data.lanes, data.workers],
   )
 
   const runAutoAssign = useCallback(() => {
     setDraft((d) => {
       if (!d) return d
-      const present = data.workers.filter(
-        (w) => d.presentWorkerIds.includes(w.id) && w.isInspector,
+      const present = selectorStaff(
+        data.workers,
+        d.presentWorkerIds,
+        d.gateManagerWorkerId,
       )
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
@@ -1253,6 +1302,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workers: present,
         overrides: d.staffingOverrides,
         workerWindows: d.workerWindows,
+        nightPartners: nightPartnersForMorning(
+          d.date,
+          d.shiftType,
+          data.history,
+          data.workers,
+          d.presentWorkerIds,
+        ),
       })
       const filled = result.rounds.reduce(
         (n, r) =>
@@ -1282,7 +1338,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
     })
     setShiftStep('board')
-  }, [data.lanes, data.workers])
+  }, [data.history, data.lanes, data.workers])
 
   const startManualAssign = useCallback(() => {
     setDraft((d) => {
@@ -1305,6 +1361,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 d.shiftType,
                 d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
               ),
+              d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
             ),
             warnings: [],
             explanations: [],

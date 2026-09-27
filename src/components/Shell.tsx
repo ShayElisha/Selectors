@@ -249,7 +249,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [profileOpen, manageOpen])
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-7xl flex-col px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
+    <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
       <header className="relative z-40 mb-6 flex flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
         <div className="min-w-0">
           <div className="mb-1.5 flex items-center gap-2">
@@ -438,7 +438,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           document.body,
         )}
 
-      <main className="flex-1">{children}</main>
+      <main className="min-w-0 flex-1">{children}</main>
 
       <AppFooter className="mb-2 mt-10 sm:mt-12 lg:mb-0 no-print" />
 

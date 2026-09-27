@@ -75,7 +75,10 @@ export function windowCoversRound(
   roundEnd: number,
 ): boolean {
   const preset = workerWindowById(windowId)
-  if (!preset) return true
+  const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  if (!preset) {
+    return roundStart >= shift.start && roundEnd <= shift.end
+  }
   const span = windowInterval(preset, shiftType)
   return roundStart >= span.start && roundEnd <= span.end
 }
@@ -89,9 +92,21 @@ export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPrese
 }
 
 /**
- * Cut points inside the shift from the selected personal windows,
- * including 06:00 when someone arrived at 04:45 (station change into the night round).
+ * Morning board normally starts at 06:00. People who arrive at 04:45
+ * need a leading round so they can sit with the night shift until 06:00.
  */
+export function boardStartMinutes(
+  shiftType: ShiftType,
+  windowIds: Array<string | undefined>,
+): number {
+  const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  let start = shift.start
+  const early = 4 * 60 + 45
+  if (!windowIds.some((id) => workerWindowById(id)?.start === early)) return start
+  const mapped = onShiftClock(early, shiftType)
+  if (mapped < start && start - mapped <= 3 * 60) start = mapped
+  return start
+}
 export function roundCutsForWindows(
   shiftType: ShiftType,
   windowIds: Array<string | undefined>,
@@ -109,6 +124,7 @@ export function roundCutsForWindows(
     }
   }
   const six = onShiftClock(6 * 60, shiftType)
-  if (earlyArrival && six > shift.start && six < shift.end) cuts.add(six)
+  const openedAt = boardStartMinutes(shiftType, windowIds)
+  if (earlyArrival && six > openedAt && six < shift.end) cuts.add(six)
   return [...cuts].sort((a, b) => a - b)
 }

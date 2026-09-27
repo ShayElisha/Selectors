@@ -35,9 +35,9 @@ export function SelectorRoundTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-line/70">
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-right text-[13px]">
+    <div className="max-w-full overflow-hidden rounded-xl border border-line/70">
+      <div className="max-w-full overflow-x-auto overscroll-x-contain">
+        <table className="w-max min-w-full border-collapse text-right text-[13px]">
           <thead>
             <tr className="border-b border-line/70 bg-surface/90">
               <th className="sticky right-0 z-10 bg-surface/95 px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft">

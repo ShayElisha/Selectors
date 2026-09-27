@@ -233,7 +233,7 @@ function ShiftAccordion({
   const deleteLabel = `מחיקת משמרת ${SHIFT_TYPE_LABELS[shift.shiftType]} ${formatShiftDate(shift.date)}`
 
   return (
-    <div className="rounded-xl border border-line bg-surface/80">
+    <div className="min-w-0 max-w-full rounded-xl border border-line bg-surface/80">
       <div className="flex items-stretch gap-1">
         <button
           type="button"
@@ -310,7 +310,7 @@ function ShiftAccordion({
       </div>
 
       {open ? (
-        <div className="border-t border-line px-3 py-3">
+        <div className="min-w-0 overflow-hidden border-t border-line px-3 py-3">
           {shift.audience === 'selector' ? (
             <SelectorRoundTable
               rounds={shift.rounds ?? []}
@@ -583,7 +583,7 @@ export function HistoryPage() {
   let lastMonth = ''
 
   return (
-    <div className="history-print-root space-y-4">
+    <div className="history-print-root min-w-0 space-y-4">
       <SectionCard
         title="היסטוריית שיבוצים"
         subtitle="משמרות שמורות, מהחדש לישן"
@@ -757,7 +757,7 @@ export function HistoryPage() {
                   הדגש חזרות לאותו נתיב
                 </label>
               </div>
-              <div className="-mx-1 overflow-x-auto overscroll-x-contain rounded-xl border border-line sm:mx-0">
+              <div className="-mx-1 min-w-0 overflow-x-auto overscroll-x-contain rounded-xl border border-line sm:mx-0">
                 <table className="w-max min-w-full border-collapse text-end text-xs">
                   <thead>
                     <tr className="bg-brand-deep text-white">
@@ -1029,7 +1029,7 @@ function DayCard({
   onRequestDelete: (s: ShiftSchedule) => void
 }) {
   return (
-    <section className="rounded-xl border border-line bg-card/95 p-3 shadow-sm sm:p-4">
+    <section className="min-w-0 max-w-full rounded-xl border border-line bg-card/95 p-3 shadow-sm sm:p-4">
       <header className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         {label.relative ? (
           <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[12px] font-bold text-brand">
@@ -1041,7 +1041,7 @@ function DayCard({
         </h3>
         <Ltr className="text-[13px] text-ink-soft">{label.dateText}</Ltr>
       </header>
-      <div className="grid gap-2 md:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3">
         {day.slots.map((slot) => {
           const shifts = [slot.shift, slot.selectorShift].filter(
             (s): s is NonNullable<typeof slot.shift> => Boolean(s),

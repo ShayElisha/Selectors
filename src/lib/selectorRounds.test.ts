@@ -112,6 +112,28 @@ describe('setSelectorCell', () => {
   })
 })
 
+describe('early 04:45 arrival', () => {
+  it('opens the morning board at 04:45 and keeps later staff out of that round', () => {
+    const { rounds } = assignSelectorRounds({
+      shiftType: 'morning',
+      lanes: [lane('a', 'נתיב 1'), lane('b', 'נתיב 2')],
+      activeLaneIds: ['a', 'b'],
+      workers: [worker('early', 'מוקדם'), worker('day', 'בוקר')],
+      workerWindows: { early: '0445-1500' },
+      nightPartners: [worker('night', 'לילה')],
+    })
+    expect(rounds[0]!.label).toBe('04:45–06:00')
+    const first = rounds[0]!.assignments.flatMap((row) =>
+      row.workerIds.filter(Boolean),
+    )
+    expect(first).toContain('early')
+    expect(first).not.toContain('day')
+    expect(first).toContain('night')
+    const afterSix = rounds.find((round) => round.label.startsWith('06:00'))!
+    expect(afterSix.assignments[0]!.workerIds).not.toContain('night')
+  })
+})
+
 describe('personal windows', () => {
   it('stops a 17:30 window before the end of afternoon A', () => {
     const cuts = roundCutsForWindows('afternoonA', ['0600-1730', '0600-1830'])

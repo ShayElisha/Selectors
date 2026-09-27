@@ -37,6 +37,7 @@ import {
   isGateManagerLane,
   laneStaffPresentIds,
   managedLanes,
+  selectorStaff,
 } from '../lib/gateManager'
 import { IntensityBadge, Ltr } from '../components/ui'
 import { BoardStep } from '../components/BoardStep'
@@ -1105,7 +1106,7 @@ export function ShiftPage() {
                           </button>
                         ) : null}
                         </div>
-                        {on ? (
+                        {on && !isGate ? (
                           <div className="px-2.5 pb-2">
                             <select
                               value={draft.workerWindows?.[w.id] ?? ''}
@@ -1467,8 +1468,10 @@ export function ShiftPage() {
           <SelectorRoundTable
             rounds={draft.rounds ?? []}
             lanes={selectorLanes(data.lanes, draft.activeLaneIds)}
-            workers={data.workers.filter((w) =>
-              draft.presentWorkerIds.includes(w.id),
+            workers={selectorStaff(
+              data.workers,
+              draft.presentWorkerIds,
+              draft.gateManagerWorkerId,
             )}
             overrides={draft.staffingOverrides}
             editable
