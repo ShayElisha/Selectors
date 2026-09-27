@@ -71,6 +71,18 @@ export function laneStaffPresentIds(
   return presentWorkerIds.filter((id) => id && id !== gate)
 }
 
+/** Inspectors who can be placed in selector rounds. Gate manager stays off that list. */
+export function selectorStaff(
+  workers: Worker[],
+  presentWorkerIds: string[],
+  gateManagerWorkerId?: string | null,
+): Worker[] {
+  const present = new Set(laneStaffPresentIds(presentWorkerIds, gateManagerWorkerId))
+  return workers.filter(
+    (w) => w.status === 'active' && w.isInspector && present.has(w.id),
+  )
+}
+
 /**
  * Present ∩ ¬assigned.
  * Prefer real assignment on עמדת מנהל שער; still exclude by id if missing.

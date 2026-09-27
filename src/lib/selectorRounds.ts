@@ -8,7 +8,9 @@ import type {
 } from '../types'
 import { isGateManagerLane } from './gateManager'
 import {
+  boardStartMinutes,
   MAIN_SHIFT_BOUNDS,
+  onShiftClock,
   roundCutsForWindows,
   windowCoversRound,
 } from './shiftCatalog'
@@ -24,8 +26,10 @@ const MIN_OWN_ROUND = 45
 export function buildRoundWindows(
   shiftType: ShiftType,
   cutMinutes: number[] = [],
+  windowIds: Array<string | undefined> = [],
 ): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
-  const { start, end } = MAIN_SHIFT_BOUNDS[shiftType]
+  const end = MAIN_SHIFT_BOUNDS[shiftType].end
+  const start = boardStartMinutes(shiftType, windowIds)
   const cuts = [...cutMinutes]
     .filter((point) => point > start && point < end)
     .sort((a, b) => a - b)
@@ -89,9 +93,10 @@ export function emptySelectorRounds(
   activeLaneIds: string[],
   overrides?: StaffingOverrides | null,
   cutMinutes: number[] = [],
+  windowIds: Array<string | undefined> = [],
 ): SelectorRound[] {
   const active = selectorLanes(lanes, activeLaneIds)
-  return buildRoundWindows(shiftType, cutMinutes).map((w) => ({
+  return buildRoundWindows(shiftType, cutMinutes, windowIds).map((w) => ({
     ...w,
     assignments: emptyAssignments(active, overrides),
   }))
@@ -216,17 +221,21 @@ export function assignSelectorRounds(args: {
   overrides?: StaffingOverrides | null
   /** workerId → personal window preset id */
   workerWindows?: Record<string, string>
+  /**
+   * Night staff still on duty. They join only rounds that start before 06:00,
+   * together with the 04:45 arrivals.
+   */
+  nightPartners?: Worker[]
 }): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
     a.fullName.localeCompare(b.fullName, 'he'),
   )
+  const windowIds = args.workers.map((w) => args.workerWindows?.[w.id])
   const windows = buildRoundWindows(
     args.shiftType,
-    roundCutsForWindows(
-      args.shiftType,
-      args.workers.map((w) => args.workerWindows?.[w.id]),
-    ),
+    roundCutsForWindows(args.shiftType, windowIds),
+    windowIds,
   )
   const warnings: string[] = []
 
@@ -241,20 +250,28 @@ export function assignSelectorRounds(args: {
   const prevLane = new Map<string, string>()
   let emptySeats = 0
 
+  const earlyCutoff = onShiftClock(6 * 60, args.shiftType)
+  const partners = (args.nightPartners ?? []).filter(
+    (partner) => !workers.some((worker) => worker.id === partner.id),
+  )
+
   const rounds: SelectorRound[] = windows.map((w, roundIndex) => {
     const used = new Set<string>()
     const nextPrev = new Map<string, string>()
+    const pool =
+      w.startMinutes < earlyCutoff ? [...workers, ...partners] : workers
     const assignments = active.map((lane) => {
       const std = effectiveStaffingStandard(lane, args.overrides)
       const workerIds: string[] = []
       for (let slot = 0; slot < std; slot++) {
-        const eligible = workers.filter((worker) =>
+        const eligible = pool.filter((worker) =>
           windowCoversRound(
             args.workerWindows?.[worker.id],
             args.shiftType,
             w.startMinutes,
             w.endMinutes,
-          ),
+          ) ||
+          partners.some((partner) => partner.id === worker.id),
         )
         const pick = pickWorker(
           lane,

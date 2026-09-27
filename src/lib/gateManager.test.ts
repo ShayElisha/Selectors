@@ -7,6 +7,7 @@ import {
   laneStaffPresentIds,
   managedLanes,
   normalizeGateManagerId,
+  selectorStaff,
   syncGateManagerPlacement,
 } from './gateManager'
 import type { Lane, Worker } from '../types'
@@ -122,5 +123,15 @@ describe('gateManager helpers', () => {
       intensity: 'medium',
     }
     expect(managedLanes([other, gate]).map((l) => l.id)).toEqual(['l1'])
+  })
+
+  it('keeps the gate manager out of the selector list', () => {
+    const people = [
+      w({ id: 'gate', isManager: true }),
+      w({ id: 'a' }),
+    ]
+    expect(
+      selectorStaff(people, ['gate', 'a'], 'gate').map((worker) => worker.id),
+    ).toEqual(['a'])
   })
 })

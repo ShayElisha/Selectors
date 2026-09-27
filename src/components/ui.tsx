@@ -132,7 +132,7 @@ export function SectionCard({
 }) {
   return (
     <section
-      className={`rounded-xl border border-line/70 bg-card/95 p-4 shadow-sm sm:rounded-2xl sm:p-6 ${printRoot ? 'print-shift-root' : ''} ${className}`.trim()}
+      className={`min-w-0 max-w-full rounded-xl border border-line/70 bg-card/95 p-4 shadow-sm sm:rounded-2xl sm:p-6 ${printRoot ? 'print-shift-root' : ''} ${className}`.trim()}
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-5">
         <div className="min-w-0">
