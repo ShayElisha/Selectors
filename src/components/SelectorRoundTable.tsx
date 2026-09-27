@@ -45,7 +45,6 @@ export function SelectorRoundTable({
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-ink">
           <Shield className="size-4 text-brand" aria-hidden />
           <span>רמ״ש</span>
-          <span className="font-medium text-ink-soft">מנהל שער</span>
           <span>{ramashName.trim() || 'לא סומן'}</span>
         </p>
       ) : null}
