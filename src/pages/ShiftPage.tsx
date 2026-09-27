@@ -335,34 +335,27 @@ export function ShiftPage() {
     const ids: string[] = []
     const workerWindows: Record<string, string> = {}
     for (const sourceType of sourceTypes) {
-      const source = data.history
-        .filter(
-          (shift) =>
-            shift.date === draft.date &&
-            shift.shiftType === sourceType &&
-            (shift.audience ?? 'inspector') === audience,
-        )
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+      const matches = data.history.filter(
+        (shift) => shift.date === draft.date && shift.shiftType === sourceType,
+      )
+      const sameAudience = matches.filter(
+        (shift) => (shift.audience ?? 'inspector') === audience,
+      )
+      const source = (sameAudience.length > 0 ? sameAudience : matches).sort(
+        (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+      )[0]
       if (!source) continue
       for (const id of source.presentWorkerIds) {
         const saved = source.workerWindows?.[id]
-        if (
-          !continuesIntoShift(
-            sourceType,
-            saved,
-            draft.shiftType,
-          )
-        ) {
-          continue
-        }
+        if (!continuesIntoShift(sourceType, saved, draft.shiftType)) continue
         if (!ids.includes(id)) ids.push(id)
         if (saved && workerWindowById(saved) && !workerWindows[id]) {
           workerWindows[id] = saved
         }
       }
     }
-    continuersSeeded.current = key
     if (ids.length === 0) return
+    continuersSeeded.current = key
     applyPresentSelection(ids, { workerWindows })
   }, [draft, data.history, applyPresentSelection])
 
