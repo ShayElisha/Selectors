@@ -913,7 +913,7 @@ export function ShiftPage() {
                     נוכחים: {draft.presentWorkerIds.length} מתוך{' '}
                     {attendanceWorkers.length}
                     {draft.gateManagerWorkerId
-                      ? ' · כולל רמ״ש'
+                      ? ' · כולל מנהל משמרת'
                       : ''}
                   </p>
                 </div>
@@ -953,9 +953,9 @@ export function ShiftPage() {
                         setGateManager(morningShift.gateManagerWorkerId!)
                       }
                       className="ui-btn ui-btn-secondary !py-1.5 text-xs"
-                      title="המשך הרמ״ש מהבוקר"
+                      title="המשך מנהל המשמרת מהבוקר"
                     >
-                      רמ״ש מהבוקר
+                      מנהל משמרת מהבוקר
                     </button>
                   ) : null}
                   <button
@@ -1019,7 +1019,7 @@ export function ShiftPage() {
                           disabled={managerOnly}
                           title={
                             managerOnly
-                              ? 'מנהל בלבד — הפעילו «רמ״ש» כדי לכלול במשמרת'
+                              ? 'מנהל בלבד — הפעילו «מנהל משמרת» כדי לכלול במשמרת'
                               : undefined
                           }
                           onClick={() => {
@@ -1068,7 +1068,7 @@ export function ShiftPage() {
                               {wasMorningGate ? (
                                 <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand ring-1 ring-brand/25">
                                   <Shield className="size-3" aria-hidden />
-                                  רמ״ש בבוקר
+                                  מנהל משמרת בבוקר
                                 </span>
                               ) : wasMorning ? (
                                 <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent ring-1 ring-accent/20">
@@ -1096,7 +1096,7 @@ export function ShiftPage() {
                               </span>
                             ) : (
                               <span className="mt-0.5 text-[11px] text-ink-soft">
-                                ישובץ אוטומטית כרמ״ש
+                                ישובץ אוטומטית כמנהל משמרת
                               </span>
                             )}
                           </span>
@@ -1116,12 +1116,12 @@ export function ShiftPage() {
                             }`}
                             title={
                               isGate
-                                ? 'בטל רמ״ש'
-                                : 'הפעל כרמ״ש'
+                                ? 'בטל מנהל משמרת'
+                                : 'הפעל כמנהל משמרת'
                             }
                           >
                             <Shield className="size-3.5" aria-hidden />
-                            רמ״ש
+                            מנהל משמרת
                           </button>
                         ) : null}
                         </div>

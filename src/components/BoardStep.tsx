@@ -710,7 +710,7 @@ export function BoardStep({
               <span className="mx-2 text-ink-soft/70">·</span>
               <span className="inline-flex items-center gap-1 font-semibold text-brand">
                 <Shield className="size-3.5" aria-hidden />
-                מנהל שער: {gateManagerName}
+                מנהל משמרת: {gateManagerName}
               </span>
             </>
           ) : null}
