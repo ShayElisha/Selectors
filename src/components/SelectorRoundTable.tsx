@@ -18,7 +18,7 @@ export function SelectorRoundTable({
   lanes: Lane[]
   workers: Worker[]
   overrides?: StaffingOverrides | null
-  /** Gate manager (רמ״ש) shown above the round table. */
+  /** Shift manager shown above the round table. */
   ramashName?: string
   editable?: boolean
   onChange?: (
@@ -44,7 +44,7 @@ export function SelectorRoundTable({
       {ramashName !== undefined ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-ink">
           <Shield className="size-4 text-brand" aria-hidden />
-          <span>רמ״ש</span>
+          <span>מנהל משמרת</span>
           <span>{ramashName.trim() || 'לא סומן'}</span>
         </p>
       ) : null}

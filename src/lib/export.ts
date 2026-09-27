@@ -117,7 +117,7 @@ function buildExportNode(
     gate.style.cssText =
       'margin-top:16px;padding:12px 14px;border:1px solid #c5d0dc;background:#f5f8fb;font-size:13px'
     gate.innerHTML = `
-      <div style="font-weight:800;color:#0f3350;margin-bottom:4px">מנהל שער</div>
+      <div style="font-weight:800;color:#0f3350;margin-bottom:4px">מנהל משמרת</div>
       <div style="color:#0f1c2e">${escapeHtml(meta.gateManagerName.trim())}</div>
     `
     root.appendChild(gate)
@@ -320,7 +320,7 @@ export function buildWhatsAppText(
 ): string {
   const header = `*שיבוץ שער יציאה — ${formatDateHe(date)} · ${SHIFT_TYPE_LABELS[shiftType]}*`
   const gate = opts?.gateManagerName?.trim()
-    ? `\n• *מנהל שער:* ${opts.gateManagerName.trim()}`
+    ? `\n• *מנהל משמרת:* ${opts.gateManagerName.trim()}`
     : ''
   const body = lines
     .map((l) => {
