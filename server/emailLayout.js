@@ -28,14 +28,14 @@ export function escapeHtml(s) {
 }
 
 export function appDisplayName() {
-  return process.env.APP_NAME || 'שיבוצון · GATE OUT'
+  return process.env.APP_NAME || 'שיבוצון · CHECK IN'
 }
+
+const DEFAULT_APP_URL = 'https://shibutzon.vercel.app'
 
 export function appPublicUrl() {
   const raw =
-    process.env.APP_URL ||
-    process.env.PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+    process.env.APP_URL || process.env.PUBLIC_APP_URL || DEFAULT_APP_URL
   return String(raw).replace(/\/+$/, '')
 }
 
@@ -66,14 +66,14 @@ function logoHtmlBlock() {
   const hosted = logoImgSrc()
   if (hosted) {
     return `
-      <img src="${escapeHtml(hosted)}" width="56" height="56" alt="GATE OUT"
+      <img src="${escapeHtml(hosted)}" width="56" height="56" alt="CHECK IN"
         style="display:block;width:56px;height:56px;border:0;border-radius:12px;" />
     `
   }
   try {
     if (existsSync(LOGO_PATH)) {
       return `
-      <img src="cid:${LOGO_CID}" width="56" height="56" alt="GATE OUT"
+      <img src="cid:${LOGO_CID}" width="56" height="56" alt="CHECK IN"
         style="display:block;width:56px;height:56px;border:0;border-radius:12px;" />
     `
     }
@@ -83,7 +83,7 @@ function logoHtmlBlock() {
   // Fallback mark (matches site favicon) when PNG is missing
   return `
     <div style="width:56px;height:56px;border-radius:12px;background:${BRAND.brand};text-align:center;line-height:56px;color:#fff;font-family:Arial,sans-serif;font-weight:700;font-size:11px;letter-spacing:0.08em;">
-      GO
+      CI
     </div>
   `
 }
@@ -102,30 +102,27 @@ function logoHtmlBlock() {
 export function renderBrandedEmail({
   preheader = '',
   title,
-  eyebrow = 'GATE OUT',
+  eyebrow = 'CHECK IN',
   greeting = '',
   bodyHtml,
   footerNote = 'מייל זה נשלח אוטומטית ממערכת שיבוצון · לשימוש פנימי בלבד',
 }) {
   const appName = escapeHtml(appDisplayName())
   const loginUrl = appPublicUrl()
-  const cta = loginUrl
-    ? `
-      <tr>
-        <td align="center" style="padding:8px 0 4px;">
-          <a href="${escapeHtml(loginUrl)}"
-            style="display:inline-block;background:${BRAND.accent};color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;padding:12px 22px;border-radius:12px;">
-            כניסה לשיבוצון
-          </a>
-        </td>
-      </tr>
-      <tr>
-        <td align="center" style="padding:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${BRAND.soft};">
-          או העתיקו: ${escapeHtml(loginUrl)}
-        </td>
-      </tr>
-    `
-    : ''
+  const ctaRows = `
+          <tr>
+            <td align="center" style="padding:8px 24px 4px;">
+              <a href="${escapeHtml(loginUrl)}"
+                style="display:inline-block;background:${BRAND.accent};color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;padding:12px 22px;border-radius:12px;">
+                כניסה לשיבוצון
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:6px 24px 20px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;">
+              <a href="${escapeHtml(loginUrl)}" style="color:${BRAND.brand};text-decoration:underline;">${escapeHtml(loginUrl)}</a>
+            </td>
+          </tr>`
 
   return `<!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -158,7 +155,7 @@ export function renderBrandedEmail({
                       שיבוצון
                     </div>
                     <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:rgba(255,255,255,0.78);margin-top:2px;">
-                      ניהול ושיבוץ עמדות שער יציאה
+                      ניהול ושיבוץ עמדות סלקטורים
                     </div>
                   </td>
                 </tr>
@@ -181,12 +178,12 @@ export function renderBrandedEmail({
             </td>
           </tr>
 
-          ${cta ? `<tr><td style="padding:8px 24px 20px;">${cta}</td></tr>` : '<tr><td style="height:12px;"></td></tr>'}
+          ${ctaRows}
 
           <!-- Footer -->
           <tr>
             <td style="border-top:1px solid ${BRAND.line};background:${BRAND.surface};padding:16px 24px;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.55;color:${BRAND.soft};text-align:center;direction:rtl;">
-              <div style="font-weight:700;color:${BRAND.brand};letter-spacing:0.12em;font-size:10px;text-transform:uppercase;margin-bottom:4px;">GATE OUT</div>
+              <div style="font-weight:700;color:${BRAND.brand};letter-spacing:0.12em;font-size:10px;text-transform:uppercase;margin-bottom:4px;">CHECK IN</div>
               <div>${escapeHtml(footerNote)}</div>
               <div style="margin-top:6px;color:${BRAND.soft};">${appName}</div>
             </td>
@@ -238,7 +235,7 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
       </tr>
       <tr>
         <td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;color:${BRAND.soft};">
-          1. היכנסו למערכת עם מספר הטלפון והסיסמה הזמנית<br/>
+          1. היכנסו לאתר עם מספר הטלפון והסיסמה הזמנית<br/>
           2. הגדירו סיסמה קבועה (אות גדולה, ספרה וסימן מיוחד)<br/>
           3. המשיכו לשיבוץ המשמרת כרגיל
         </td>
@@ -258,7 +255,7 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
     `סיסמה זמנית: ${tempPassword}`,
     '',
     'מה הלאה?',
-    '1. היכנסו עם הטלפון והסיסמה הזמנית',
+    '1. היכנסו לאתר עם הטלפון והסיסמה הזמנית',
     '2. הגדירו סיסמה קבועה',
     '3. המשיכו לשיבוץ',
     '',
@@ -303,7 +300,7 @@ export function buildTestEmail(opts = {}) {
   `
   return {
     subject: `${appDisplayName()} — בדיקת שליחת מייל`,
-    text: `בדיקת SMTP הצליחה.\nזמן: ${at}\n`,
+    text: `בדיקת SMTP הצליחה.\nזמן: ${at}\nכניסה: ${appPublicUrl()}\n`,
     html: renderBrandedEmail({
       preheader: 'בדיקת שליחת מייל משיבוצון',
       title: 'בדיקת שליחת מייל',
