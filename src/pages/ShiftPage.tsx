@@ -323,14 +323,11 @@ export function ShiftPage() {
     })
   }, [attendanceWorkers, attendanceQuery, draft, morningShift])
 
-  const continuersSeeded = useRef<string | null>(null)
   useEffect(() => {
     if (!draft) return
     const sourceTypes = earlierShiftsToContinue(draft.shiftType)
     if (sourceTypes.length === 0) return
     if (draft.presentWorkerIds.length > 0) return
-    const key = `${draft.id}|${draft.date}|${draft.shiftType}`
-    if (continuersSeeded.current === key) return
     const audience = draft.audience ?? 'inspector'
     const ids: string[] = []
     const workerWindows: Record<string, string> = {}
@@ -355,7 +352,6 @@ export function ShiftPage() {
       }
     }
     if (ids.length === 0) return
-    continuersSeeded.current = key
     applyPresentSelection(ids, { workerWindows })
   }, [draft, data.history, applyPresentSelection])
 
