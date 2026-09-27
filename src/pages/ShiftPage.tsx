@@ -961,7 +961,7 @@ export function ShiftPage() {
                   className="ui-field w-full pe-3 ps-10"
                 />
               </div>
-              <ul className="grid gap-1.5 sm:grid-cols-2">
+              <ul className="grid items-start gap-1.5 sm:grid-cols-2">
                 {filteredAttendance.map((w) => {
                   const on = draft.presentWorkerIds.includes(w.id)
                   const isGate = draft.gateManagerWorkerId === w.id
@@ -1109,7 +1109,7 @@ export function ShiftPage() {
                           <div className="px-2.5 pb-2">
                             <select
                               value={draft.workerWindows?.[w.id] ?? ''}
-                              aria-label={`שעות של ${w.fullName}`}
+                              aria-label={`משמרת של ${w.fullName}`}
                               onChange={(e) => {
                                 const windowId = e.target.value
                                 if (!windowId) return
@@ -1118,7 +1118,7 @@ export function ShiftPage() {
                               className="ui-field w-full py-1.5 text-[13px]"
                             >
                               {!draft.workerWindows?.[w.id] ? (
-                                <option value="">בחר שעות</option>
+                                <option value="">בחר משמרת</option>
                               ) : null}
                               {WORKER_WINDOWS.map((preset) => (
                                 <option key={preset.id} value={preset.id}>
