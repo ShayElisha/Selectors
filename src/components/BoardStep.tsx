@@ -61,6 +61,7 @@ import {
 } from '../lib/export'
 import { pluralizeHe } from '../lib/hebrew'
 import { isGateManagerLane } from '../lib/gateManager'
+import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
@@ -565,6 +566,24 @@ export function BoardStep({
       setShareBusy(false)
       setShareOpen(false)
     }
+  }
+
+  const shareHandover = () => {
+    const text = buildHandoverText({
+      date: draft.date,
+      shiftType: draft.shiftType,
+      lanes: data.lanes,
+      workers: data.workers,
+      activeLaneIds: draft.activeLaneIds,
+      presentWorkerIds: draft.presentWorkerIds,
+      workerWindows: draft.workerWindows,
+      assignments: draft.assignments,
+      rounds: draft.rounds,
+      staffingOverrides: draft.staffingOverrides,
+    })
+    void navigator.clipboard?.writeText(text).catch(() => undefined)
+    openWhatsAppShare(text)
+    notify.success('טקסט המסירה הוכן')
   }
 
   const saveStatusText = saveFlash
@@ -1268,6 +1287,13 @@ export function BoardStep({
               </div>
             ) : null}
           </div>
+          <button
+            type="button"
+            onClick={shareHandover}
+            className="ui-btn ui-btn-secondary !py-2"
+          >
+            מסירה
+          </button>
           <button
             type="button"
             onClick={confirmReassign}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Lane, Worker } from '../types'
 import { roundCutsForWindows } from './shiftCatalog'
 import {
+  applyLaneActivityHours,
   assignSelectorRounds,
   buildRoundWindows,
   setSelectorCell,
@@ -149,5 +150,40 @@ describe('personal windows', () => {
     const last = rounds[rounds.length - 1]!
     expect(last.label).toBe('17:30–18:30')
     expect(last.assignments[0]!.workerIds).toEqual(['late'])
+  })
+
+  it('clears an open draft outside lane activity hours', () => {
+    const applied = applyLaneActivityHours(
+      [
+        {
+          startMinutes: 6 * 60,
+          endMinutes: 8 * 60,
+          label: '06:00–08:00',
+          assignments: [{ laneId: 'a', workerIds: ['w1'] }],
+        },
+        {
+          startMinutes: 8 * 60,
+          endMinutes: 10 * 60,
+          label: '08:00–10:00',
+          assignments: [{ laneId: 'a', workerIds: ['w1'] }],
+        },
+      ],
+      [
+        {
+          ...lane('a', 'נתיב'),
+          activeHours: [
+            { start: 6 * 60, end: 8 * 60 },
+            { start: 10 * 60, end: 12 * 60 },
+          ],
+        },
+      ],
+      ['נותרו 1 מקומות ריקים בסבבים — אין מספיק סלקטורים מוסמכים לכל הנתיבים'],
+    )
+    expect(applied.changed).toBe(true)
+    expect(applied.rounds[0]!.assignments[0]!.workerIds).toEqual(['w1'])
+    expect(applied.rounds[1]!.assignments[0]!.workerIds).toEqual([])
+    expect(applied.warnings.some((warning) => warning.startsWith('נותרו'))).toBe(
+      false,
+    )
   })
 })

@@ -332,3 +332,61 @@ export function unassignedSelectorIds(
   const gate = gateManagerWorkerId?.trim() || ''
   return presentWorkerIds.filter((id) => id && id !== gate && !placed.has(id))
 }
+
+const EMPTY_SEATS_WARNING = /^נותרו \d+ מקומות ריקים בסבבים/
+
+/** Clear people from rounds that sit outside a lane's activity hours. */
+export function applyLaneActivityHours(
+  rounds: SelectorRound[],
+  lanes: Lane[],
+  warnings: string[],
+  overrides?: StaffingOverrides | null,
+): { rounds: SelectorRound[]; warnings: string[]; changed: boolean } {
+  const byId = new Map(lanes.map((lane) => [lane.id, lane]))
+  let cleared = false
+  let emptySeats = 0
+  const nextRounds = rounds.map((round) => ({
+    ...round,
+    assignments: round.assignments.map((assignment) => {
+      const lane = byId.get(assignment.laneId)
+      const open =
+        !lane ||
+        laneOpenDuring(
+          lane.activeHours,
+          round.startMinutes,
+          round.endMinutes,
+        )
+      if (!open) {
+        if (assignment.workerIds.some(Boolean)) {
+          cleared = true
+          return { ...assignment, workerIds: [] }
+        }
+        return assignment
+      }
+      if (!lane) return assignment
+      const standard = effectiveStaffingStandard(lane, overrides)
+      const filled = assignment.workerIds.filter(Boolean).length
+      if (filled < standard) emptySeats += standard - filled
+      return assignment
+    }),
+  }))
+  const kept = warnings.filter((warning) => !EMPTY_SEATS_WARNING.test(warning))
+  const nextWarnings =
+    emptySeats > 0
+      ? [
+          ...kept,
+          `נותרו ${emptySeats} מקומות ריקים בסבבים — אין מספיק סלקטורים מוסמכים לכל הנתיבים`,
+        ]
+      : kept
+  const warningsChanged =
+    nextWarnings.length !== warnings.length ||
+    nextWarnings.some((warning, index) => warning !== warnings[index])
+  if (!cleared && !warningsChanged) {
+    return { rounds, warnings, changed: false }
+  }
+  return {
+    rounds: cleared ? nextRounds : rounds,
+    warnings: nextWarnings,
+    changed: true,
+  }
+}

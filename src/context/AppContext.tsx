@@ -73,6 +73,7 @@ import {
 } from '../lib/briefings'
 import {
   assignSelectorRounds,
+  applyLaneActivityHours,
   clearWorkerFromRounds,
   emptySelectorRounds,
   setSelectorCell,
@@ -401,6 +402,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /** Restored drafts were already persisted → treat as dirty until discarded/saved clean. */
   const [draftDirty, setDraftDirty] = useState(() => restoreDraft() != null)
   const draftBaselineRef = useRef<string | null>(null)
+  const laneHoursKey = data.lanes
+    .map(
+      (lane) =>
+        `${lane.id}:${(lane.activeHours ?? [])
+          .map((span) => `${span.start}-${span.end}`)
+          .join(',')}`,
+    )
+    .join('|')
+
+  useEffect(() => {
+    setDraft((current) => {
+      if (!current?.rounds?.length) return current
+      const applied = applyLaneActivityHours(
+        current.rounds,
+        data.lanes,
+        current.warnings,
+        current.staffingOverrides,
+      )
+      if (!applied.changed) return current
+      return {
+        ...current,
+        rounds: applied.rounds,
+        warnings: applied.warnings,
+      }
+    })
+  }, [laneHoursKey, draft?.id, data.lanes])
 
   const dataRef = useRef(data)
   dataRef.current = data

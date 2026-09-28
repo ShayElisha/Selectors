@@ -46,7 +46,7 @@ function shift(
 }
 
 describe('computeShortReturnRate', () => {
-  it('counts day-shift short returns and ignores nights', () => {
+  it('counts short returns and includes nights', () => {
     const workers = [worker('a', 'A')]
     const lanes = [lane('l1', 'נתיב 1')]
     const history = [
@@ -62,10 +62,10 @@ describe('computeShortReturnRate', () => {
       ]),
     ]
     const q = computeShortReturnRate(history, workers, lanes, { maxDays: 2 })
-    // Day placements: 10 morning, 11 afternoon (short), 15 morning (not short)
-    expect(q.totalDayPlacements).toBe(3)
-    expect(q.shortReturnPlacements).toBe(1)
-    expect(q.rate).toBeCloseTo(1 / 3)
+    // 10 morning, 10 night (same day, short), 11 afternoon (short), 15 morning
+    expect(q.totalDayPlacements).toBe(4)
+    expect(q.shortReturnPlacements).toBe(2)
+    expect(q.rate).toBeCloseTo(0.5)
   })
 })
 
