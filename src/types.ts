@@ -9,6 +9,8 @@ export type ShiftType =
 /** Per-lane / per-shift staffing תקן (max participants). */
 export type StaffingStandard = 1 | 2 | 3 | 4 | 5
 
+export type StaffKind = 'inspector' | 'selector'
+
 export interface Worker {
   id: string
   fullName: string
@@ -21,6 +23,10 @@ export interface Worker {
   isInspector: boolean
   /** Can log in to the system with phone + password */
   isManager: boolean
+  /** Which side this person belongs to. Org managers can see both. */
+  staffKind?: StaffKind
+  /** Sees both modules and may appoint other organization managers. */
+  isOrgManager?: boolean
 }
 
 export interface Lane {
@@ -111,6 +117,8 @@ export interface AppData {
   questionBank: InspectorQuestion[]
   /** Customs broker companies and contacts (editable directory) */
   customsBrokers: CustomsBroker[]
+  /** Shift windows for this module. Empty means the built-in defaults. */
+  shiftModels?: ShiftModel[]
   /** Optimistic-lock revision from Mongo */
   revision?: number
 }
@@ -151,6 +159,15 @@ export interface CustomsBroker {
   contacts: CustomsBrokerContact[]
 }
 
+/** Named shift window stored separately for selectors and for inspectors. */
+export interface ShiftModel {
+  id: string
+  name: string
+  startMinutes: number
+  endMinutes: number
+  order: number
+}
+
 export type View =
   | 'home'
   | 'shift'
@@ -162,3 +179,5 @@ export type View =
   | 'audit'
   | 'certs'
   | 'briefings'
+  | 'shiftModels'
+  | 'customsBrokers'

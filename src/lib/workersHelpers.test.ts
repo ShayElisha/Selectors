@@ -234,6 +234,7 @@ describe('validation and history', () => {
         status: 'active',
         isInspector: true,
         isManager: false,
+        staffKind: 'inspector',
       }),
     ).toEqual({})
     expect(

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  getAuditCollection,
   getDb,
   getMetaCollection,
   getStateCollection,
@@ -10,9 +11,14 @@ import { sendTempPasswordEmail } from './mail.js'
 import {
   generateTempPassword,
   hashPassword,
-  validatePasswordRules,
-  verifyPassword,
 } from './password.js'
+import {
+  authenticateManager,
+  createLegacyOrganization,
+  disableWorkerAccount,
+  requestAccountPasswordReset,
+  upsertManagerAccount,
+} from './orgs.js'
 
 export const DEFAULT_CERTIFICATIONS = [
   'בדיקת דרכונים',
@@ -181,11 +187,14 @@ export function createSeedData() {
   }
 }
 
-function normalizeWorker(w) {
+function normalizeWorker(w, fallbackKind = 'selector') {
   const isManager = Boolean(w.isManager) || isDefaultManager(w)
   const hasInspectorFlag = Object.prototype.hasOwnProperty.call(w, 'isInspector')
   let isInspector = hasInspectorFlag ? Boolean(w.isInspector) : !isManager
   if (!isInspector && !isManager) isInspector = true
+  const staffKind =
+    w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : fallbackKind
+  const isOrgManager = Boolean(w.isOrgManager)
   const worker = {
     id: w.id,
     fullName: w.fullName || '',
@@ -194,7 +203,9 @@ function normalizeWorker(w) {
     certifications: Array.isArray(w.certifications) ? w.certifications : [],
     status: w.status === 'inactive' ? 'inactive' : 'active',
     isInspector,
-    isManager,
+    isManager: isManager || isOrgManager,
+    staffKind,
+    isOrgManager,
   }
   if (typeof w.passwordHash === 'string' && w.passwordHash) {
     worker.passwordHash = w.passwordHash
@@ -203,6 +214,29 @@ function normalizeWorker(w) {
     worker.mustChangePassword = Boolean(w.mustChangePassword)
   }
   return worker
+}
+
+function normalizeShiftModels(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null
+      const id = String(item.id || '').trim()
+      const name = String(item.name || '').trim()
+      const startMinutes = Number(item.startMinutes)
+      const endMinutes = Number(item.endMinutes)
+      if (!id || !name) return null
+      if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null
+      return {
+        id,
+        name,
+        startMinutes: Math.max(0, Math.round(startMinutes)),
+        endMinutes: Math.max(0, Math.round(endMinutes)),
+        order: Number.isFinite(Number(item.order)) ? Number(item.order) : index,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.order - b.order)
 }
 
 function normalizeLane(l) {
@@ -290,7 +324,8 @@ function normalizeCustomsBrokersList(list) {
   return out.length > 0 ? out : seed
 }
 
-export function normalizeData(raw) {
+export function normalizeData(raw, fallbackKind = 'selector') {
+  const kind = fallbackKind === 'inspector' ? 'inspector' : 'selector'
   const briefingSections = Array.isArray(raw?.briefingSections)
     ? raw.briefingSections
         .map((s) => {
@@ -379,7 +414,9 @@ export function normalizeData(raw) {
   }
 
   return {
-    workers: Array.isArray(raw?.workers) ? raw.workers.map(normalizeWorker) : [],
+    workers: Array.isArray(raw?.workers)
+      ? raw.workers.map((worker) => normalizeWorker(worker, kind))
+      : [],
     lanes,
     history: Array.isArray(raw?.history) ? raw.history : [],
     certificationsCatalog: Array.isArray(raw?.certificationsCatalog)
@@ -388,6 +425,7 @@ export function normalizeData(raw) {
     briefingSections,
     questionBank,
     customsBrokers: normalizeCustomsBrokersList(raw?.customsBrokers),
+    shiftModels: normalizeShiftModels(raw?.shiftModels),
     revision: Number.isFinite(Number(raw?.revision)) ? Number(raw.revision) : 0,
   }
 }
@@ -427,6 +465,36 @@ function mergeWorkerSecrets(incomingWorkers, prevWorkers) {
     }
     return next
   })
+}
+
+function assertOrgManagerEdits(nextWorkers, prevWorkers, actor) {
+  if (actor?.isOrgManager || actor?.role === 'super_admin') return
+  const prevById = new Map((prevWorkers || []).map((worker) => [worker.id, worker]))
+  for (const worker of nextWorkers) {
+    const prev = prevById.get(worker.id)
+    if (Boolean(prev?.isOrgManager) !== Boolean(worker.isOrgManager)) {
+      const err = new Error('רק מנהל ארגון יכול למנות או להסיר מנהל ארגון')
+      err.status = 403
+      throw err
+    }
+  }
+}
+
+async function syncManagerAccess(workers, orgId) {
+  if (!orgId) return
+  for (const worker of workers) {
+    if (!worker.isManager && !worker.isOrgManager) continue
+    if (!worker.phone) continue
+    await upsertManagerAccount({
+      orgId,
+      workerId: worker.id,
+      fullName: worker.fullName,
+      phone: worker.phone,
+      email: worker.email,
+      staffKind: worker.staffKind === 'inspector' ? 'inspector' : 'selector',
+      isOrgManager: Boolean(worker.isOrgManager),
+    })
+  }
 }
 
 function assertManagersHaveEmail(workers, prevWorkers) {
@@ -469,6 +537,9 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
 
   for (const w of workers) {
     const prev = prevById.get(w.id)
+    if (options.scope?.orgId && prev?.isManager && !w.isManager) {
+      await disableWorkerAccount(options.scope.orgId, w.id)
+    }
     if (!shouldIssueTempPassword(w, prev)) {
       nextWorkers.push(w)
       continue
@@ -489,14 +560,30 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
       continue
     }
     const passwordHash = await hashPassword(tempPassword)
-    nextWorkers.push({
+    const invited = {
       ...w,
       passwordHash,
       mustChangePassword: true,
-    })
+    }
+    if (options.scope?.orgId) {
+      await upsertManagerAccount({
+        orgId: options.scope.orgId,
+        workerId: w.id,
+        fullName: w.fullName,
+        phone: w.phone,
+        email: w.email,
+        passwordHash,
+        mustChangePassword: true,
+        staffKind: w.staffKind,
+        isOrgManager: Boolean(w.isOrgManager),
+      })
+    }
+    nextWorkers.push(invited)
     await appendAuditLog({
       action: 'manager_invite',
       actor: options.actor || null,
+      orgId: options.scope?.orgId,
+      module: options.scope?.module,
       details: `סיסמה זמנית נשלחה אל ${w.fullName} (${w.email})`,
     })
   }
@@ -520,6 +607,7 @@ const MODEL_COLLECTIONS = {
   briefingSections: 'briefing_sections',
   questionBank: 'questions',
   customsBrokers: 'customs_brokers',
+  shiftModels: 'shift_models',
 }
 
 function orderedDocs(items) {
@@ -532,17 +620,36 @@ function orderedDocs(items) {
 function fromOrderedDocs(docs) {
   return [...docs]
     .sort((a, b) => (a.listOrder ?? 0) - (b.listOrder ?? 0))
-    .map(({ _id: _ignored, listOrder: _order, ...item }) => item)
+    .map(({ _id: _ignored, listOrder: _order, orgId: _org, module: _module, ...item }) => item)
 }
 
-async function loadModelDocs(db, name, session) {
-  const query = db.collection(name).find({}, session ? { session } : {})
+function scopeFilter(scope) {
+  if (!scope) return { orgId: { $exists: false } }
+  return { orgId: scope.orgId, module: scope.module }
+}
+
+function metaIdFor(scope) {
+  return scope ? `${scope.orgId}:${scope.module}` : 'main'
+}
+
+function stampScope(doc, scope) {
+  if (!scope) return doc
+  const next = { ...doc, orgId: scope.orgId, module: scope.module }
+  if (doc.id) next._id = `${scope.orgId}:${scope.module}:${doc.id}`
+  return next
+}
+
+async function loadModelDocs(db, name, session, scope) {
+  const query = db.collection(name).find(
+    scopeFilter(scope),
+    session ? { session } : {},
+  )
   return query.toArray()
 }
 
-async function assembleState(revision, session) {
-  const db = await getDb()
-  const read = (name) => loadModelDocs(db, name, session)
+async function assembleState(revision, session, scope, target = 'selectors') {
+  const db = await getDb(target)
+  const read = (name) => loadModelDocs(db, name, session, scope)
   const workers = fromOrderedDocs(await read(MODEL_COLLECTIONS.workers))
   const lanes = fromOrderedDocs(await read(MODEL_COLLECTIONS.lanes))
   const history = fromOrderedDocs(await read(MODEL_COLLECTIONS.shifts))
@@ -556,51 +663,78 @@ async function assembleState(revision, session) {
   const customsBrokers = fromOrderedDocs(
     await read(MODEL_COLLECTIONS.customsBrokers),
   )
-  return normalizeData({
-    workers,
-    lanes,
-    history,
-    certificationsCatalog: certifications.map((item) => item.name),
-    briefingSections,
-    questionBank,
-    customsBrokers,
-    revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
-  })
+  const shiftModels = fromOrderedDocs(await read(MODEL_COLLECTIONS.shiftModels))
+  return normalizeData(
+    {
+      workers,
+      lanes,
+      history,
+      certificationsCatalog: certifications.map((item) => item.name),
+      briefingSections,
+      questionBank,
+      customsBrokers,
+      shiftModels,
+      revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
+    },
+    scope?.module === 'inspectors' ? 'inspector' : 'selector',
+  )
 }
 
-async function replaceModels(snapshot, revision, session) {
-  const db = await getDb()
+async function replaceModels(snapshot, revision, session, scope = null, target = 'selectors') {
+  const db = await getDb(target)
+  const certPrefix = scope ? `${scope.orgId}:${scope.module}:cert` : 'cert'
   const models = [
-    [MODEL_COLLECTIONS.workers, orderedDocs(snapshot.workers || [])],
-    [MODEL_COLLECTIONS.lanes, orderedDocs(snapshot.lanes || [])],
-    [MODEL_COLLECTIONS.shifts, orderedDocs(snapshot.history || [])],
+    [
+      MODEL_COLLECTIONS.workers,
+      orderedDocs(snapshot.workers || []).map((doc) => stampScope(doc, scope)),
+    ],
+    [
+      MODEL_COLLECTIONS.lanes,
+      orderedDocs(snapshot.lanes || []).map((doc) => stampScope(doc, scope)),
+    ],
+    [
+      MODEL_COLLECTIONS.shifts,
+      orderedDocs(snapshot.history || []).map((doc) => stampScope(doc, scope)),
+    ],
     [
       MODEL_COLLECTIONS.certifications,
-      (snapshot.certificationsCatalog || []).map((name, listOrder) => ({
-        _id: `cert:${listOrder}`,
-        name: String(name),
-        listOrder,
-      })),
+      (snapshot.certificationsCatalog || []).map((name, listOrder) =>
+        stampScope(
+          {
+            _id: `${certPrefix}:${listOrder}`,
+            name: String(name),
+            listOrder,
+          },
+          scope,
+        ),
+      ),
     ],
     [
       MODEL_COLLECTIONS.briefingSections,
-      orderedDocs(snapshot.briefingSections || []),
+      orderedDocs(snapshot.briefingSections || []).map((doc) => stampScope(doc, scope)),
     ],
-    [MODEL_COLLECTIONS.questionBank, orderedDocs(snapshot.questionBank || [])],
+    [
+      MODEL_COLLECTIONS.questionBank,
+      orderedDocs(snapshot.questionBank || []).map((doc) => stampScope(doc, scope)),
+    ],
     [
       MODEL_COLLECTIONS.customsBrokers,
-      orderedDocs(snapshot.customsBrokers || []),
+      orderedDocs(snapshot.customsBrokers || []).map((doc) => stampScope(doc, scope)),
+    ],
+    [
+      MODEL_COLLECTIONS.shiftModels,
+      orderedDocs(snapshot.shiftModels || []).map((doc) => stampScope(doc, scope)),
     ],
   ]
   for (const [name, docs] of models) {
     const col = db.collection(name)
     const opts = session ? { session } : {}
-    await col.deleteMany({}, opts)
+    await col.deleteMany(scopeFilter(scope), opts)
     if (docs.length > 0) await col.insertMany(docs, opts)
   }
-  const meta = await getMetaCollection()
+  const meta = await getMetaCollection(target)
   await meta.updateOne(
-    { _id: 'main' },
+    { _id: metaIdFor(scope) },
     {
       $set: {
         schema: 'collections',
@@ -612,15 +746,15 @@ async function replaceModels(snapshot, revision, session) {
   )
 }
 
-async function migrateLegacyState(session) {
-  const metaCol = await getMetaCollection()
+async function migrateLegacyState(session, target = 'selectors') {
+  const metaCol = await getMetaCollection(target)
   const opts = session ? { session } : {}
   const meta = await metaCol.findOne({ _id: 'main' }, opts)
   if (meta?.schema === 'collections') {
-    return assembleState(meta.revision, session)
+    return assembleState(meta.revision, session, null, target)
   }
 
-  const legacyCol = await getStateCollection()
+  const legacyCol = await getStateCollection(target)
   const legacy = await legacyCol.findOne({ _id: 'main' }, opts)
   const source = legacy ? normalizeData(legacy) : createSeedData()
   const revision = legacy
@@ -640,6 +774,8 @@ async function migrateLegacyState(session) {
     },
     revision,
     session,
+    null,
+    target,
   )
   if (legacy) {
     await legacyCol.updateOne(
@@ -651,17 +787,199 @@ async function migrateLegacyState(session) {
   return { ...source, revision }
 }
 
-export async function readState() {
-  const metaCol = await getMetaCollection()
-  const meta = await metaCol.findOne({ _id: 'main' })
-  if (meta?.schema === 'collections') {
-    return assembleState(meta.revision)
+let tenancyMigration = null
+
+function snapshotOf(source) {
+  return {
+    workers: source.workers,
+    lanes: source.lanes,
+    history: source.history,
+    certificationsCatalog: source.certificationsCatalog,
+    briefingSections: source.briefingSections,
+    questionBank: source.questionBank,
+    customsBrokers: source.customsBrokers,
+    shiftModels: source.shiftModels,
   }
-  return withDbTransaction((session) => migrateLegacyState(session))
+}
+
+async function hasStoredOperationalData(target = 'selectors') {
+  const db = await getDb(target)
+  for (const name of Object.values(MODEL_COLLECTIONS)) {
+    const count = await db.collection(name).countDocuments({ orgId: { $exists: false } })
+    if (count > 0) return true
+  }
+  const legacyCol = await getStateCollection(target)
+  const legacy = await legacyCol.findOne({ _id: 'main' })
+  if (!legacy || legacy.archivedAt || legacy.supersededBy === 'tenancy') return false
+  return Boolean(
+    (Array.isArray(legacy.workers) && legacy.workers.length) ||
+      (Array.isArray(legacy.lanes) && legacy.lanes.length) ||
+      (Array.isArray(legacy.history) && legacy.history.length),
+  )
+}
+
+/** Move the previous single-body database into one approved organization. */
+export async function migrateLegacyTenancy() {
+  if (!tenancyMigration) {
+    tenancyMigration = runLegacyTenancyMigration().catch((err) => {
+      tenancyMigration = null
+      throw err
+    })
+  }
+  return tenancyMigration
+}
+
+async function runLegacyTenancyMigration() {
+  const metaCol = await getMetaCollection()
+  const done = await metaCol.findOne({ _id: 'tenancy-v1' })
+  if (done?.done) return
+
+  const exists = await hasStoredOperationalData()
+  if (exists) {
+    const meta = await metaCol.findOne({ _id: 'main' })
+    let source
+    if (meta?.schema === 'collections') {
+      source = await assembleState(meta.revision, undefined, null)
+    } else {
+      source = await migrateLegacyState()
+    }
+    const hasRows =
+      source.workers.length > 0 ||
+      source.lanes.length > 0 ||
+      source.history.length > 0
+    if (hasRows) {
+      const orgId = await createLegacyOrganization(source.workers)
+      const revision = source.revision || 1
+      await replaceModels(
+        { ...snapshotOf(source), history: source.history },
+        revision,
+        undefined,
+        { orgId, module: 'selectors' },
+      )
+      await replaceModels(
+        { ...snapshotOf(source), history: [] },
+        revision,
+        undefined,
+        { orgId, module: 'inspectors' },
+      )
+      const db = await getDb()
+      for (const name of Object.values(MODEL_COLLECTIONS)) {
+        await db.collection(name).deleteMany({ orgId: { $exists: false } })
+      }
+    }
+  }
+
+  await metaCol.updateOne(
+    { _id: 'tenancy-v1' },
+    { $set: { done: true, at: new Date() } },
+    { upsert: true },
+  )
+}
+
+function emptyState() {
+  return normalizeData({
+    workers: [],
+    lanes: [],
+    history: [],
+    certificationsCatalog: [],
+    briefingSections: [],
+    questionBank: [],
+    customsBrokers: [],
+    shiftModels: [],
+    revision: 0,
+  })
+}
+
+function targetForScope(scope) {
+  return scope?.module === 'inspectors' ? 'inspectors' : 'selectors'
+}
+
+let inspectorsMigration = null
+
+/** Attach the existing inspectors database to the original organization. */
+export async function migrateInspectorsDatabase() {
+  if (!process.env.MONGODB_URI_INSPECTORS?.trim()) return
+  if (!inspectorsMigration) {
+    inspectorsMigration = runInspectorsMigration().catch((err) => {
+      inspectorsMigration = null
+      throw err
+    })
+  }
+  return inspectorsMigration
+}
+
+async function runInspectorsMigration() {
+  const target = 'inspectors'
+  const metaCol = await getMetaCollection(target)
+  const done = await metaCol.findOne({ _id: 'inspectors-tenancy-v1' })
+  if (done?.done) return
+
+  const exists = await hasStoredOperationalData(target)
+  if (!exists) {
+    await metaCol.updateOne(
+      { _id: 'inspectors-tenancy-v1' },
+      { $set: { done: true, at: new Date(), empty: true } },
+      { upsert: true },
+    )
+    return
+  }
+
+  const meta = await metaCol.findOne({ _id: 'main' })
+  const source =
+    meta?.schema === 'collections'
+      ? await assembleState(meta.revision, undefined, null, target)
+      : await migrateLegacyState(undefined, target)
+
+  const orgId = await createLegacyOrganization(source.workers)
+  const revision = source.revision || 1
+  await replaceModels(
+    snapshotOf(source),
+    revision,
+    undefined,
+    { orgId, module: 'inspectors' },
+    target,
+  )
+  const db = await getDb(target)
+  for (const name of Object.values(MODEL_COLLECTIONS)) {
+    await db.collection(name).deleteMany({ orgId: { $exists: false } })
+  }
+  const audit = await getAuditCollection(target)
+  await audit.updateMany(
+    { orgId: { $exists: false } },
+    { $set: { orgId, module: 'inspectors' } },
+  )
+  await metaCol.updateOne(
+    { _id: 'inspectors-tenancy-v1' },
+    { $set: { done: true, at: new Date(), orgId } },
+    { upsert: true },
+  )
+}
+
+export async function readState(scope) {
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error('חסר הקשר ארגון')
+    err.status = 400
+    throw err
+  }
+  const target = targetForScope(scope)
+  if (target === 'inspectors') await migrateInspectorsDatabase()
+  else await migrateLegacyTenancy()
+  const metaCol = await getMetaCollection(target)
+  const meta = await metaCol.findOne({ _id: metaIdFor(scope) })
+  if (meta?.schema === 'collections') {
+    return assembleState(meta.revision, undefined, scope, target)
+  }
+  return emptyState()
 }
 
 export async function writeState(data, options = {}) {
-  const prev = await readState()
+  const scope = options.scope
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error('חסר הקשר ארגון')
+    err.status = 400
+    throw err
+  }
+  const prev = await readState(scope)
   const currentRevision = prev?.revision ?? 0
 
   if (
@@ -676,14 +994,19 @@ export async function writeState(data, options = {}) {
     throw err
   }
 
-  const normalized = normalizeData(data)
+  const normalized = normalizeData(
+    data,
+    scope.module === 'inspectors' ? 'inspector' : 'selector',
+  )
   let workers = mergeWorkerSecrets(normalized.workers, prev?.workers)
+  assertOrgManagerEdits(workers, prev?.workers, options.actor)
   if (!options.skipManagerInvites) {
     assertManagersHaveEmail(workers, prev?.workers)
   }
 
   const invited = await applyManagerInvites(workers, prev?.workers, options)
   workers = invited.workers
+  await syncManagerAccess(workers, scope.orgId)
 
   const payload = {
     ...normalized,
@@ -698,12 +1021,14 @@ export async function writeState(data, options = {}) {
     briefingSections: payload.briefingSections ?? [],
     questionBank: payload.questionBank ?? [],
     customsBrokers: payload.customsBrokers ?? [],
+    shiftModels: payload.shiftModels ?? [],
   }
 
+  const target = targetForScope(scope)
   await withDbTransaction(async (session) => {
-    const metaCol = await getMetaCollection()
+    const metaCol = await getMetaCollection(target)
     const opts = session ? { session } : {}
-    const meta = await metaCol.findOne({ _id: 'main' }, opts)
+    const meta = await metaCol.findOne({ _id: metaIdFor(scope) }, opts)
     const liveRevision = Number(meta?.revision ?? 0)
     if (
       options.expectedRevision != null &&
@@ -715,8 +1040,8 @@ export async function writeState(data, options = {}) {
       err.status = 409
       throw err
     }
-    await replaceModels(toStore, nextRevision, session)
-  })
+    await replaceModels(toStore, nextRevision, session, scope, target)
+  }, target)
 
   const result = { ...payload, revision: nextRevision }
 
@@ -726,6 +1051,8 @@ export async function writeState(data, options = {}) {
         action: 'data_reset',
         actor: options.actor,
         details: options.details || 'איפוס לכל נתוני הדוגמה',
+        orgId: scope.orgId,
+        module: scope.module,
       })
     } else if (prev) {
       const events = diffAppDataAuditEvents(prev, result)
@@ -734,6 +1061,8 @@ export async function writeState(data, options = {}) {
           action: ev.action,
           actor: options.actor,
           details: ev.details,
+          orgId: scope.orgId,
+          module: scope.module,
         })
       }
     }
@@ -743,201 +1072,18 @@ export async function writeState(data, options = {}) {
 }
 
 export async function loginByPhone(phoneRaw, credentials = {}) {
-  const phone = normalizePhone(phoneRaw)
-  if (!phone) {
-    const err = new Error('נא להזין מספר טלפון')
-    err.status = 400
-    throw err
-  }
-  const data = await readState()
-  const manager = data.workers.find(
-    (w) =>
-      w.isManager &&
-      w.status === 'active' &&
-      normalizePhone(w.phone) === phone,
-  )
-  if (!manager) {
-    const err = new Error('אין הרשאת מנהל למספר זה')
-    err.status = 401
-    throw err
-  }
-
-  const hasPassword = Boolean(manager.passwordHash)
-  const password =
-    typeof credentials.password === 'string' ? credentials.password : ''
-  const newPassword =
-    typeof credentials.newPassword === 'string' ? credentials.newPassword : ''
-  const newPasswordConfirm =
-    typeof credentials.newPasswordConfirm === 'string'
-      ? credentials.newPasswordConfirm
-      : typeof credentials.passwordConfirm === 'string'
-        ? credentials.passwordConfirm
-        : ''
-
-  // Step 1: phone only
-  if (!password) {
-    if (!hasPassword) {
-      return {
-        next: 'await_email',
-        phone: manager.phone,
-        message:
-          'טרם הוגדרה סיסמה. פנה/י למנהל שישלח סיסמה זמנית למייל, או השתמשו באיפוס סיסמה.',
-      }
-    }
-    return {
-      next: 'login',
-      phone: manager.phone,
-      mustChangePassword: Boolean(manager.mustChangePassword),
-    }
-  }
-
-  if (!hasPassword) {
-    const err = new Error(
-      'אין סיסמה לחשבון. יש לבקש סיסמה זמנית במייל ממנהל המערכת או דרך איפוס סיסמה.',
-    )
-    err.status = 400
-    throw err
-  }
-
-  const ok = await verifyPassword(password, manager.passwordHash)
-  if (!ok) {
-    const err = new Error('סיסמה שגויה')
-    err.status = 401
-    throw err
-  }
-
-  // Forced permanent password after temp / reset
-  if (manager.mustChangePassword) {
-    if (!newPassword) {
-      return {
-        next: 'change_password',
-        phone: manager.phone,
-      }
-    }
-    const ruleError = validatePasswordRules(newPassword)
-    if (ruleError) {
-      const err = new Error(ruleError)
-      err.status = 400
-      throw err
-    }
-    if (newPassword !== newPasswordConfirm) {
-      const err = new Error('אימות הסיסמה אינו תואם')
-      err.status = 400
-      throw err
-    }
-    if (newPassword === password) {
-      const err = new Error('יש לבחור סיסמה קבועה שונה מהסיסמה הזמנית')
-      err.status = 400
-      throw err
-    }
-    const passwordHash = await hashPassword(newPassword)
-    await writeState(
-      {
-        ...data,
-        workers: data.workers.map((w) =>
-          w.id === manager.id
-            ? { ...w, passwordHash, mustChangePassword: false }
-            : w,
-        ),
-      },
-      { skipAudit: true, skipManagerInvites: true },
-    )
-    const user = {
-      id: manager.id,
-      fullName: manager.fullName,
-      phone: manager.phone,
-    }
-    await appendAuditLog({
-      action: 'login',
-      actor: user,
-      details: 'הגדרת סיסמה קבועה והתחברות',
-    })
-    return user
-  }
-
-  const user = {
-    id: manager.id,
-    fullName: manager.fullName,
-    phone: manager.phone,
-  }
-  await appendAuditLog({
-    action: 'login',
-    actor: user,
-    details: 'התחברות למערכת',
-  })
-  return user
+  return authenticateManager(phoneRaw, credentials)
 }
 
-/** Self-service / admin: email a new temporary password. */
+/** Self-service: email a new temporary password to an organization manager. */
 export async function requestPasswordReset(phoneRaw) {
-  const phone = normalizePhone(phoneRaw)
-  if (!phone) {
-    const err = new Error('נא להזין מספר טלפון')
-    err.status = 400
-    throw err
-  }
-  const data = await readState()
-  const manager = data.workers.find(
-    (w) =>
-      w.isManager &&
-      w.status === 'active' &&
-      normalizePhone(w.phone) === phone,
-  )
-
-  // Generic response — do not reveal whether the phone exists
-  const generic = {
-    ok: true,
-    message: 'אם המספר רשום כמנהל, נשלחה סיסמה זמנית למייל המשויך.',
-  }
-
-  if (!manager || !isValidEmail(manager.email)) {
-    return generic
-  }
-
-  const tempPassword = generateTempPassword()
-  try {
-    await sendTempPasswordEmail({
-      to: manager.email,
-      fullName: manager.fullName,
-      tempPassword,
-      reason: 'reset',
-    })
-  } catch (e) {
-    console.error('password reset mail failed', e)
-    const err = new Error(
-      e instanceof Error && e.status === 503
-        ? e.message
-        : 'שליחת מייל האיפוס נכשלה. נסו שוב מאוחר יותר.',
-    )
-    err.status = e?.status || 502
-    throw err
-  }
-
-  const passwordHash = await hashPassword(tempPassword)
-  await writeState(
-    {
-      ...data,
-      workers: data.workers.map((w) =>
-        w.id === manager.id
-          ? { ...w, passwordHash, mustChangePassword: true }
-          : w,
-      ),
-    },
-    { skipAudit: true, skipManagerInvites: true },
-  )
-
-  await appendAuditLog({
-    action: 'password_reset',
-    actor: { id: manager.id, fullName: manager.fullName, phone: manager.phone },
-    details: `איפוס סיסמה נשלח אל ${manager.email}`,
-  })
-
-  return generic
+  return requestAccountPasswordReset(phoneRaw)
 }
 
 /** Authenticated: re-send temporary password to a manager. */
-export async function resendManagerTempPassword(workerId, actor) {
-  const data = await readState()
+export async function resendManagerTempPassword(workerId, actor, options = {}) {
+  const scope = options.scope
+  const data = await readState(scope)
   const manager = data.workers.find((w) => w.id === workerId)
   if (!manager || !manager.isManager) {
     const err = new Error('המשתמש אינו מנהל')
@@ -959,6 +1105,15 @@ export async function resendManagerTempPassword(workerId, actor) {
   })
 
   const passwordHash = await hashPassword(tempPassword)
+  await upsertManagerAccount({
+    orgId: scope.orgId,
+    workerId: manager.id,
+    fullName: manager.fullName,
+    phone: manager.phone,
+    email: manager.email,
+    passwordHash,
+    mustChangePassword: true,
+  })
   await writeState(
     {
       ...data,
@@ -968,22 +1123,29 @@ export async function resendManagerTempPassword(workerId, actor) {
           : w,
       ),
     },
-    { skipAudit: true, skipManagerInvites: true },
+    { skipAudit: true, skipManagerInvites: true, scope },
   )
 
   await appendAuditLog({
     action: 'manager_invite',
     actor: actor || null,
+    orgId: scope.orgId,
+    module: scope.module,
     details: `סיסמה זמנית נשלחה מחדש אל ${manager.fullName} (${manager.email})`,
   })
   return { ok: true }
 }
 
 export async function upsertShift(id, body, actor, options = {}) {
-  const state = await readState()
+  const scope = options.scope
+  const state = await readState(scope)
   const schedule = { ...body, id }
   delete schedule.actor
   delete schedule.expectedRevision
+  if (scope?.module === 'inspectors') {
+    schedule.audience = 'inspector'
+    delete schedule.rounds
+  }
 
   const audienceOf = (h) => (h?.audience === 'selector' ? 'selector' : 'inspector')
   const conflict = (state.history || []).find(
@@ -1013,6 +1175,8 @@ export async function upsertShift(id, body, actor, options = {}) {
     {
       skipAudit: true,
       expectedRevision: options.expectedRevision,
+      scope,
+      actor,
     },
   )
 
@@ -1027,13 +1191,16 @@ export async function upsertShift(id, body, actor, options = {}) {
     action: isNew ? 'shift_save' : 'shift_update',
     actor,
     details,
+    orgId: scope?.orgId,
+    module: scope?.module,
   })
 
   return saved
 }
 
 export async function deleteShift(id, actor, options = {}) {
-  const state = await readState()
+  const scope = options.scope
+  const state = await readState(scope)
   const existing = state.history.find((h) => h.id === id)
   const saved = await writeState(
     {
@@ -1043,6 +1210,8 @@ export async function deleteShift(id, actor, options = {}) {
     {
       skipAudit: true,
       expectedRevision: options.expectedRevision,
+      scope,
+      actor,
     },
   )
   await appendAuditLog({
@@ -1051,6 +1220,8 @@ export async function deleteShift(id, actor, options = {}) {
     details: existing
       ? `נמחק שיבוץ ${existing.date} · ${existing.shiftType}`
       : `נמחק שיבוץ ${id}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
   })
   return saved
 }

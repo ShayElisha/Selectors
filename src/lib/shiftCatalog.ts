@@ -121,6 +121,7 @@ export function windowCoversRound(
 ): boolean {
   const preset = workerWindowById(windowId)
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  if (!shift) return Boolean(windowId)
   if (!preset) {
     return roundStart >= shift.start && roundEnd <= shift.end
   }
@@ -130,6 +131,7 @@ export function windowCoversRound(
 
 export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPreset[] {
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  if (!shift) return WORKER_WINDOWS
   return WORKER_WINDOWS.filter((preset) => {
     const span = windowInterval(preset, shiftType)
     return span.start < shift.end && span.end > shift.start
@@ -145,6 +147,7 @@ export function boardStartMinutes(
   windowIds: Array<string | undefined>,
 ): number {
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  if (!shift) return 6 * 60
   let start = shift.start
   const early = 4 * 60 + 45
   if (!windowIds.some((id) => workerWindowById(id)?.start === early)) return start
@@ -157,6 +160,7 @@ export function roundCutsForWindows(
   windowIds: Array<string | undefined>,
 ): number[] {
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  if (!shift) return []
   const cuts = new Set<number>()
   let earlyArrival = false
   for (const id of windowIds) {

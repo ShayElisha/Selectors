@@ -26,6 +26,7 @@ import {
   saveAppDataRemote,
   saveShiftRemote,
   seedAppDataRemote,
+  type LoginNextStep,
 } from '../api'
 import {
   clearAppDataCache,
@@ -39,11 +40,11 @@ import {
   saveDraftJson,
   saveSession,
   saveShiftStep,
+  type AppModule,
   type SessionUser,
 } from '../auth'
 import {
   findShiftForSlot,
-  getCurrentShiftContext,
   SHIFT_TYPE_LABELS,
   shiftSlotConflictMessage,
 } from '../constants'
@@ -79,7 +80,13 @@ import {
   setSelectorCell,
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
-import { roundCutsForWindows, SELECTABLE_SHIFT_TYPES } from '../lib/shiftCatalog'
+import { roundCutsForWindows } from '../lib/shiftCatalog'
+import { currentShiftModel, resolveShiftModels, shiftModelAbsoluteEnd, shiftModelById } from '../lib/shiftModels'
+import {
+  formatBrokerPhone,
+  normalizeBrokerPhoneDigits,
+  normalizeCustomsBrokers,
+} from '../lib/customsBrokers'
 import type {
   AppData,
   BriefingSection,
@@ -93,20 +100,33 @@ import type {
   StaffingStandard,
   View,
   Worker,
+  ShiftModel,
+  CustomsBroker,
+  CustomsBrokerContact,
 } from '../types'
 
-function normalizeWorkerRoles(w: Worker): Worker {
+function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector'): Worker {
   const isManager = Boolean(w.isManager) || isDefaultManager(w)
   const hasInspector = Object.prototype.hasOwnProperty.call(w, 'isInspector')
   let isInspector = hasInspector ? Boolean(w.isInspector) : !isManager
   if (!isInspector && !isManager) isInspector = true
-  return { ...w, isManager, isInspector }
+  const staffKind =
+    w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : fallbackKind
+  const isOrgManager = Boolean(w.isOrgManager)
+  return {
+    ...w,
+    isManager: isManager || isOrgManager,
+    isInspector,
+    staffKind,
+    isOrgManager,
+  }
 }
 
-function normalizeAppData(data: AppData): AppData {
+function normalizeAppData(data: AppData, module: 'selectors' | 'inspectors' = 'selectors'): AppData {
+  const fallbackKind = module === 'inspectors' ? 'inspector' : 'selector'
   return {
     ...data,
-    workers: data.workers.map(normalizeWorkerRoles),
+    workers: data.workers.map((worker) => normalizeWorkerRoles(worker, fallbackKind)),
     lanes: ensureGateManagerLane(data.lanes ?? [], () => uuid()),
     briefingSections: normalizeBriefingSections(data.briefingSections),
     questionBank: normalizeQuestionBank(data.questionBank),
@@ -146,6 +166,8 @@ interface AppContextValue {
   syncing: boolean
   error: string | null
   user: SessionUser | null
+  module: AppModule
+  setModule: (module: AppModule) => void
   login: (
     phone: string,
     password: string,
@@ -154,7 +176,7 @@ interface AppContextValue {
   /** Phone-only probe: which login UI to show next. */
   checkLogin: (
     phone: string,
-  ) => Promise<'login' | 'change_password' | 'await_email'>
+  ) => Promise<{ next: LoginNextStep; message?: string }>
   requestPasswordReset: (phone: string) => Promise<string>
   resendManagerTempPassword: (workerId: string) => Promise<void>
   logout: () => void
@@ -244,6 +266,14 @@ interface AppContextValue {
   ) => void
   deleteInspectorQuestion: (id: string) => void
   reorderInspectorQuestions: (orderedIds: string[]) => void
+  saveShiftModels: (models: ShiftModel[]) => void
+  upsertCustomsBroker: (broker: { id?: string; name: string }) => void
+  deleteCustomsBroker: (id: string) => void
+  upsertCustomsBrokerContact: (
+    brokerId: string,
+    contact: { id?: string; name: string; phone: string },
+  ) => void
+  deleteCustomsBrokerContact: (brokerId: string, contactId: string) => void
   resetToSeed: () => Promise<void>
   refreshFromServer: () => Promise<void>
 }
@@ -256,6 +286,7 @@ const emptyData: AppData = {
   briefingSections: [],
   questionBank: [],
   customsBrokers: [],
+  shiftModels: [],
   revision: 0,
 }
 
@@ -266,8 +297,13 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function defaultShiftType(): ShiftType {
-  return getCurrentShiftContext().shiftType
+function selectorRoundBounds(shiftType: string, models: ShiftModel[] | undefined, inspectors: boolean) {
+  const model = shiftModelById(
+    resolveShiftModels(models, inspectors ? 'inspectors' : 'selectors'),
+    shiftType,
+  )
+  if (!model) return undefined
+  return { start: model.startMinutes, end: shiftModelAbsoluteEnd(model) }
 }
 
 function padAssignments(
@@ -388,7 +424,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const location = useLocation()
   const initialCache = useMemo(() => {
     const cached = loadAppDataCache()
-    return cached ? normalizeAppData(cached) : null
+    return cached ? normalizeAppData(cached, loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors') : null
   }, [])
   const [data, setData] = useState<AppData>(() => initialCache ?? emptyData)
   const [loading, setLoading] = useState(() => !initialCache)
@@ -445,7 +481,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applyRemoteData = useCallback((remote: AppData) => {
-    const next = normalizeAppData(remote)
+    const next = normalizeAppData(
+      remote,
+      loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
+    )
     skipNextSync.current = true
     dataRef.current = next
     setData(next)
@@ -543,7 +582,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             throw e
           }
           if (e instanceof ApiError && e.status === 409 && e.current) {
-            const server = normalizeAppData(e.current)
+            const server = normalizeAppData(
+              e.current,
+              loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
+            )
             // Keep local intent; adopt only the server's revision (own overlapping write).
             const merged: AppData = {
               ...snapshot,
@@ -644,14 +686,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const checkLogin = useCallback(async (phone: string) => {
     const result = await checkLoginRemote(phone)
-    if (
-      result.next !== 'login' &&
-      result.next !== 'change_password' &&
-      result.next !== 'await_email'
-    ) {
-      throw new Error('תגובת התחברות לא תקינה')
-    }
-    return result.next
+    return { next: result.next, message: result.message }
   }, [])
 
   const login = useCallback(
@@ -669,7 +704,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       saveSession(session)
       setUser(session)
-      navigate('/', { replace: true })
+      navigate(session.role === 'super_admin' ? '/admin' : '/', { replace: true })
     },
     [navigate],
   )
@@ -684,8 +719,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    clearSession()
     clearAppDataCache()
+    clearSession()
     clearDraftStorage()
     setUser(null)
     draftBaselineRef.current = null
@@ -695,23 +730,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     navigate('/login', { replace: true })
   }, [navigate])
 
+  const setModule = useCallback(
+    (next: AppModule) => {
+      if (!user || user.role !== 'org_manager' || user.module === next) return
+      if (!user.modules[next]) return
+      if (
+        draftDirty &&
+        !window.confirm('לעבור למודול האחר? הטיוטה הפתוחה תוסר.')
+      ) {
+        return
+      }
+      const updated = { ...user, module: next }
+      clearAppDataCache()
+      saveSession(updated)
+      clearDraftStorage()
+      draftBaselineRef.current = null
+      setDraftDirty(false)
+      setDraft(null)
+      setData(emptyData)
+      setUser(updated)
+      navigate('/', { replace: true })
+    },
+    [draftDirty, navigate, user],
+  )
+
   useEffect(() => {
-    if (!user?.token) {
+    if (!user?.token || user.role !== 'org_manager') {
       setLoading(false)
       setRefreshing(false)
       return
     }
     void refreshFromServer()
-  }, [user?.token, refreshFromServer])
+  }, [user?.token, user?.role, user?.module, refreshFromServer])
 
   // Redirect unauthenticated users away from app routes
   useEffect(() => {
     const path = location.pathname.replace(/\/+$/, '') || '/'
-    const isPublic = path === '/login' || path === '/privacy'
+    const isPublic = path === '/login' || path === '/privacy' || path === '/register'
     if (!user && !isPublic) {
       navigate('/login', { replace: true })
     }
-    if (user && path === '/login') {
+    if (user?.role === 'super_admin' && path !== '/admin' && path !== '/privacy') {
+      navigate('/admin', { replace: true })
+    }
+    if (
+      user?.role === 'org_manager' &&
+      (path === '/login' || path === '/register' || path === '/admin')
+    ) {
       navigate('/', { replace: true })
     }
   }, [user, location.pathname, navigate])
@@ -801,13 +866,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const startShift = useCallback((audience: ShiftAudience = 'inspector') => {
+    const inspectors = user?.module === 'inspectors'
+    const lockedAudience: ShiftAudience = inspectors ? 'inspector' : audience
+    const models = resolveShiftModels(
+      data.shiftModels,
+      inspectors ? 'inspectors' : 'selectors',
+    )
     const date = todayISO()
-    let shiftType = defaultShiftType()
-    // Prefer a free slot for today so work can start immediately, but never
-    // refuse to open — user can always pick another date/type on the shift page.
-    if (findShiftForSlot(data.history, date, shiftType, undefined, audience)) {
-      const freeType = SELECTABLE_SHIFT_TYPES.find(
-        (t) => !findShiftForSlot(data.history, date, t, undefined, audience),
+    const catalog = models.map((model) => model.id as ShiftType)
+    let shiftType = currentShiftModel(models).model.id as ShiftType
+    if (!catalog.includes(shiftType)) shiftType = catalog[0] ?? shiftType
+    if (findShiftForSlot(data.history, date, shiftType, undefined, lockedAudience)) {
+      const freeType = catalog.find(
+        (t) => !findShiftForSlot(data.history, date, t, undefined, lockedAudience),
       )
       if (freeType) shiftType = freeType
     }
@@ -816,7 +887,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: uuid(),
       date,
       shiftType,
-      audience,
+      audience: lockedAudience,
       activeLaneIds: [],
       presentWorkerIds: [],
       assignments: [],
@@ -829,7 +900,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
     setShiftStep('lanes')
     setView('shift')
-  }, [adoptCleanDraft, data.history, setShiftStep, setView])
+  }, [adoptCleanDraft, data.history, data.shiftModels, setShiftStep, setView, user?.module])
 
   const discardDraft = useCallback(() => {
     draftBaselineRef.current = null
@@ -1228,6 +1299,11 @@ function nightPartnersForMorning(
       )
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
+        bounds: selectorRoundBounds(
+          d.shiftType,
+          data.shiftModels,
+          user?.module === 'inspectors',
+        ),
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
         workers: present,
@@ -1271,6 +1347,11 @@ function nightPartnersForMorning(
         )
         const result = assignSelectorRounds({
           shiftType: d.shiftType,
+          bounds: selectorRoundBounds(
+            d.shiftType,
+            data.shiftModels,
+            user?.module === 'inspectors',
+          ),
           lanes: data.lanes,
           activeLaneIds: d.activeLaneIds,
           workers: present,
@@ -1308,6 +1389,11 @@ function nightPartnersForMorning(
       )
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
+        bounds: selectorRoundBounds(
+          d.shiftType,
+          data.shiftModels,
+          user?.module === 'inspectors',
+        ),
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
         workers: present,
@@ -2106,6 +2192,122 @@ function nightPartnersForMorning(
     [patchData],
   )
 
+  const saveShiftModels = useCallback(
+    (models: ShiftModel[]) => {
+      patchData((prev) => ({
+        ...prev,
+        shiftModels: models.map((model, order) => ({ ...model, order })),
+      }))
+    },
+    [patchData],
+  )
+
+  const upsertCustomsBroker = useCallback(
+    (broker: { id?: string; name: string }) => {
+      const name = broker.name.trim()
+      if (!name) return
+      patchData((prev) => {
+        const list = normalizeCustomsBrokers(prev.customsBrokers)
+        if (broker.id) {
+          return {
+            ...prev,
+            customsBrokers: normalizeCustomsBrokers(
+              list.map((b) => (b.id === broker.id ? { ...b, name } : b)),
+              { seedIfEmpty: false },
+            ),
+          }
+        }
+        const next: CustomsBroker = { id: uuid(), name, contacts: [] }
+        return {
+          ...prev,
+          customsBrokers: normalizeCustomsBrokers([...list, next], {
+            seedIfEmpty: false,
+          }),
+        }
+      })
+    },
+    [patchData],
+  )
+
+  const deleteCustomsBroker = useCallback(
+    (id: string) => {
+      patchData((prev) => ({
+        ...prev,
+        customsBrokers: normalizeCustomsBrokers(
+          (prev.customsBrokers ?? []).filter((b) => b.id !== id),
+          { seedIfEmpty: false },
+        ),
+      }))
+    },
+    [patchData],
+  )
+
+  const upsertCustomsBrokerContact = useCallback(
+    (brokerId: string, contact: { id?: string; name: string; phone: string }) => {
+      const digits = normalizeBrokerPhoneDigits(contact.phone)
+      if (!digits) return
+      const name = contact.name.trim()
+      const phone = formatBrokerPhone(digits)
+      patchData((prev) => {
+        const list = normalizeCustomsBrokers(prev.customsBrokers)
+        return {
+          ...prev,
+          customsBrokers: normalizeCustomsBrokers(
+            list.map((b) => {
+              if (b.id !== brokerId) return b
+              if (contact.id) {
+                return {
+                  ...b,
+                  contacts: b.contacts.map((c) =>
+                    c.id === contact.id
+                      ? { ...c, name, phone, phoneDigits: digits }
+                      : c,
+                  ),
+                }
+              }
+              if (b.contacts.some((c) => c.phoneDigits === digits)) {
+                return {
+                  ...b,
+                  contacts: b.contacts.map((c) =>
+                    c.phoneDigits === digits
+                      ? { ...c, name: name || c.name, phone, phoneDigits: digits }
+                      : c,
+                  ),
+                }
+              }
+              const next: CustomsBrokerContact = {
+                id: uuid(),
+                name,
+                phone,
+                phoneDigits: digits,
+              }
+              return { ...b, contacts: [...b.contacts, next] }
+            }),
+            { seedIfEmpty: false },
+          ),
+        }
+      })
+    },
+    [patchData],
+  )
+
+  const deleteCustomsBrokerContact = useCallback(
+    (brokerId: string, contactId: string) => {
+      patchData((prev) => ({
+        ...prev,
+        customsBrokers: normalizeCustomsBrokers(
+          (prev.customsBrokers ?? []).map((b) =>
+            b.id === brokerId
+              ? { ...b, contacts: b.contacts.filter((c) => c.id !== contactId) }
+              : b,
+          ),
+          { seedIfEmpty: false },
+        ),
+      }))
+    },
+    [patchData],
+  )
+
   const resetToSeed = useCallback(async () => {
     setSyncing(true)
     try {
@@ -2142,6 +2344,8 @@ function nightPartnersForMorning(
       syncing,
       error,
       user,
+      module: user?.module === 'inspectors' ? 'inspectors' : 'selectors',
+      setModule,
       login,
       checkLogin,
       requestPasswordReset,
@@ -2192,6 +2396,11 @@ function nightPartnersForMorning(
       upsertInspectorQuestion,
       deleteInspectorQuestion,
       reorderInspectorQuestions,
+      saveShiftModels,
+      upsertCustomsBroker,
+      deleteCustomsBroker,
+      upsertCustomsBrokerContact,
+      deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
     }),
@@ -2202,6 +2411,7 @@ function nightPartnersForMorning(
       syncing,
       error,
       user,
+      setModule,
       login,
       checkLogin,
       requestPasswordReset,
@@ -2252,6 +2462,11 @@ function nightPartnersForMorning(
       upsertInspectorQuestion,
       deleteInspectorQuestion,
       reorderInspectorQuestions,
+      saveShiftModels,
+      upsertCustomsBroker,
+      deleteCustomsBroker,
+      upsertCustomsBrokerContact,
+      deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
     ],

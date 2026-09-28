@@ -1,11 +1,11 @@
 import { publicData, readState, writeState } from '../server/data.js'
-import { requireUser } from '../server/session.js'
+import { scopeForRequest } from '../server/scope.js'
 
 export default async function handler(req, res) {
   try {
-    const actor = requireUser(req)
+    const { actor, scope } = await scopeForRequest(req)
     if (req.method === 'GET') {
-      res.status(200).json(publicData(await readState()))
+      res.status(200).json(publicData(await readState(scope)))
       return
     }
     if (req.method === 'PUT') {
@@ -15,6 +15,7 @@ export default async function handler(req, res) {
       res.status(200).json(
         await writeState(data, {
           actor,
+          scope,
           expectedRevision:
             expectedRevision === undefined || expectedRevision === ''
               ? undefined

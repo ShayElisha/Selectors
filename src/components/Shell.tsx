@@ -17,15 +17,18 @@ import {
   Circle,
   Settings2,
   BookOpen,
+  Clock,
+  Briefcase,
 } from 'lucide-react'
-import type { View } from '../types'
+import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
 import { toast } from '../lib/notify'
 import {
   findShiftForSlot,
-  getCurrentShiftContext,
 } from '../constants'
+import { currentShiftModel, resolveShiftModels } from '../lib/shiftModels'
 import { AppFooter } from './AppFooter'
+import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
 
 type NavItem = { id: View; label: string; icon: typeof Home }
@@ -41,12 +44,14 @@ const DATA: NavItem[] = [
   { id: 'analytics', label: 'סטטיסטיקות ואנליזה', icon: BarChart3 },
   { id: 'history', label: 'היסטוריה', icon: History },
   { id: 'audit', label: 'יומן', icon: ScrollText },
+  { id: 'customsBrokers', label: 'עמילי מכס', icon: Briefcase },
 ]
 
 const MANAGE: NavItem[] = [
   { id: 'workers', label: 'בודקים', icon: Users },
   { id: 'lanes', label: 'נתיבים', icon: LayoutGrid },
   { id: 'certs', label: 'הסמכות', icon: BadgeCheck },
+  { id: 'shiftModels', label: 'משמרות', icon: Clock },
 ]
 
 const MOBILE_PRIMARY: View[] = ['home', 'shift', 'workers', 'history']
@@ -54,9 +59,11 @@ const MOBILE_MORE: View[] = [
   'briefings',
   'lanes',
   'certs',
+  'shiftModels',
   'tracking',
   'analytics',
   'audit',
+  'customsBrokers',
 ]
 
 const ALL_NAV = [...DAILY, ...DATA, ...MANAGE]
@@ -121,6 +128,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     refreshFromServer,
     user,
     logout,
+    module,
+    setModule,
   } = useApp()
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -160,11 +169,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setManageOpen(false)
     setManageMenuPos(null)
     if (id === 'shift' && !draft) {
-      const ctx = getCurrentShiftContext()
+      const models = resolveShiftModels(
+        data.shiftModels,
+        module === 'inspectors' ? 'inspectors' : 'selectors',
+      )
+      const ctx = currentShiftModel(models)
       const existing = findShiftForSlot(
         data.history,
         ctx.date,
-        ctx.shiftType,
+        ctx.model.id as ShiftType,
+        undefined,
+        module === 'inspectors' ? 'inspector' : undefined,
       )
       if (existing) {
         loadShiftFromHistory(existing.id)
@@ -176,7 +191,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setView(id)
   }
 
-  const moreActive = useMemo(() => MOBILE_MORE.includes(view), [view])
+  const dataNav = DATA.filter(
+    (item) => item.id !== 'customsBrokers' || module === 'inspectors',
+  )
+  const moreViews = MOBILE_MORE.filter(
+    (id) => id !== 'customsBrokers' || module === 'inspectors',
+  )
+  const moreActive = useMemo(() => moreViews.includes(view), [moreViews, view])
   const manageActive = useMemo(() => MANAGE.some((n) => n.id === view), [view])
   const manageCurrent = useMemo(
     () => MANAGE.find((n) => n.id === view) ?? null,
@@ -249,23 +270,57 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
       <header className="relative z-40 mb-6 flex flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
         <div className="min-w-0">
-          <div className="mb-1.5 flex items-center gap-2">
-            <span
-              className="inline-flex size-8 items-center justify-center rounded-lg bg-brand text-[11px] font-bold tracking-wide text-white shadow-sm"
-              aria-hidden
-            >
-              CI
-            </span>
-            <p className="text-[10px] font-semibold tracking-[0.2em] text-ink-soft uppercase sm:text-[11px]">
-              CHECK IN
-            </p>
+          <div className="mb-1.5 flex items-center gap-2.5">
+            <BrandMark className="size-11" />
+            <div className="min-w-0">
+              <h1 className="font-display text-[1.65rem] font-bold leading-none tracking-tight text-ink sm:text-[2rem]">
+                שיבוצון
+              </h1>
+              <p className="mt-1 text-[13px] text-ink-soft sm:text-sm">
+                {module === 'inspectors'
+                  ? 'ניהול ושיבוץ עמדות בודקים'
+                  : 'ניהול ושיבוץ עמדות סלקטורים'}
+                {user?.orgName ? ` · ${user.orgName}` : ''}
+              </p>
+            </div>
           </div>
-          <h1 className="font-display text-[1.65rem] font-bold leading-none tracking-tight text-ink sm:text-[2rem]">
-            שיבוצון
-          </h1>
-          <p className="mt-1.5 text-[13px] text-ink-soft sm:text-sm">
-            ניהול ושיבוץ עמדות סלקטורים
-          </p>
+          {user?.role === 'org_manager' &&
+            (user.modules.selectors || user.modules.inspectors) && (
+              <div
+                className="mt-3 inline-flex rounded-lg border border-line/80 bg-card p-0.5"
+                role="group"
+                aria-label="בחירת מודול"
+              >
+                {user.modules.selectors && (
+                  <button
+                    type="button"
+                    aria-pressed={module === 'selectors'}
+                    onClick={() => setModule('selectors')}
+                    className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${
+                      module === 'selectors'
+                        ? 'bg-brand text-white'
+                        : 'text-ink-soft hover:text-ink'
+                    }`}
+                  >
+                    סלקטורים
+                  </button>
+                )}
+                {user.modules.inspectors && (
+                  <button
+                    type="button"
+                    aria-pressed={module === 'inspectors'}
+                    onClick={() => setModule('inspectors')}
+                    className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${
+                      module === 'inspectors'
+                        ? 'bg-brand text-white'
+                        : 'text-ink-soft hover:text-ink'
+                    }`}
+                  >
+                    בודקים
+                  </button>
+                )}
+              </div>
+            )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -316,7 +371,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     <p className="truncate text-sm font-semibold text-ink">
                       {user.fullName}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-ink-soft">מנהל משמרת</p>
+                    <p className="mt-0.5 text-[11px] text-ink-soft">
+                      {user.orgName || 'מנהל'} ·{' '}
+                      {module === 'inspectors' ? 'בודקים' : 'סלקטורים'}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -362,7 +420,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             />
           ))}
           <span className="mx-1 h-5 w-px shrink-0 bg-line/80" aria-hidden />
-          {DATA.map((item) => (
+          {dataNav.map((item) => (
             <NavButton
               key={item.id}
               item={item}
@@ -465,7 +523,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {ALL_NAV.filter((n) => MOBILE_MORE.includes(n.id)).map((item) => {
+              {ALL_NAV.filter((n) => moreViews.includes(n.id)).map((item) => {
                 const Icon = item.icon
                 const active = view === item.id
                 return (

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { getAuditCollection } from './db.js'
+import { getAuditCollection, mongoTarget } from './db.js'
 import { getBearerToken, verifySessionToken } from './session.js'
 
 /**
@@ -15,10 +15,10 @@ const ALLOWED_CLIENT_ACTIONS = new Set([
 ])
 
 /**
- * @param {{ action: string, actor?: AuditActor, details?: string }} entry
+ * @param {{ action: string, actor?: AuditActor, details?: string, orgId?: string, module?: string }} entry
  */
-export async function appendAuditLog({ action, actor, details }) {
-  const col = await getAuditCollection()
+export async function appendAuditLog({ action, actor, details, orgId, module }) {
+  const col = await getAuditCollection(mongoTarget(module))
   const doc = {
     id: randomUUID(),
     at: new Date().toISOString(),
@@ -31,6 +31,8 @@ export async function appendAuditLog({ action, actor, details }) {
         }
       : null,
     details: String(details || ''),
+    ...(orgId ? { orgId: String(orgId) } : {}),
+    ...(module ? { module: String(module) } : {}),
   }
   await col.insertOne(doc)
   return {
@@ -47,8 +49,11 @@ export async function appendAuditLog({ action, actor, details }) {
  */
 export async function listAuditLogs(opts = {}) {
   const limit = Math.min(Math.max(Number(opts.limit) || 150, 1), 500)
-  const col = await getAuditCollection()
-  const docs = await col.find({}).sort({ at: -1 }).limit(limit).toArray()
+  const col = await getAuditCollection(mongoTarget(opts.module))
+  const filter = {}
+  if (opts.orgId) filter.orgId = String(opts.orgId)
+  if (opts.module) filter.module = String(opts.module)
+  const docs = await col.find(filter).sort({ at: -1 }).limit(limit).toArray()
   return docs.map((d) => ({
     id: d.id,
     at: d.at,
@@ -70,7 +75,7 @@ export function actorFromRequest(req) {
  * Validate and append a client-originated audit event.
  * @param {{ action: string, details?: string, actor?: AuditActor }} body
  */
-export async function appendClientAuditEvent(body, actor) {
+export async function appendClientAuditEvent(body, actor, scope) {
   const action = String(body?.action || '')
   if (!ALLOWED_CLIENT_ACTIONS.has(action)) {
     const err = new Error('סוג פעולת יומן לא מורשה')
@@ -83,7 +88,13 @@ export async function appendClientAuditEvent(body, actor) {
     err.status = 400
     throw err
   }
-  return appendAuditLog({ action, actor, details })
+  return appendAuditLog({
+    action,
+    actor,
+    details,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  })
 }
 
 function nameById(list, id) {

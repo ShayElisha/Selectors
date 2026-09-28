@@ -16,9 +16,14 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
-  getCurrentShiftContext,
-  SHIFT_TYPE_LABELS,
-} from '../constants'
+  formatInspectorShiftWindow,
+} from '../lib/inspectorShifts'
+import {
+  currentShiftModel,
+  formatShiftModelWindow,
+  resolveShiftModels,
+  shiftModelLabel,
+} from '../lib/shiftModels'
 import { fetchAuditLogs, postAuditEvent } from '../api'
 import { downloadBoardImage, type ExportLaneLine } from '../lib/export'
 import {
@@ -79,10 +84,21 @@ function countAssigned(shift: ShiftSchedule): number {
   return new Set(sources.flatMap((a) => a.workerIds.filter(Boolean))).size
 }
 
-function ShiftWindowLabel({ shiftType }: { shiftType: ShiftSchedule['shiftType'] }) {
+function ShiftWindowLabel({
+  shiftType,
+  inspectors,
+}: {
+  shiftType: ShiftSchedule['shiftType']
+  inspectors?: boolean
+}) {
+  const label =
+    inspectors &&
+    (shiftType === 'morning' || shiftType === 'afternoon' || shiftType === 'night')
+      ? formatInspectorShiftWindow(shiftType)
+      : formatShiftWindow(shiftType)
   return (
     <span className="text-[13px] text-ink-soft">
-      <Ltr>{formatShiftWindow(shiftType)}</Ltr>
+      <Ltr>{label}</Ltr>
     </span>
   )
 }
@@ -99,7 +115,9 @@ export function HomePage() {
     setShiftStep,
     loadShiftFromHistory,
     user,
+    module,
   } = useApp()
+  const inspectorModule = module === 'inspectors'
 
   const activeWorkers = data.workers.filter(
     (w) => w.status === 'active' && w.isInspector,
@@ -116,10 +134,18 @@ export function HomePage() {
     return () => window.clearInterval(id)
   }, [])
 
-  const currentCtx = useMemo(
-    () => getCurrentShiftContext(new Date(nowTick)),
-    [nowTick],
+  const shiftModels = useMemo(
+    () => resolveShiftModels(data.shiftModels, module),
+    [data.shiftModels, module],
   )
+  const currentCtx = useMemo(() => {
+    const found = currentShiftModel(shiftModels, new Date(nowTick))
+    return {
+      date: found.date,
+      shiftType: found.model.id as ShiftSchedule['shiftType'],
+      windowLabel: formatShiftModelWindow(found.model),
+    }
+  }, [shiftModels, nowTick])
 
   const currentShift: ShiftSchedule | null = useMemo(() => {
     const matches = data.history.filter(
@@ -217,7 +243,7 @@ export function HomePage() {
     ).size
     return {
       dateLabel: formatShiftDate(draft.date),
-      shiftLabel: SHIFT_TYPE_LABELS[draft.shiftType],
+      shiftLabel: shiftModelLabel(shiftModels, draft.shiftType),
       lanes: draft.activeLaneIds.length,
       present: draft.presentWorkerIds.length,
       assigned,
@@ -379,7 +405,7 @@ export function HomePage() {
       )
       void postAuditEvent(
         'export_board',
-        `${shift.date} · ${SHIFT_TYPE_LABELS[shift.shiftType]} · ייצוא מהדף הראשי · ${lines.length} נתיבים`,
+        `${shift.date} · ${shiftModelLabel(shiftModels, shift.shiftType)} · ייצוא מהדף הראשי · ${lines.length} נתיבים`,
       )
       notify.success('המסמך יוצא בהצלחה')
     } catch (e) {
@@ -390,7 +416,7 @@ export function HomePage() {
     }
   }
 
-  const statusTitle = `${SHIFT_TYPE_LABELS[currentCtx.shiftType]} · ${formatShiftDateShort(currentCtx.date, new Date(nowTick))}`
+  const statusTitle = `${shiftModelLabel(shiftModels, currentCtx.shiftType)} · ${formatShiftDateShort(currentCtx.date, new Date(nowTick))}`
 
   const primaryEdit = () => {
     if (draft) {
@@ -454,7 +480,7 @@ export function HomePage() {
                   משמרת {statusTitle}
                 </h2>
                 <p className="mt-0.5 text-[13px] text-ink-soft">
-                  <ShiftWindowLabel shiftType={currentCtx.shiftType} />
+                  <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
                 </p>
               </div>
             </>
@@ -468,7 +494,7 @@ export function HomePage() {
                   משמרת {statusTitle}
                 </h2>
                 <p className="mt-0.5 text-[13px] text-ink-soft">
-                  <ShiftWindowLabel shiftType={currentCtx.shiftType} />
+                  <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
                 </p>
               </div>
             </>
@@ -501,13 +527,6 @@ export function HomePage() {
               </button>
               <button
                 type="button"
-                onClick={beginSelectorShift}
-                className="ui-btn ui-btn-secondary"
-              >
-                שיבוץ סלקטורים
-              </button>
-              <button
-                type="button"
                 onClick={() => {
                   if (confirm('לבטל את טיוטת השיבוץ? הפעולה לא ניתנת לשחזור.')) {
                     discardDraft()
@@ -517,6 +536,15 @@ export function HomePage() {
               >
                 בטל טיוטה
               </button>
+              {!inspectorModule && (
+                <button
+                  type="button"
+                  onClick={beginSelectorShift}
+                  className="ui-btn ui-btn-secondary"
+                >
+                  שיבוץ סלקטורים
+                </button>
+              )}
             </>
           ) : currentShift ? (
             <>
@@ -537,13 +565,15 @@ export function HomePage() {
                 <Play className="size-4 fill-current" aria-hidden />
                 משמרת חדשה
               </button>
-              <button
-                type="button"
-                onClick={beginSelectorShift}
-                className="ui-btn ui-btn-secondary"
-              >
-                שיבוץ סלקטורים
-              </button>
+              {!inspectorModule && (
+                <button
+                  type="button"
+                  onClick={beginSelectorShift}
+                  className="ui-btn ui-btn-secondary"
+                >
+                  שיבוץ סלקטורים
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -555,13 +585,15 @@ export function HomePage() {
               <Play className="size-4 fill-current" aria-hidden />
               התחלת משמרת
             </button>
-            <button
-              type="button"
-              onClick={beginSelectorShift}
-              className="ui-btn ui-btn-secondary"
-            >
-              שיבוץ סלקטורים
-            </button>
+            {!inspectorModule && (
+              <button
+                type="button"
+                onClick={beginSelectorShift}
+                className="ui-btn ui-btn-secondary"
+              >
+                שיבוץ סלקטורים
+              </button>
+            )}
             </>
           )}
         </div>
@@ -570,23 +602,23 @@ export function HomePage() {
       {/* Current shift card */}
       <SectionCard
         printRoot
-        title={`משמרת נוכחית · ${SHIFT_TYPE_LABELS[currentCtx.shiftType]}`}
+        title={`משמרת נוכחית · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
         subtitle={
           <>
             <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
             {' · '}
-            <ShiftWindowLabel shiftType={currentCtx.shiftType} />
+            <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
           </>
         }
       >
         <p className="mb-3 text-[13px] text-ink-soft">
-          חלונות: בוקר <Ltr>06:00–15:00</Ltr>
-          {' · '}
-          צהריים א <Ltr>14:30–18:30</Ltr>
-          {' · '}
-          צהריים ב <Ltr>18:00–21:30</Ltr>
-          {' · '}
-          לילה <Ltr>21:00–06:30</Ltr> (למחרת)
+          חלונות:{' '}
+          {shiftModels.map((model, index) => (
+            <span key={model.id}>
+              {index > 0 ? ' · ' : ''}
+              {model.name} <Ltr>{formatShiftModelWindow(model).replace(' עד ', '–')}</Ltr>
+            </span>
+          ))}
         </p>
 
         {shiftHealth && (
@@ -629,7 +661,7 @@ export function HomePage() {
         ) : !currentShift && !selectorShift ? (
           <EmptyState
             title="אין שיבוץ שמור למשמרת הנוכחית"
-            text={`אין שיבוץ ל${SHIFT_TYPE_LABELS[currentCtx.shiftType]} בחלון ${formatShiftWindow(currentCtx.shiftType)}.`}
+            text={`אין שיבוץ ל${shiftModelLabel(shiftModels, currentCtx.shiftType)} בחלון ${currentCtx.windowLabel}.`}
             action={
               <div className="flex flex-wrap gap-2">
                 <button
@@ -639,13 +671,15 @@ export function HomePage() {
                 >
                   התחלת משמרת
                 </button>
-                <button
-                  type="button"
-                  onClick={beginSelectorShift}
-                  className="ui-btn ui-btn-secondary no-print"
-                >
-                  שיבוץ סלקטורים
-                </button>
+                {!inspectorModule && (
+                  <button
+                    type="button"
+                    onClick={beginSelectorShift}
+                    className="ui-btn ui-btn-secondary no-print"
+                  >
+                    שיבוץ סלקטורים
+                  </button>
+                )}
               </div>
             }
           />
@@ -723,9 +757,9 @@ export function HomePage() {
         )}
       </SectionCard>
 
-      {selectorShift ? (
+      {!inspectorModule && selectorShift ? (
         <SectionCard
-          title={`סלקטורים · ${SHIFT_TYPE_LABELS[currentCtx.shiftType]}`}
+          title={`סלקטורים · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
           subtitle={
             <>
               סבבים של שעתיים · <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
@@ -898,7 +932,7 @@ export function HomePage() {
                     <p className="text-sm font-semibold text-ink">
                       <Ltr>{formatShiftDate(shift.date)}</Ltr>
                       {' · '}
-                      {SHIFT_TYPE_LABELS[shift.shiftType]}
+                      {shiftModelLabel(shiftModels, shift.shiftType)}
                       {shift.audience === 'selector' ? ' · סלקטורים' : ''}
                     </p>
                     <p className="mt-0.5 text-[13px] text-ink-soft">

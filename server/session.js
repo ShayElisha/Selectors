@@ -31,7 +31,16 @@ function fromB64url(str) {
 }
 
 /**
- * @param {{ id: string, fullName: string, phone: string }} user
+ * @param {{
+ *   id: string,
+ *   fullName: string,
+ *   phone: string,
+ *   role?: 'super_admin' | 'org_manager',
+ *   orgId?: string | null,
+ *   orgName?: string | null,
+ *   modules?: { selectors?: boolean, inspectors?: boolean },
+ *   module?: 'selectors' | 'inspectors' | null,
+ * }} user
  * @returns {string}
  */
 export function createSessionToken(user) {
@@ -39,6 +48,16 @@ export function createSessionToken(user) {
     id: user.id,
     fullName: user.fullName,
     phone: user.phone,
+    role: user.role || 'org_manager',
+    orgId: user.orgId || null,
+    orgName: user.orgName || null,
+    modules: {
+      selectors: Boolean(user.modules?.selectors),
+      inspectors: Boolean(user.modules?.inspectors),
+    },
+    module: user.module || null,
+    isOrgManager: Boolean(user.isOrgManager),
+    staffKind: user.staffKind || null,
     exp: Date.now() + SESSION_TTL_MS,
   }
   const body = b64url(JSON.stringify(payload))
@@ -48,7 +67,16 @@ export function createSessionToken(user) {
 
 /**
  * @param {string | null | undefined} token
- * @returns {{ id: string, fullName: string, phone: string } | null}
+ * @returns {{
+ *   id: string,
+ *   fullName: string,
+ *   phone: string,
+ *   role: 'super_admin' | 'org_manager',
+ *   orgId: string | null,
+ *   orgName: string | null,
+ *   modules: { selectors: boolean, inspectors: boolean },
+ *   module: 'selectors' | 'inspectors' | null,
+ * } | null}
  */
 export function verifySessionToken(token) {
   if (!token || typeof token !== 'string' || !token.includes('.')) return null
@@ -64,12 +92,34 @@ export function verifySessionToken(token) {
   }
   try {
     const payload = JSON.parse(fromB64url(body).toString('utf8'))
-    if (!payload?.id || !payload?.phone || !payload?.exp) return null
+    if (!payload?.id || !payload?.phone || !payload?.exp || !payload?.role) return null
+    if (payload.role !== 'super_admin' && payload.role !== 'org_manager') return null
     if (Date.now() > Number(payload.exp)) return null
+    const module =
+      payload.module === 'inspectors' || payload.module === 'selectors'
+        ? payload.module
+        : null
     return {
       id: String(payload.id),
       fullName: String(payload.fullName || ''),
       phone: String(payload.phone || ''),
+      role: payload.role,
+      orgId: payload.orgId ? String(payload.orgId) : null,
+      orgName: payload.orgName ? String(payload.orgName) : null,
+      modules: {
+        selectors: Boolean(payload.modules?.selectors),
+        inspectors: Boolean(payload.modules?.inspectors),
+      },
+      module,
+      isOrgManager:
+        payload.isOrgManager === true ||
+        (payload.isOrgManager == null &&
+          Boolean(payload.modules?.selectors) &&
+          Boolean(payload.modules?.inspectors)),
+      staffKind:
+        payload.staffKind === 'inspector' || payload.staffKind === 'selector'
+          ? payload.staffKind
+          : null,
     }
   } catch {
     return null
@@ -88,13 +138,32 @@ export function getBearerToken(req) {
 
 /**
  * @param {import('http').IncomingMessage | { headers?: Record<string, string|string[]|undefined> }} req
- * @returns {{ id: string, fullName: string, phone: string }}
+ * @returns {{
+ *   id: string,
+ *   fullName: string,
+ *   phone: string,
+ *   role: 'super_admin' | 'org_manager',
+ *   orgId: string | null,
+ *   orgName: string | null,
+ *   modules: { selectors: boolean, inspectors: boolean },
+ *   module: 'selectors' | 'inspectors' | null,
+ * }}
  */
 export function requireUser(req) {
   const user = verifySessionToken(getBearerToken(req))
   if (!user) {
     const err = new Error('נדרשת התחברות')
     err.status = 401
+    throw err
+  }
+  return user
+}
+
+export function requireSuperAdmin(req) {
+  const user = requireUser(req)
+  if (user.role !== 'super_admin') {
+    const err = new Error('נדרשת הרשאת סופר אדמין')
+    err.status = 403
     throw err
   }
   return user

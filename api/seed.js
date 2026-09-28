@@ -1,5 +1,5 @@
 import { createSeedData, writeState } from '../server/data.js'
-import { requireUser } from '../server/session.js'
+import { scopeForRequest } from '../server/scope.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     return
   }
   try {
-    const actor = requireUser(req)
+    const { actor, scope } = await scopeForRequest(req)
     if (req.body?.confirm !== 'RESET') {
       res.status(400).json({ error: 'לאיפוס יש לשלוח confirm: "RESET"' })
       return
@@ -17,6 +17,7 @@ export default async function handler(req, res) {
       await writeState(createSeedData(), {
         action: 'data_reset',
         actor,
+        scope,
         skipManagerInvites: true,
         expectedRevision:
           req.body?.expectedRevision != null

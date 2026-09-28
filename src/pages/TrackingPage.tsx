@@ -315,7 +315,7 @@ function VisitPopover({
                 <span className="font-medium text-ink">
                   <Ltr>{formatShiftDate(v.date)}</Ltr>
                   <span className="mx-1 text-ink-soft">·</span>
-                  {SHIFT_TYPE_LABELS[v.shiftType]}
+                  {SHIFT_TYPE_LABELS[v.shiftType] ?? v.shiftType}
                 </span>
                 <span className="shrink-0 text-ink-soft">
                   {formatVisitRecency(v.daysAgo)}

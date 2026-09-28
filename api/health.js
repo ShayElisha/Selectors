@@ -3,7 +3,8 @@ import { isSmtpConfigured } from '../server/mail.js'
 
 export default async function handler(_req, res) {
   try {
-    await getDb()
+    await getDb('selectors')
+    if (process.env.MONGODB_URI_INSPECTORS?.trim()) await getDb('inspectors')
     res.status(200).json({
       ok: true,
       db: true,

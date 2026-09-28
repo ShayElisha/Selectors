@@ -58,7 +58,7 @@ export function countPlaced(shift: ShiftSchedule): number {
 /** Group filtered shifts into day cards with morning/afternoon/night slots (newest first). */
 export function groupHistoryDays(
   history: ShiftSchedule[],
-  options?: { fromDate?: string; toDate?: string },
+  options?: { fromDate?: string; toDate?: string; slotOrder?: ShiftType[] },
 ): HistoryDayCard[] {
   const filtered = history.filter((h) => {
     if (options?.fromDate && h.date < options.fromDate) return false
@@ -87,7 +87,8 @@ export function groupHistoryDays(
       return {
         date,
         slots: (() => {
-          const slots = SHIFT_SLOT_ORDER.map((shiftType) => {
+          const order = options?.slotOrder ?? SHIFT_SLOT_ORDER
+          const slots = order.map((shiftType) => {
             const pair = map.get(shiftType)
             return {
               shiftType,
@@ -95,13 +96,15 @@ export function groupHistoryDays(
               selectorShift: pair?.selector ?? null,
             }
           })
-          const legacy = map.get('afternoon')
-          if (legacy?.inspector || legacy?.selector) {
-            slots.push({
-              shiftType: 'afternoon',
-              shift: legacy.inspector,
-              selectorShift: legacy.selector,
-            })
+          if (!order.includes('afternoon')) {
+            const legacy = map.get('afternoon')
+            if (legacy?.inspector || legacy?.selector) {
+              slots.push({
+                shiftType: 'afternoon',
+                shift: legacy.inspector,
+                selectorShift: legacy.selector,
+              })
+            }
           }
           return slots
         })(),

@@ -3,13 +3,30 @@ import type { AppData, Worker } from './types'
 const SESSION_KEY = 'shibutzon-session'
 const DRAFT_KEY = 'shibutzon-draft'
 const SHIFT_STEP_KEY = 'shibutzon-shift-step'
-const APP_DATA_CACHE_KEY = 'shibutzon-app-data-v1'
+
+export type AppModule = 'selectors' | 'inspectors'
+
+export interface OrgModules {
+  selectors: boolean
+  inspectors: boolean
+}
 
 export interface SessionUser {
   id: string
   fullName: string
   phone: string
   token: string
+  role: 'super_admin' | 'org_manager'
+  orgId: string | null
+  orgName: string | null
+  modules: OrgModules
+  module: AppModule | null
+  isOrgManager: boolean
+}
+
+function cacheKey(user: Pick<SessionUser, 'orgId' | 'module'> | null): string | null {
+  if (!user?.orgId || !user.module) return null
+  return `shibutzon-app-data-v2:${user.orgId}:${user.module}`
 }
 
 export function loadSession(): SessionUser | null {
@@ -18,7 +35,30 @@ export function loadSession(): SessionUser | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as SessionUser
     if (!parsed?.id || !parsed?.phone || !parsed?.token) return null
-    return parsed
+    if (parsed.role !== 'super_admin' && parsed.role !== 'org_manager') return null
+    const modules = {
+      selectors: Boolean(parsed.modules?.selectors),
+      inspectors: Boolean(parsed.modules?.inspectors),
+    }
+    const module =
+      parsed.module === 'selectors' || parsed.module === 'inspectors'
+        ? parsed.module
+        : null
+    if (parsed.role === 'org_manager' && (!parsed.orgId || !module || !modules[module])) {
+      return null
+    }
+    const isOrgManager =
+      typeof parsed.isOrgManager === 'boolean'
+        ? parsed.isOrgManager
+        : Boolean(modules.selectors && modules.inspectors)
+    return {
+      ...parsed,
+      orgId: parsed.orgId || null,
+      orgName: parsed.orgName || null,
+      modules,
+      module,
+      isOrgManager,
+    }
   } catch {
     return null
   }
@@ -33,7 +73,18 @@ export function clearSession(): void {
 }
 
 export function sessionFromWorker(w: Worker, token: string): SessionUser {
-  return { id: w.id, fullName: w.fullName, phone: w.phone, token }
+  return {
+    id: w.id,
+    fullName: w.fullName,
+    phone: w.phone,
+    token,
+    role: 'org_manager',
+    orgId: null,
+    orgName: null,
+    modules: { selectors: true, inspectors: false },
+    module: 'selectors',
+    isOrgManager: false,
+  }
 }
 
 export function loadDraftJson(): string | null {
@@ -67,7 +118,9 @@ export function saveShiftStep(step: string): void {
 
 export function loadAppDataCache(): AppData | null {
   try {
-    const raw = localStorage.getItem(APP_DATA_CACHE_KEY)
+    const key = cacheKey(loadSession())
+    if (!key) return null
+    const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw) as AppData
     if (!Array.isArray(parsed?.workers) || !Array.isArray(parsed?.lanes)) return null
@@ -87,6 +140,7 @@ export function loadAppDataCache(): AppData | null {
       customsBrokers: Array.isArray(parsed.customsBrokers)
         ? parsed.customsBrokers
         : [],
+      shiftModels: Array.isArray(parsed.shiftModels) ? parsed.shiftModels : [],
       revision: Number(parsed.revision) || 0,
     }
   } catch {
@@ -96,12 +150,15 @@ export function loadAppDataCache(): AppData | null {
 
 export function saveAppDataCache(data: AppData): void {
   try {
-    localStorage.setItem(APP_DATA_CACHE_KEY, JSON.stringify(data))
+    const key = cacheKey(loadSession())
+    if (!key) return
+    localStorage.setItem(key, JSON.stringify(data))
   } catch {
     /* quota / private mode */
   }
 }
 
 export function clearAppDataCache(): void {
-  localStorage.removeItem(APP_DATA_CACHE_KEY)
+  const key = cacheKey(loadSession())
+  if (key) localStorage.removeItem(key)
 }

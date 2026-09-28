@@ -12,9 +12,9 @@ import {
   Sunset,
   Table2,
   Trash2,
+  Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { SHIFT_TYPE_LABELS } from '../constants'
 import {
   EmptyState,
   IntensityBadge,
@@ -32,6 +32,14 @@ import {
   formatShiftWindow,
   pluralizeHe,
 } from '../lib/hebrew'
+import {
+  formatInspectorShiftWindow,
+} from '../lib/inspectorShifts'
+import {
+  formatShiftModelWindow,
+  resolveShiftModels,
+  shiftModelLabel,
+} from '../lib/shiftModels'
 import {
   buildHistoryBackupJson,
   daysAgoISO,
@@ -194,7 +202,7 @@ function ShiftAccordion({
   onOpen: () => void
   onRequestDelete: () => void
 }) {
-  const { data } = useApp()
+  const { data, module } = useApp()
   const [open, setOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -230,7 +238,19 @@ function ShiftAccordion({
     }
   }, [menuOpen])
 
-  const deleteLabel = `מחיקת משמרת ${SHIFT_TYPE_LABELS[shift.shiftType]} ${formatShiftDate(shift.date)}`
+  const models = resolveShiftModels(data.shiftModels, module)
+  const shiftName = shiftModelLabel(models, shift.shiftType)
+  const model = models.find((item) => item.id === shift.shiftType)
+  const windowLabel = model
+    ? formatShiftModelWindow(model)
+    : module === 'inspectors' &&
+        (shift.shiftType === 'morning' ||
+          shift.shiftType === 'afternoon' ||
+          shift.shiftType === 'night')
+      ? formatInspectorShiftWindow(shift.shiftType)
+      : formatShiftWindow(shift.shiftType)
+
+  const deleteLabel = `מחיקת משמרת ${shiftName} ${formatShiftDate(shift.date)}`
 
   return (
     <div className="min-w-0 max-w-full rounded-xl border border-line bg-surface/80">
@@ -245,11 +265,11 @@ function ShiftAccordion({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-semibold text-ink">
-                {SHIFT_TYPE_LABELS[shift.shiftType]}
+                {shiftName}
                 {shift.audience === 'selector' ? ' · סלקטורים' : ''}
               </span>
               <Ltr className="text-[13px] text-ink-soft">
-                {formatShiftWindow(shift.shiftType)}
+                {windowLabel}
               </Ltr>
               <ChevronDown
                 className={`size-4 text-ink-soft transition ${open ? 'rotate-180' : ''}`}
@@ -393,13 +413,13 @@ function ShiftAccordion({
   )
 }
 
-function EmptySlot({ shiftType }: { shiftType: ShiftType }) {
-  const Icon = SHIFT_ICONS[shiftType]
+function EmptySlot({ label }: { label: string }) {
+  const Icon = Clock
   return (
     <div className="flex h-full min-h-[4.5rem] flex-col justify-center rounded-xl border border-dashed border-line/80 bg-surface/40 px-3 py-2 opacity-70">
       <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink-soft">
         <Icon className="size-3.5" aria-hidden />
-        {SHIFT_TYPE_LABELS[shiftType]}
+        {label}
       </div>
       <p className="mt-1 text-[13px] text-ink-soft">לא נשמר</p>
     </div>
@@ -414,7 +434,13 @@ export function HistoryPage() {
     resetToSeed,
     loading,
     error,
+    module,
   } = useApp()
+  const inspectors = module === 'inspectors'
+  const shiftModels = useMemo(
+    () => resolveShiftModels(data.shiftModels, module),
+    [data.shiftModels, module],
+  )
   const [mode, setMode] = useState<Mode>('list')
   const [range, setRange] = useState<RangePresetId>('all')
   const [customFrom, setCustomFrom] = useState(() => daysAgoISO(30))
@@ -483,8 +509,13 @@ export function HistoryPage() {
   }, [matrix, hideNights])
 
   const allDays = useMemo(
-    () => groupHistoryDays(data.history, { fromDate, toDate }),
-    [data.history, fromDate, toDate],
+    () =>
+      groupHistoryDays(data.history, {
+        fromDate,
+        toDate,
+        slotOrder: shiftModels.map((model) => model.id) as ShiftType[],
+      }),
+    [data.history, fromDate, toDate, shiftModels],
   )
 
   const filteredDays = useMemo(
@@ -494,12 +525,10 @@ export function HistoryPage() {
         shiftTypes:
           typeFilter === 'all'
             ? 'all'
-            : typeFilter === 'afternoon'
-              ? new Set(['afternoonA', 'afternoonB'])
-              : new Set([typeFilter]),
+            : new Set<ShiftType>([typeFilter]),
         workersById,
       }),
-    [allDays, search, typeFilter, workersById],
+    [allDays, search, typeFilter, workersById, inspectors],
   )
 
   const shownDays = filteredDays.slice(0, visibleDays)
@@ -516,9 +545,7 @@ export function HistoryPage() {
     return shiftsInRange.filter((h) => {
       if (
         typeFilter !== 'all' &&
-        !(typeFilter === 'afternoon'
-          ? h.shiftType === 'afternoonA' || h.shiftType === 'afternoonB'
-          : h.shiftType === typeFilter)
+        h.shiftType !== typeFilter
       ) {
         return false
       }
@@ -527,19 +554,7 @@ export function HistoryPage() {
       }
       return true
     })
-  }, [shiftsInRange, typeFilter, search, workersById])
-
-  const shiftMix = useMemo(() => {
-    const mix: Record<ShiftType, number> = {
-      morning: 0,
-      afternoon: 0,
-      afternoonA: 0,
-      afternoonB: 0,
-      night: 0,
-    }
-    for (const h of shiftsInRange) mix[h.shiftType] += 1
-    return mix
-  }, [shiftsInRange])
+  }, [shiftsInRange, typeFilter, search, workersById, inspectors])
 
   useEffect(() => {
     setVisibleDays(PAGE_SIZE)
@@ -677,9 +692,11 @@ export function HistoryPage() {
               many: 'משמרות',
             })}
             {' · '}
-            {shiftMix.morning} בוקר ·{' '}
-            {shiftMix.afternoonA + shiftMix.afternoonB} צהריים ·{' '}
-            {shiftMix.night} לילה
+          {shiftModels.map((model) => (
+            <span key={model.id}>
+              {` · ${data.history.filter((shift) => shift.shiftType === model.id && (!fromDate || shift.date >= fromDate) && (!toDate || shift.date <= toDate)).length} ${model.name}`}
+            </span>
+          ))}
           </p>
 
           {mode === 'list' ? (
@@ -706,9 +723,7 @@ export function HistoryPage() {
                 {(
                   [
                     { id: 'all' as const, label: 'הכל' },
-                    { id: 'morning' as const, label: 'בוקר' },
-                    { id: 'afternoon' as const, label: 'צהריים' },
-                    { id: 'night' as const, label: 'לילה' },
+                    ...shiftModels.map((model) => ({ id: model.id as ShiftType, label: model.name })),
                   ] as const
                 ).map((opt) => (
                   <button
@@ -966,7 +981,7 @@ export function HistoryPage() {
         {deleteTarget ? (
           <>
             <p>
-              למחוק את משמרת {SHIFT_TYPE_LABELS[deleteTarget.shiftType]} מיום{' '}
+              למחוק את משמרת {shiftModelLabel(shiftModels, deleteTarget.shiftType)} מיום{' '}
               <Ltr>{formatShiftDate(deleteTarget.date)}</Ltr>?
             </p>
             <p>{shiftCountsLabel(deleteTarget)}</p>
@@ -1046,6 +1061,8 @@ function DayCard({
   onOpen: (id: string) => void
   onRequestDelete: (s: ShiftSchedule) => void
 }) {
+  const { data, module } = useApp()
+  const models = resolveShiftModels(data.shiftModels, module)
   return (
     <section className="min-w-0 max-w-full rounded-xl border border-line bg-card/95 p-3 shadow-sm sm:p-4">
       <header className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -1065,7 +1082,12 @@ function DayCard({
             (s): s is NonNullable<typeof slot.shift> => Boolean(s),
           )
           if (shifts.length === 0) {
-            return <EmptySlot key={slot.shiftType} shiftType={slot.shiftType} />
+            return (
+              <EmptySlot
+                key={slot.shiftType}
+                label={shiftModelLabel(models, slot.shiftType)}
+              />
+            )
           }
           return shifts.map((shift) => (
             <ShiftAccordion
