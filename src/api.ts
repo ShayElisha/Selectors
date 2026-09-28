@@ -14,8 +14,10 @@ export class ApiError extends Error {
 
 function authHeaders(): HeadersInit {
   const s = loadSession()
-  if (!s?.token) return {}
-  return { Authorization: `Bearer ${s.token}` }
+  const headers: Record<string, string> = {}
+  if (s?.token) headers.Authorization = `Bearer ${s.token}`
+  if (s?.module) headers['X-App-Module'] = s.module
+  return headers
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -93,6 +95,9 @@ export type LoginNextStep =
   | 'login'
   | 'change_password'
   | 'await_email'
+  | 'pending_approval'
+  | 'rejected'
+  | 'no_modules'
 
 export function checkLoginRemote(
   phone: string,
@@ -129,6 +134,46 @@ export function loginRemote(
           }
         : {}),
     }),
+  })
+}
+
+export function registerOrganizationRemote(body: {
+  organizationName: string
+  fullName: string
+  phone: string
+  email: string
+  password: string
+  passwordConfirm: string
+}): Promise<{ ok: boolean; message: string }> {
+  return request('/api/register', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export interface OrganizationSummary {
+  id: string
+  name: string
+  status: 'pending' | 'approved' | 'rejected'
+  modules: { selectors: boolean; inspectors: boolean }
+  createdAt: string
+  manager: { fullName: string; phone: string; email: string } | null
+}
+
+export function fetchOrganizationsRemote(): Promise<OrganizationSummary[]> {
+  return request('/api/organizations')
+}
+
+export function reviewOrganizationRemote(
+  id: string,
+  patch: {
+    status?: 'pending' | 'approved' | 'rejected'
+    modules?: { selectors?: boolean; inspectors?: boolean }
+  },
+): Promise<OrganizationSummary> {
+  return request('/api/organizations', {
+    method: 'PATCH',
+    body: JSON.stringify({ id, ...patch }),
   })
 }
 

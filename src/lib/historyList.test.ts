@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ShiftSchedule, Worker } from '../types'
+import { INSPECTOR_SHIFT_TYPES } from './inspectorShifts'
 import {
   assignedWorkerIds,
   filterDayCards,
@@ -70,6 +71,21 @@ describe('groupHistoryDays', () => {
     expect(days[0]!.slots[0]!.shift?.id).toBe('a')
     expect(days[0]!.slots[1]!.shift).toBeNull()
     expect(days[0]!.slots[3]!.shift?.id).toBe('b')
+  })
+
+  it('keeps inspector days to morning, afternoon, and night', () => {
+    const history = [
+      shift('m', '2026-09-28', 'morning'),
+      shift('a', '2026-09-28', 'afternoon'),
+      shift('n', '2026-09-28', 'night'),
+    ]
+    const days = groupHistoryDays(history, { slotOrder: [...INSPECTOR_SHIFT_TYPES] })
+    expect(days[0]!.slots.map((s) => s.shiftType)).toEqual([
+      'morning',
+      'afternoon',
+      'night',
+    ])
+    expect(days[0]!.slots[1]!.shift?.id).toBe('a')
   })
 })
 

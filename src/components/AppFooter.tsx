@@ -1,5 +1,8 @@
 import { Link } from 'react-router-dom'
 
+import { BrandMark } from './BrandMark'
+import { useApp } from '../context/AppContext'
+
 const YEAR = new Date().getFullYear()
 
 const FOOTER_LINKS = [
@@ -8,13 +11,16 @@ const FOOTER_LINKS = [
 ] as const
 
 export function AppFooter({ className = '' }: { className?: string }) {
+  const { user } = useApp()
+  const area =
+    user?.module === 'inspectors' ? 'עמדות בודקים' : user?.module === 'selectors' ? 'עמדות סלקטורים' : 'שיבוץ'
   return (
     <footer
       className={`relative z-10 mt-auto border-t border-line/80 pt-5 text-center ${className}`}
     >
-      <p className="ui-eyebrow">CHECK IN</p>
+      <BrandMark className="mx-auto size-12" />
       <p className="ui-muted mt-1.5">
-        שיבוצון · עמדות סלקטורים · {YEAR}
+        שיבוצון · {area} · {YEAR}
       </p>
 
       <nav

@@ -14,12 +14,17 @@ import { TrackingPage } from './pages/TrackingPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { AuditPage } from './pages/AuditPage'
 import { BriefingsPage } from './pages/BriefingsPage'
+import { ShiftModelsPage } from './pages/ShiftModelsPage'
+import { CustomsBrokersPage } from './pages/CustomsBrokersPage'
 import { LoginPage } from './pages/LoginPage'
 import { PrivacyPage } from './pages/PrivacyPage'
+import { RegisterPage } from './pages/RegisterPage'
+import { SuperAdminPage } from './pages/SuperAdminPage'
 
 function ProtectedShell() {
   const { user, loading, data } = useApp()
   if (!user) return <Navigate to="/login" replace />
+  if (user.role === 'super_admin') return <Navigate to="/admin" replace />
   const hasData = data.workers.length > 0 || data.lanes.length > 0
   if (loading && !hasData) {
     return <PageLoader fullScreen label="טוען נתונים…" />
@@ -34,6 +39,8 @@ function ProtectedShell() {
         <Route path="lanes" element={<LanesPage />} />
         <Route path="certs" element={<CertsPage />} />
         <Route path="briefings" element={<BriefingsPage />} />
+        <Route path="shift-models" element={<ShiftModelsPage />} />
+        <Route path="customs-brokers" element={<CustomsBrokersPage />} />
         <Route path="tracking" element={<TrackingPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="audit" element={<AuditPage />} />
@@ -53,6 +60,8 @@ export default function App() {
         <AppToaster />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/admin" element={<SuperAdminPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/*" element={<ProtectedShell />} />
         </Routes>

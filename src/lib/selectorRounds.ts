@@ -28,9 +28,12 @@ export function buildRoundWindows(
   shiftType: ShiftType,
   cutMinutes: number[] = [],
   windowIds: Array<string | undefined> = [],
+  bounds?: { start: number; end: number },
 ): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
-  const end = MAIN_SHIFT_BOUNDS[shiftType].end
-  const start = boardStartMinutes(shiftType, windowIds)
+  const fallback = MAIN_SHIFT_BOUNDS[shiftType]
+  const end = bounds?.end ?? fallback?.end
+  const start = bounds?.start ?? (fallback ? boardStartMinutes(shiftType, windowIds) : undefined)
+  if (start == null || end == null) return []
   const cuts = [...cutMinutes]
     .filter((point) => point > start && point < end)
     .sort((a, b) => a - b)
@@ -227,6 +230,8 @@ export function assignSelectorRounds(args: {
    * together with the 04:45 arrivals.
    */
   nightPartners?: Worker[]
+  /** Override the built-in shift clock when the module defines its own window. */
+  bounds?: { start: number; end: number }
 }): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
@@ -237,6 +242,7 @@ export function assignSelectorRounds(args: {
     args.shiftType,
     roundCutsForWindows(args.shiftType, windowIds),
     windowIds,
+    args.bounds,
   )
   const warnings: string[] = []
 

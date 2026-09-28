@@ -1,6 +1,6 @@
 import { resendManagerTempPassword } from '../server/data.js'
 import { assertRateLimit, clientKey } from '../server/rateLimit.js'
-import { requireUser } from '../server/session.js'
+import { scopeForRequest } from '../server/scope.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     return
   }
   try {
-    const actor = requireUser(req)
+    const { actor, scope } = await scopeForRequest(req)
     const workerId = String(req.body?.workerId || '')
     if (!workerId) {
       res.status(400).json({ error: 'חסר מזהה עובד' })
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
       limit: 5,
       windowMs: 15 * 60_000,
     })
-    res.status(200).json(await resendManagerTempPassword(workerId, actor))
+    res.status(200).json(await resendManagerTempPassword(workerId, actor, { scope }))
   } catch (err) {
     const status = err.status || 500
     if (status >= 500) console.error(err)

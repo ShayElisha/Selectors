@@ -360,7 +360,7 @@ function HardAfterNightPopover({
             <span className="text-ink-soft">
               לילה <Ltr>{formatShiftDate(ev.nightDate)}</Ltr>
               {' → '}
-              {SHIFT_TYPE_LABELS[ev.shiftType]}{' '}
+              {SHIFT_TYPE_LABELS[ev.shiftType] ?? ev.shiftType}{' '}
               <Ltr>{formatShiftDate(ev.date)}</Ltr>
               {' · '}
               {ev.laneName}

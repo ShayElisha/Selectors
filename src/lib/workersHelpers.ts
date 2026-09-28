@@ -206,6 +206,8 @@ export function formsEqual(
   if (a.status !== b.status) return false
   if (Boolean(a.isManager) !== Boolean(b.isManager)) return false
   if (Boolean(a.isInspector) !== Boolean(b.isInspector)) return false
+  if ((a.staffKind || '') !== (b.staffKind || '')) return false
+  if (Boolean(a.isOrgManager) !== Boolean(b.isOrgManager)) return false
   if (a.certifications.length !== b.certifications.length) return false
   const setB = new Set(b.certifications)
   return a.certifications.every((c) => setB.has(c))
@@ -227,8 +229,8 @@ export function validateWorkerForm(
   else if (!isValidIsraeliMobile(form.phone)) {
     errors.phone = 'מספר נייד ישראלי לא תקין (למשל 050-123-4567)'
   }
-  if (!form.isInspector && !form.isManager) {
-    errors.role = 'יש לבחור לפחות תפקיד אחד: בודק או מנהל'
+  if (form.staffKind !== 'inspector' && form.staffKind !== 'selector') {
+    errors.role = 'יש לבחור אם העובד בודק או סלקטור'
   }
   const email = (form.email || '').trim()
   if (form.isManager) {

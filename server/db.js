@@ -6,58 +6,73 @@ import { createSecureContext } from 'node:tls'
 // (alert 80). Force IPv4 and a TLS 1.2 context Atlas accepts.
 setDefaultResultOrder('ipv4first')
 
-const URI = process.env.MONGODB_URI
-
-const globalForMongo = globalThis
-
 const atlasTls = createSecureContext({
   minVersion: 'TLSv1.2',
   ciphers: 'DEFAULT:@SECLEVEL=0',
 })
 
-export async function getDb() {
-  if (!URI) {
-    throw new Error('Missing MONGODB_URI')
-  }
+const clientOptions = {
+  family: 4,
+  autoSelectFamily: false,
+  serverSelectionTimeoutMS: 8000,
+  connectTimeoutMS: 8000,
+  secureContext: atlasTls,
+}
 
-  if (!globalForMongo.__mongoClientPromise) {
-    const client = new MongoClient(URI, {
-      family: 4,
-      autoSelectFamily: false,
-      serverSelectionTimeoutMS: 8000,
-      connectTimeoutMS: 8000,
-      secureContext: atlasTls,
-    })
-    globalForMongo.__mongoClientPromise = client.connect()
-  }
+function store() {
+  if (!globalThis.__mongoClients) globalThis.__mongoClients = {}
+  return globalThis.__mongoClients
+}
 
-  const client = await globalForMongo.__mongoClientPromise
+/** Selectors and org accounts use MONGODB_URI. Inspectors use their own database. */
+export function mongoTarget(moduleName) {
+  return moduleName === 'inspectors' ? 'inspectors' : 'selectors'
+}
+
+function uriFor(target) {
+  if (target === 'inspectors') {
+    const uri = process.env.MONGODB_URI_INSPECTORS?.trim()
+    if (!uri) throw new Error('Missing MONGODB_URI_INSPECTORS')
+    return uri
+  }
+  const uri = process.env.MONGODB_URI?.trim()
+  if (!uri) throw new Error('Missing MONGODB_URI')
+  return uri
+}
+
+export async function getClient(target = 'selectors') {
+  const key = target === 'inspectors' ? 'inspectors' : 'selectors'
+  const clients = store()
+  if (!clients[key]) {
+    const client = new MongoClient(uriFor(key), clientOptions)
+    clients[key] = client.connect().then(() => client)
+  }
+  return clients[key]
+}
+
+export async function getDb(target = 'selectors') {
+  const client = await getClient(target)
   return client.db()
 }
 
-export async function getClient() {
-  await getDb()
-  return globalForMongo.__mongoClientPromise
-}
-
-export async function getStateCollection() {
-  const db = await getDb()
+export async function getStateCollection(target = 'selectors') {
+  const db = await getDb(target)
   return db.collection('app_state')
 }
 
-export async function getMetaCollection() {
-  const db = await getDb()
+export async function getMetaCollection(target = 'selectors') {
+  const db = await getDb(target)
   return db.collection('app_meta')
 }
 
-export async function getAuditCollection() {
-  const db = await getDb()
+export async function getAuditCollection(target = 'selectors') {
+  const db = await getDb(target)
   return db.collection('audit_logs')
 }
 
 /** Run writes together so a save does not leave half the models updated. */
-export async function withDbTransaction(fn) {
-  const client = await getClient()
+export async function withDbTransaction(fn, target = 'selectors') {
+  const client = await getClient(target)
   const session = client.startSession()
   try {
     let result

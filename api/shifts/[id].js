@@ -1,5 +1,5 @@
 import { deleteShift, upsertShift } from '../../server/data.js'
-import { requireUser } from '../../server/session.js'
+import { scopeForRequest } from '../../server/scope.js'
 
 export default async function handler(req, res) {
   const id = req.query.id
@@ -9,13 +9,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const actor = requireUser(req)
+    const { actor, scope } = await scopeForRequest(req)
     if (req.method === 'PUT') {
       const body = req.body || {}
       const expectedRevision = body.expectedRevision
       delete body.expectedRevision
       res.status(200).json(
         await upsertShift(id, body, actor, {
+          scope,
           expectedRevision:
             expectedRevision === undefined ? undefined : Number(expectedRevision),
         }),
@@ -26,6 +27,7 @@ export default async function handler(req, res) {
       const expectedRevision = req.query.expectedRevision
       res.status(200).json(
         await deleteShift(id, actor, {
+          scope,
           expectedRevision:
             expectedRevision === undefined ? undefined : Number(expectedRevision),
         }),

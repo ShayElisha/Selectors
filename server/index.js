@@ -9,6 +9,8 @@ import {
   createSeedData,
   deleteShift,
   loginByPhone,
+  migrateInspectorsDatabase,
+  migrateLegacyTenancy,
   publicData,
   readState,
   requestPasswordReset,
@@ -18,8 +20,10 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
+import { ensureOrgIndexes, listOrganizations, registerOrganization, reviewOrganization } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
-import { createSessionToken, requireUser } from './session.js'
+import { scopeForRequest } from './scope.js'
+import { createSessionToken, requireSuperAdmin, requireUser } from './session.js'
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -39,7 +43,8 @@ function sendError(res, err) {
 
 app.get('/api/health', async (_req, res) => {
   try {
-    await getDb()
+    await getDb('selectors')
+    if (process.env.MONGODB_URI_INSPECTORS?.trim()) await getDb('inspectors')
     res.json({
       ok: true,
       db: true,
@@ -91,9 +96,153 @@ app.post('/api/password-reset', async (req, res) => {
   }
 })
 
+app.post('/api/register', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `register:${clientKey(req)}`,
+      limit: 5,
+      windowMs: 15 * 60_000,
+    })
+    res.status(201).json(await registerOrganization(req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/organizations', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    res.json(await listOrganizations())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/organizations', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    const id = String(req.body?.id || '')
+    if (!id) {
+      const err = new Error('חסר מזהה ארגון')
+      err.status = 400
+      throw err
+    }
+    res.json(await reviewOrganization(id, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/data', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(publicData(await readState(scope)))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/data', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    const expectedRevision =
+      req.body?.expectedRevision ?? req.headers['x-expected-revision']
+    const { expectedRevision: _er, ...data } = req.body || {}
+    res.json(
+      await writeState(data, {
+        actor,
+        scope,
+        expectedRevision:
+          expectedRevision === undefined || expectedRevision === ''
+            ? undefined
+            : Number(expectedRevision),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/seed', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    if (req.body?.confirm !== 'RESET') {
+      const err = new Error('לאיפוס יש לשלוח confirm: \"RESET\"')
+      err.status = 400
+      throw err
+    }
+    res.json(
+      await writeState(createSeedData(), {
+        action: 'data_reset',
+        actor,
+        scope,
+        skipManagerInvites: true,
+        expectedRevision:
+          req.body?.expectedRevision != null
+            ? Number(req.body.expectedRevision)
+            : undefined,
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/shifts/:id', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    const body = req.body || {}
+    const expectedRevision = body.expectedRevision
+    delete body.expectedRevision
+    res.json(
+      await upsertShift(req.params.id, body, actor, {
+        scope,
+        expectedRevision:
+          expectedRevision === undefined ? undefined : Number(expectedRevision),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.delete('/api/shifts/:id', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    const expectedRevision = req.query.expectedRevision
+    res.json(
+      await deleteShift(req.params.id, actor, {
+        scope,
+        expectedRevision:
+          expectedRevision === undefined ? undefined : Number(expectedRevision),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/audit', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(await listAuditLogs({ limit: req.query.limit, ...scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/audit', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.status(201).json(await appendClientAuditEvent(req.body || {}, actor, scope))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
 app.post('/api/resend-temp-password', async (req, res) => {
   try {
-    const actor = requireUser(req)
+    const { actor, scope } = await scopeForRequest(req)
     const workerId = String(req.body?.workerId || '')
     if (!workerId) {
       const err = new Error('חסר מזהה עובד')
@@ -105,7 +254,7 @@ app.post('/api/resend-temp-password', async (req, res) => {
       limit: 5,
       windowMs: 15 * 60_000,
     })
-    res.json(await resendManagerTempPassword(workerId, actor))
+    res.json(await resendManagerTempPassword(workerId, actor, { scope }))
   } catch (err) {
     sendError(res, err)
   }
@@ -129,112 +278,11 @@ app.post('/api/mail-test', async (req, res) => {
   }
 })
 
-app.get('/api/data', async (req, res) => {
-  try {
-    requireUser(req)
-    res.json(publicData(await readState()))
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
-app.put('/api/data', async (req, res) => {
-  try {
-    const actor = requireUser(req)
-    const expectedRevision =
-      req.body?.expectedRevision ?? req.headers['x-expected-revision']
-    const { expectedRevision: _er, ...data } = req.body || {}
-    res.json(
-      await writeState(data, {
-        actor,
-        expectedRevision:
-          expectedRevision === undefined || expectedRevision === ''
-            ? undefined
-            : Number(expectedRevision),
-      }),
-    )
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
-app.post('/api/seed', async (req, res) => {
-  try {
-    const actor = requireUser(req)
-    if (req.body?.confirm !== 'RESET') {
-      const err = new Error('לאיפוס יש לשלוח confirm: \"RESET\"')
-      err.status = 400
-      throw err
-    }
-    res.json(
-      await writeState(createSeedData(), {
-        action: 'data_reset',
-        actor,
-        skipManagerInvites: true,
-        expectedRevision:
-          req.body?.expectedRevision != null
-            ? Number(req.body.expectedRevision)
-            : undefined,
-      }),
-    )
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
-app.put('/api/shifts/:id', async (req, res) => {
-  try {
-    const actor = requireUser(req)
-    const body = req.body || {}
-    const expectedRevision = body.expectedRevision
-    delete body.expectedRevision
-    res.json(
-      await upsertShift(req.params.id, body, actor, {
-        expectedRevision:
-          expectedRevision === undefined ? undefined : Number(expectedRevision),
-      }),
-    )
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
-app.delete('/api/shifts/:id', async (req, res) => {
-  try {
-    const actor = requireUser(req)
-    const expectedRevision = req.query.expectedRevision
-    res.json(
-      await deleteShift(req.params.id, actor, {
-        expectedRevision:
-          expectedRevision === undefined ? undefined : Number(expectedRevision),
-      }),
-    )
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
-app.get('/api/audit', async (req, res) => {
-  try {
-    requireUser(req)
-    res.json(await listAuditLogs({ limit: req.query.limit }))
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
-app.post('/api/audit', async (req, res) => {
-  try {
-    const actor = requireUser(req)
-    res.status(201).json(await appendClientAuditEvent(req.body || {}, actor))
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
 async function start() {
-  await getDb()
-  await readState()
+  await getDb('selectors')
+  await ensureOrgIndexes()
+  await migrateLegacyTenancy()
+  await migrateInspectorsDatabase()
   app.listen(PORT, () => {
     console.log(`API listening on http://127.0.0.1:${PORT}`)
   })

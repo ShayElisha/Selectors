@@ -56,9 +56,9 @@ import {
   type WorkerSortKey,
 } from '../lib/workersHelpers'
 import { notify } from '../lib/notify'
-import type { Lane, Worker, WorkerStatus } from '../types'
+import type { Lane, StaffKind, Worker, WorkerStatus } from '../types'
 
-const emptyForm = (): Omit<Worker, 'id'> => ({
+const emptyForm = (staffKind: StaffKind = 'selector'): Omit<Worker, 'id'> => ({
   fullName: '',
   phone: '',
   email: '',
@@ -66,6 +66,8 @@ const emptyForm = (): Omit<Worker, 'id'> => ({
   status: 'active',
   isInspector: true,
   isManager: false,
+  staffKind,
+  isOrgManager: false,
 })
 
 type DialogKind =
@@ -336,6 +338,7 @@ function WorkerForm({
   onCancel,
   onResendMail,
   showResend,
+  canAppointOrgManager,
 }: {
   title: string
   form: Omit<Worker, 'id'>
@@ -351,6 +354,7 @@ function WorkerForm({
   onCancel: () => void
   onResendMail?: () => void
   showResend: boolean
+  canAppointOrgManager: boolean
 }) {
   const firstRef = useRef<HTMLInputElement>(null)
   const nameId = useId()
@@ -481,34 +485,39 @@ function WorkerForm({
 
         <div>
           <p className="mb-1.5 text-xs font-medium text-ink-soft sm:text-sm">
-            תפקיד
+            שיוך
           </p>
           <p className="mb-2 text-[11px] text-ink-soft">
-            בודק נכלל בשיבוץ ובסטטיסטיקות. מנהל מקבל גישה למערכת. אפשר לבחור
-            את שניהם.
+            בודק רואה רק את הבודקים. סלקטור רואה רק את הסלקטורים. מנהל ארגון
+            רואה את שניהם.
           </p>
-          <div
-            className="flex flex-wrap gap-2"
-            role="group"
-            aria-label="תפקיד"
-          >
-            <label
-              className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold ring-1 transition ${
-                form.isInspector
-                  ? 'bg-brand-soft text-brand-deep ring-brand/30'
-                  : 'bg-card text-ink-soft ring-line hover:bg-surface'
-              }`}
-            >
-              <input
-                type="checkbox"
-                className="size-4 accent-[var(--color-brand)]"
-                checked={form.isInspector}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, isInspector: e.target.checked }))
-                }
-              />
-              בודק
-            </label>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="שיוך עובד">
+            {(
+              [
+                { id: 'inspector' as const, label: 'בודק' },
+                { id: 'selector' as const, label: 'סלקטור' },
+              ] as const
+            ).map((opt) => (
+              <label
+                key={opt.id}
+                className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold ring-1 transition ${
+                  form.staffKind === opt.id
+                    ? 'bg-brand-soft text-brand-deep ring-brand/30'
+                    : 'bg-card text-ink-soft ring-line hover:bg-surface'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="staff-kind"
+                  className="size-4 accent-[var(--color-brand)]"
+                  checked={form.staffKind === opt.id}
+                  onChange={() => setForm((f) => ({ ...f, staffKind: opt.id }))}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="הרשאות">
             <label
               className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold ring-1 transition ${
                 form.isManager
@@ -519,14 +528,47 @@ function WorkerForm({
               <input
                 type="checkbox"
                 className="size-4 accent-[var(--color-accent)]"
-                checked={form.isManager}
+                checked={form.isManager || Boolean(form.isOrgManager)}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, isManager: e.target.checked }))
+                  setForm((f) => ({
+                    ...f,
+                    isManager: e.target.checked,
+                    isOrgManager: e.target.checked ? f.isOrgManager : false,
+                  }))
                 }
               />
               מנהל
             </label>
+            <label
+              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold ring-1 transition ${
+                !canAppointOrgManager ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+              } ${
+                form.isOrgManager
+                  ? 'bg-brand text-white ring-brand'
+                  : 'bg-card text-ink-soft ring-line'
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--color-brand)]"
+                checked={Boolean(form.isOrgManager)}
+                disabled={!canAppointOrgManager}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    isOrgManager: e.target.checked,
+                    isManager: e.target.checked ? true : f.isManager,
+                  }))
+                }
+              />
+              מנהל ארגון
+            </label>
           </div>
+          {!canAppointOrgManager ? (
+            <p className="mt-2 text-[11px] text-ink-soft">
+              רק מנהל ארגון יכול להוסיף מנהלי ארגון נוספים.
+            </p>
+          ) : null}
           <FieldError message={showErrors && errors.role ? errors.role : null} />
         </div>
 
@@ -787,7 +829,11 @@ export function WorkersPage() {
     updateWorker,
     deleteWorker,
     resendManagerTempPassword,
+    user,
+    module,
   } = useApp()
+  const canAppointOrgManager = Boolean(user?.isOrgManager)
+  const defaultKind: StaffKind = module === 'inspectors' ? 'inspector' : 'selector'
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -875,7 +921,7 @@ export function WorkersPage() {
     requestCloseOrNav(() => {
       returnFocusRef.current = document.activeElement as HTMLElement
       setEditingId(null)
-      const blank = emptyForm()
+      const blank = emptyForm(defaultKind)
       setForm(blank)
       setBaseline(blank)
       setMailMessage(null)
@@ -896,7 +942,9 @@ export function WorkersPage() {
         certifications: [...w.certifications],
         status: w.status,
         isInspector: Boolean(w.isInspector) || !w.isManager,
-        isManager: Boolean(w.isManager),
+        isManager: Boolean(w.isManager) || Boolean(w.isOrgManager),
+        staffKind: w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : defaultKind,
+        isOrgManager: Boolean(w.isOrgManager),
       }
       setForm(next)
       setBaseline(next)
@@ -1043,6 +1091,7 @@ export function WorkersPage() {
         }
         onResendMail={() => void sendTempPassword()}
         showResend={Boolean(editingWorker?.isManager)}
+        canAppointOrgManager={canAppointOrgManager}
       />
     ) : null
 

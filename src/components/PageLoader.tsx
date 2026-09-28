@@ -1,3 +1,5 @@
+import { BrandMark } from './BrandMark'
+
 export function PageLoader({
   label = 'טוען נתונים…',
   fullScreen = false,
@@ -26,9 +28,8 @@ export function PageLoader({
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-5 px-4">
-      {loader}
+      <BrandMark className="size-14" />
       <div className="text-center">
-        <p className="ui-eyebrow mb-1.5">CHECK IN</p>
         <p className="ui-body font-medium text-ink-soft">{label}</p>
       </div>
       <div className="mt-2 flex w-full max-w-xs flex-col gap-2" aria-hidden>

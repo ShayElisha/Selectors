@@ -2,7 +2,7 @@ import {
   appendClientAuditEvent,
   listAuditLogs,
 } from '../server/audit.js'
-import { requireUser } from '../server/session.js'
+import { scopeForRequest } from '../server/scope.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -11,13 +11,13 @@ export default async function handler(req, res) {
     return
   }
   try {
-    const actor = requireUser(req)
+    const { actor, scope } = await scopeForRequest(req)
     if (req.method === 'GET') {
       const limit = req.query?.limit
-      res.status(200).json(await listAuditLogs({ limit }))
+      res.status(200).json(await listAuditLogs({ limit, ...scope }))
       return
     }
-    res.status(201).json(await appendClientAuditEvent(req.body || {}, actor))
+    res.status(201).json(await appendClientAuditEvent(req.body || {}, actor, scope))
   } catch (err) {
     const status = err.status || 500
     if (status >= 500) console.error(err)

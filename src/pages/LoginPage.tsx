@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Check, Eye, EyeOff, LogIn, Mail } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { AppFooter } from '../components/AppFooter'
+import { BrandMark } from '../components/BrandMark'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { FieldError, FieldLabel } from '../components/ui'
 import { notify } from '../lib/notify'
@@ -19,6 +20,9 @@ type Step =
   | 'await_email'
   | 'reset'
   | 'reset_sent'
+  | 'pending_approval'
+  | 'rejected'
+  | 'no_modules'
 
 function PasswordField({
   id,
@@ -127,13 +131,22 @@ export function LoginPage() {
     setError(null)
     setInfo(null)
     try {
-      const next = await checkLogin(phoneTrimmed)
-      if (next === 'login') {
-        setStep('login')
+      const result = await checkLogin(phoneTrimmed)
+      if (result.next === 'login' || result.next === 'change_password') {
+        setStep(result.next === 'change_password' ? 'change_password' : 'login')
+        return
+      }
+      if (
+        result.next === 'pending_approval' ||
+        result.next === 'rejected' ||
+        result.next === 'no_modules'
+      ) {
+        setInfo(result.message || null)
+        setStep(result.next)
         return
       }
       resetPasswordFields()
-      setStep(next)
+      setStep(result.next)
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'בדיקת מספר נכשלה')
     } finally {
@@ -232,6 +245,12 @@ export function LoginPage() {
           ? 'הסיסמה הזו זמנית. יש להגדיר סיסמה קבועה חדשה'
           : step === 'await_email'
             ? 'לחשבון הזה עדיין אין סיסמה'
+            : step === 'pending_approval'
+              ? 'הארגון עדיין לא אושר'
+              : step === 'rejected'
+                ? 'בקשת הארגון נדחתה'
+                : step === 'no_modules'
+                  ? 'הארגון אושר, והמודולים עדיין סגורים'
             : step === 'reset'
               ? 'איפוס סיסמה — נשלח מייל עם קוד זמני'
               : 'בדקו את תיבת המייל'
@@ -242,11 +261,8 @@ export function LoginPage() {
         <ThemeToggle />
       </div>
       <div className="ui-panel-solid p-5 sm:rounded-[1.25rem] sm:p-8">
-        <p className="ui-eyebrow mb-1">CHECK IN</p>
-        <h1 className="font-display text-[1.85rem] font-bold leading-tight tracking-tight text-ink sm:text-3xl">
-          שיבוצון
-        </h1>
-        <p className="ui-subtitle mt-2 text-xs sm:text-sm">{subtitle}</p>
+        <BrandMark variant="full" className="mx-auto mb-4 h-36" />
+        <p className="ui-subtitle mt-2 text-center text-xs sm:text-sm">{subtitle}</p>
 
         <form onSubmit={submit} className="mt-6 space-y-4 sm:mt-7" noValidate>
           {(step === 'phone' ||
@@ -254,7 +270,10 @@ export function LoginPage() {
             step === 'change_password' ||
             step === 'await_email' ||
             step === 'reset' ||
-            step === 'reset_sent') && (
+            step === 'reset_sent' ||
+            step === 'pending_approval' ||
+            step === 'rejected' ||
+            step === 'no_modules') && (
             <div>
               <FieldLabel htmlFor="login-phone">מספר טלפון</FieldLabel>
               <input
@@ -367,6 +386,15 @@ export function LoginPage() {
             </div>
           )}
 
+          {(step === 'pending_approval' ||
+            step === 'rejected' ||
+            step === 'no_modules') &&
+            info && (
+              <p className="rounded-xl border border-line bg-surface/80 px-3 py-3 text-xs text-ink-soft sm:text-sm">
+                {info}
+              </p>
+            )}
+
           {step === 'reset_sent' && info && (
             <p className="rounded-xl border border-ok/30 bg-ok-soft px-3 py-2.5 text-xs text-ok sm:text-sm">
               {info}
@@ -381,7 +409,11 @@ export function LoginPage() {
             />
           </div>
 
-          {step !== 'await_email' && step !== 'reset_sent' && (
+          {step !== 'await_email' &&
+            step !== 'reset_sent' &&
+            step !== 'pending_approval' &&
+            step !== 'rejected' &&
+            step !== 'no_modules' && (
             <button
               type="submit"
               disabled={
@@ -478,6 +510,15 @@ export function LoginPage() {
             >
               חזרה
             </button>
+          )}
+
+          {(step === 'phone' || step === 'login' || step === 'reset') && (
+            <Link
+              to="/register"
+              className="block text-center text-sm font-semibold text-brand underline underline-offset-2"
+            >
+              הרשמת ארגון חדש
+            </Link>
           )}
 
           <p className="text-center text-[11px] leading-relaxed text-ink-soft sm:text-xs">

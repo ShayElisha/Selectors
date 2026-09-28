@@ -27,7 +27,6 @@ import {
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import {
-  SHIFT_TYPE_LABELS,
   findShiftForSlot,
   getCurrentShiftContext,
   shiftSlotConflictMessage,
@@ -49,8 +48,12 @@ import {
   shiftFollowsMorning,
   WORKER_WINDOWS,
   workerWindowById,
-  SELECTABLE_SHIFT_TYPES,
 } from '../lib/shiftCatalog'
+import {
+  formatShiftModelWindow,
+  resolveShiftModels,
+  shiftModelLabel,
+} from '../lib/shiftModels'
 import {
   buildRoundsWhatsAppText,
   downloadRoundsImage,
@@ -115,6 +118,7 @@ export function ShiftPage() {
     draftDirty,
     setView,
     user,
+    module,
   } = useApp()
 
   const [extraFlow, setExtraFlow] = useState<ExtraFlow>('closed')
@@ -130,6 +134,10 @@ export function ShiftPage() {
   const [feasibilityOpen, setFeasibilityOpen] = useState(false)
   const [attendanceQuery, setAttendanceQuery] = useState('')
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const shiftModels = useMemo(
+    () => resolveShiftModels(data.shiftModels, module),
+    [data.shiftModels, module],
+  )
 
   const selectableLanes = useMemo(
     () => managedLanes(data.lanes),
@@ -222,7 +230,7 @@ export function ShiftPage() {
       }
       void postAuditEvent(
         'export_board',
-        `${draft.date} · ${SHIFT_TYPE_LABELS[draft.shiftType]} · ייצוא סלקטורים · ${roundExport.rounds.length} סבבים`,
+        `${draft.date} · ${shiftModelLabel(shiftModels, draft.shiftType)} · ייצוא סלקטורים · ${roundExport.rounds.length} סבבים`,
       )
     } catch {
       notify.error(
@@ -446,9 +454,10 @@ export function ShiftPage() {
   }
 
   useLayoutEffect(() => {
+    if (module === 'inspectors') return
     if (shiftStep !== 'board' || !draft || draft.audience === 'selector') return
     commitSelectorBoard()
-  }, [shiftStep, draft, commitSelectorBoard])
+  }, [module, shiftStep, draft, commitSelectorBoard])
 
   const handleSave = async () => {
     if (!draft) return
@@ -559,26 +568,33 @@ export function ShiftPage() {
               updateDraftMeta({ shiftType: e.target.value as ShiftType })
             }
           >
-            {SELECTABLE_SHIFT_TYPES.map((k) => {
+            {shiftModels.map((model) => {
               const taken = Boolean(
                 findShiftForSlot(
                   data.history,
                   draft.date,
-                  k,
+                  model.id as ShiftType,
                   draft.id,
                   draft.audience,
                 ),
               )
               return (
-                <option key={k} value={k}>
-                  {SHIFT_TYPE_LABELS[k]}
+                <option key={model.id} value={model.id}>
+                  {model.name}
                   {taken ? ' (קיים שמור)' : ''}
                 </option>
               )
             })}
           </select>
           <p className="mt-1 text-[13px] text-ink-soft">
-            <Ltr>{shiftWindowDisplay(draft.shiftType)}</Ltr>
+            <Ltr>
+              {(() => {
+                const model = shiftModels.find((item) => item.id === draft.shiftType)
+                return model
+                  ? formatShiftModelWindow(model)
+                  : shiftWindowDisplay(draft.shiftType)
+              })()}
+            </Ltr>
           </p>
         </label>
         <div className="ms-auto flex flex-col items-end gap-1.5">
@@ -1145,7 +1161,7 @@ export function ShiftPage() {
                           </button>
                         ) : null}
                         </div>
-                        {on && !isGate ? (
+                        {module !== 'inspectors' && on && !isGate ? (
                           <div className="px-2.5 pb-2">
                             <select
                               value={draft.workerWindows?.[w.id] ?? ''}
@@ -1397,7 +1413,7 @@ export function ShiftPage() {
                 <li>
                   תאריך ומשמרת:{' '}
                   <Ltr>{formatSetupDateLine(draft.date)}</Ltr> ·{' '}
-                  {SHIFT_TYPE_LABELS[draft.shiftType]}
+                  {shiftModelLabel(shiftModels, draft.shiftType)}
                 </li>
                 <li>
                   {pluralizeHe(draft.activeLaneIds.length, {
