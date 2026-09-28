@@ -58,6 +58,7 @@ import {
   shareRoundsImage,
   type ExportRoundCell,
 } from '../lib/export'
+import { buildHandoverText } from '../lib/handover'
 import { postAuditEvent } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
@@ -228,6 +229,25 @@ export function ShiftPage() {
         mode === 'download' ? 'ייצוא השיבוץ נכשל' : 'שיתוף השיבוץ נכשל',
       )
     }
+  }
+
+  const shareHandover = () => {
+    if (!draft) return
+    const text = buildHandoverText({
+      date: draft.date,
+      shiftType: draft.shiftType,
+      lanes: data.lanes,
+      workers: data.workers,
+      activeLaneIds: draft.activeLaneIds,
+      presentWorkerIds: draft.presentWorkerIds,
+      workerWindows: draft.workerWindows,
+      assignments: draft.assignments,
+      rounds: draft.rounds,
+      staffingOverrides: draft.staffingOverrides,
+    })
+    void navigator.clipboard?.writeText(text).catch(() => undefined)
+    openWhatsAppShare(text)
+    notify.success('טקסט המסירה הוכן')
   }
 
   const slotConflict = useMemo(() => {
@@ -1443,6 +1463,13 @@ export function ShiftPage() {
                 className="ui-btn ui-btn-ghost"
               >
                 חזרה לנוכחות
+              </button>
+              <button
+                type="button"
+                onClick={shareHandover}
+                className="ui-btn ui-btn-secondary gap-2"
+              >
+                מסירה
               </button>
               <button
                 type="button"

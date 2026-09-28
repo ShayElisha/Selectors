@@ -197,7 +197,7 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(profile.hardCount).toBe(2)
   })
 
-  it('computeWorkerLaneStats excludes night shifts from lane totals', () => {
+  it('computeWorkerLaneStats counts night shifts in lane totals', () => {
     const history = [
       shift(
         'n1',
@@ -229,10 +229,11 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       [hard, easy],
       history,
     )
-    expect(stats?.byLane.hard).toBe(1)
+    expect(stats?.byLane.hard).toBe(2)
     expect(stats?.byLane.easy).toBe(1)
-    expect(stats?.totalAssignments).toBe(2)
-    expect(stats?.hardCount).toBe(1)
+    expect(stats?.totalAssignments).toBe(3)
+    expect(stats?.hardCount).toBe(2)
+    expect(stats?.hardByShift.night).toBe(1)
     expect(stats?.nightEasyCount).toBe(0)
   })
 

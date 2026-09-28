@@ -192,7 +192,6 @@ export function listWorkerLaneVisits(
 
   const visits: LaneVisit[] = []
   for (const shift of history) {
-    if (shift.shiftType === 'night') continue
     if (options?.fromDate && shift.date < options.fromDate) continue
     if (options?.toDate && shift.date > options.toDate) continue
     const rounds: string[] = []
@@ -234,7 +233,6 @@ export function workerLaneReturnKeys(
 ): Set<string> {
   const keys = new Set<string>()
   for (const shift of history) {
-    if (shift.shiftType === 'night') continue
     if (options?.fromDate && shift.date < options.fromDate) continue
     if (options?.toDate && shift.date > options.toDate) continue
     const indexes = new Map<string, number[]>()

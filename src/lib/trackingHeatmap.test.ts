@@ -115,7 +115,7 @@ describe('filterLanesByIntensity', () => {
 })
 
 describe('listWorkerLaneVisits', () => {
-  it('returns day visits newest first and excludes nights', () => {
+  it('returns visits newest first and includes nights', () => {
     const history: ShiftSchedule[] = [
       shift('2026-09-10', 'morning', 'w1', 'l1'),
       shift('2026-09-18', 'night', 'w1', 'l1'),
@@ -127,8 +127,14 @@ describe('listWorkerLaneVisits', () => {
       toDate: '2026-09-30',
       today: '2026-09-20',
     })
-    expect(visits).toHaveLength(1)
+    expect(visits).toHaveLength(2)
     expect(visits[0]).toMatchObject({
+      date: '2026-09-18',
+      shiftType: 'night',
+      daysAgo: 2,
+      share: 1,
+    })
+    expect(visits[1]).toMatchObject({
       date: '2026-09-10',
       shiftType: 'morning',
       daysAgo: 10,

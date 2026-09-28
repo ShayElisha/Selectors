@@ -2491,9 +2491,6 @@ export function computeWorkerLaneStats(
     const hardByShift: Record<ShiftType, number> = { ...EMPTY_HARD_BY_SHIFT }
 
     for (const shift of filtered) {
-      // Position / lane summary: day shifts only (nights excluded).
-      if (shift.shiftType === 'night') continue
-
       for (const placement of shiftPlacements(shift)) {
         if (placement.workerId !== w.id) continue
         const share = placement.weight
@@ -2513,6 +2510,9 @@ export function computeWorkerLaneStats(
           )
         } else if (lane.intensity === 'medium') {
           mediumCount = addShare(mediumCount, share)
+        } else if (shift.shiftType === 'night') {
+          easyCount = addShare(easyCount, share)
+          nightEasyCount = addShare(nightEasyCount, share)
         } else {
           easyCount = addShare(easyCount, share)
           dayEasyCount = addShare(dayEasyCount, share)
@@ -2531,7 +2531,6 @@ export function computeWorkerLaneStats(
             laneMap,
             from,
             to,
-            { includeNight: false },
           )
         : 0
 

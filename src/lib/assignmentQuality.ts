@@ -3,12 +3,13 @@ import {
   SHORT_RETURN_DAYS,
   buildWorkerProfile,
 } from '../algorithm'
+import { shiftPlacements } from './shiftPlacements'
 import type { Lane, ShiftSchedule, Worker } from '../types'
 
 export type ShortReturnQuality = {
-  /** Day-shift placements that revisit a lane within maxDays. */
+  /** Placements that revisit a lane within maxDays. */
   shortReturnPlacements: number
-  /** All day-shift placements considered. */
+  /** All placements considered, including nights. */
   totalDayPlacements: number
   /** shortReturnPlacements / totalDayPlacements (0 when empty). */
   rate: number
@@ -16,9 +17,9 @@ export type ShortReturnQuality = {
 }
 
 /**
- * Share of day-shift (morning/afternoon) placements that return to the same
- * lane within `maxDays` (default SHORT_RETURN_DAYS), using prior history only.
- * Night shifts are excluded from both numerator and denominator.
+ * Share of placements that return to the same lane within `maxDays`
+ * (default SHORT_RETURN_DAYS), using prior history only.
+ * Night shifts are included. A selector board counts once per lane.
  */
 export function computeShortReturnRate(
   history: ShiftSchedule[],
@@ -45,24 +46,26 @@ export function computeShortReturnRate(
 
   for (let i = 0; i < sorted.length; i++) {
     const shift = sorted[i]!
-    if (shift.shiftType === 'night') continue
 
     const prior = sorted.slice(0, i)
-    for (const a of shift.assignments) {
-      for (const wid of a.workerIds) {
-        if (!wid || !workerIds.has(wid)) continue
-        totalDayPlacements += 1
-        const profile = buildWorkerProfile(
-          wid,
-          prior,
-          lanes,
-          shift.shiftType,
-          shift.date,
-          ROTATION_LOOKBACK_DAYS,
-        )
-        const D = profile.daysSinceLastVisit.get(a.laneId)
-        if (D != null && D <= maxDays) shortReturnPlacements += 1
-      }
+    const seen = new Set<string>()
+    for (const placement of shiftPlacements(shift)) {
+      const wid = placement.workerId
+      if (!wid || !workerIds.has(wid)) continue
+      const visit = `${wid}\0${placement.laneId}`
+      if (seen.has(visit)) continue
+      seen.add(visit)
+      totalDayPlacements += 1
+      const profile = buildWorkerProfile(
+        wid,
+        prior,
+        lanes,
+        shift.shiftType,
+        shift.date,
+        ROTATION_LOOKBACK_DAYS,
+      )
+      const D = profile.daysSinceLastVisit.get(placement.laneId)
+      if (D != null && D <= maxDays) shortReturnPlacements += 1
     }
   }
 

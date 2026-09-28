@@ -330,7 +330,6 @@ export function computeTeamAnalytics(
 
   const laneWorkerCounts = new Map<string, Map<string, number>>()
   for (const shift of filtered) {
-    if (shift.shiftType === 'night') continue
     const seen = new Set<string>()
     for (const placement of shiftPlacements(shift)) {
       if (!laneMap.has(placement.laneId)) continue

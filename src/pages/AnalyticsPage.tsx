@@ -689,8 +689,7 @@ export function AnalyticsPage() {
         )}
         {!loading && !error && !emptyHistory && !emptyRange ? (
           <p className="mt-3 rounded-xl border border-line bg-surface/60 px-3 py-2 text-[12px] text-ink-soft sm:text-[13px]">
-            חזרה קצרה לאותו נתיב (≤{shortReturnQuality.maxDays} ימים, בלי
-            לילות):{' '}
+            חזרה קצרה לאותו נתיב (≤{shortReturnQuality.maxDays} ימים):{' '}
             <span className="font-semibold tabular-nums text-ink">
               <Ltr>
                 {String(shortReturnQuality.shortReturnPlacements)}/

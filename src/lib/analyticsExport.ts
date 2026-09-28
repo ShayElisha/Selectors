@@ -64,7 +64,7 @@ export function buildAnalyticsCsv(
   if (options?.shortReturn) {
     const sr = options.shortReturn
     meta.push([
-      `חזרה קצרה (≤${sr.maxDays} ימים, בלי לילות): ${sr.shortReturnPlacements}/${sr.totalDayPlacements}`,
+      `חזרה קצרה (≤${sr.maxDays} ימים): ${sr.shortReturnPlacements}/${sr.totalDayPlacements}`,
       sr.totalDayPlacements > 0
         ? `${Math.round(sr.rate * 100)}%`
         : '—',
