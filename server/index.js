@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { pathToFileURL } from 'node:url'
 import cors from 'cors'
 import express from 'express'
 import {
@@ -29,7 +30,13 @@ const PORT = Number(process.env.PORT || 3001)
 
 const app = express()
 app.use(cors())
-app.use(express.json({ limit: '5mb' }))
+app.use((req, res, next) => {
+  if (req.body != null && typeof req.body === 'object') {
+    next()
+    return
+  }
+  express.json({ limit: '5mb' })(req, res, next)
+})
 
 function sendError(res, err) {
   const status = err.status || 500
@@ -392,7 +399,14 @@ async function start() {
   })
 }
 
-start().catch((err) => {
-  console.error('Failed to start server', err)
-  process.exit(1)
-})
+const isDirectRun =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isDirectRun) {
+  start().catch((err) => {
+    console.error('Failed to start server', err)
+    process.exit(1)
+  })
+}
+
+export default app

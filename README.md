@@ -23,7 +23,7 @@ npm run dev
 3. ב-Atlas → Network Access אפשרו גישה מ-`0.0.0.0/0` (נדרש ל-Serverless).
 4. Deploy.
 
-ה-API רץ כ-Serverless Functions תחת `/api/*`, והפרונט נבנה מ-Vite ל-`dist`.
+ה-API רץ כפונקציית שרת אחת (`api/index.js`) שמעבירה כל נתיב `/api/*` לאפליקציית Express. הפרונט נבנה מ-Vite ל-`dist`.
 
 ## אבטחה
 
