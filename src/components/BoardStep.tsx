@@ -9,6 +9,7 @@ import {
 import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
+  GripVertical,
   ArrowLeftRight,
   Check,
   CheckCircle2,
@@ -153,6 +154,7 @@ export function BoardStep({
 }: BoardStepProps) {
   const {
     updateAssignment,
+    moveLane,
     swapAssignments,
     removeWorkerFromShift,
     addSlotToLane,
@@ -906,10 +908,12 @@ export function BoardStep({
             .sort((a, b) => {
               const la = data.lanes.find((l) => l.id === a)
               const lb = data.lanes.find((l) => l.id === b)
-              return (
+              const gate =
                 (la && isGateManagerLane(la) ? 0 : 1) -
                 (lb && isGateManagerLane(lb) ? 0 : 1)
-              )
+              if (gate !== 0) return gate
+              return data.lanes.findIndex((l) => l.id === a) -
+                data.lanes.findIndex((l) => l.id === b)
             })
             .map((laneId) => {
             const lane = data.lanes.find((l) => l.id === laneId)
@@ -927,6 +931,23 @@ export function BoardStep({
               <div
                 key={laneId}
                 id={`board-lane-${laneId}`}
+                onDragOver={
+                  isGateLane
+                    ? undefined
+                    : (e) => {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                      }
+                }
+                onDrop={
+                  isGateLane
+                    ? undefined
+                    : (e) => {
+                        e.preventDefault()
+                        const fromId = e.dataTransfer.getData('text/plain')
+                        if (fromId) moveLane(fromId, laneId)
+                      }
+                }
                 className={`scroll-mt-24 rounded-2xl border px-3.5 py-3.5 shadow-[var(--shadow-panel)] sm:px-5 sm:py-4 ${
                   isGateLane
                     ? 'border-brand/20 bg-brand/[0.06]'
@@ -934,6 +955,21 @@ export function BoardStep({
                 }`}
               >
                 <div className="flex min-h-10 flex-wrap items-center gap-2">
+                  {!isGateLane ? (
+                    <button
+                      type="button"
+                      draggable
+                      aria-label={`גרור לשינוי סדר ${lane.name}`}
+                      title="גרור לשינוי סדר"
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', laneId)
+                        e.dataTransfer.effectAllowed = 'move'
+                      }}
+                      className="inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
+                    >
+                      <GripVertical className="size-4" aria-hidden />
+                    </button>
+                  ) : null}
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                     <h4 className="font-display text-base font-bold tracking-tight text-ink sm:text-lg">
                       {isGateLane ? (
