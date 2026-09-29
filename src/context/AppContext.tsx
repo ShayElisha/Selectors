@@ -186,7 +186,11 @@ interface AppContextValue {
     phone: string,
     password: string,
     opts?: { newPassword?: string; newPasswordConfirm?: string },
-  ) => Promise<'change_password' | void>
+  ) => Promise<
+    | void
+    | 'change_password'
+    | { next: 'pending_approval' | 'rejected' | 'no_modules' | 'await_email'; message?: string }
+  >
   /** Phone-only probe: which login UI to show next. */
   checkLogin: (
     phone: string,
@@ -715,11 +719,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       opts?: { newPassword?: string; newPasswordConfirm?: string },
     ) => {
       const session = await loginRemote(phone, password, opts)
-      if ('next' in session && session.next === 'change_password') {
-        return 'change_password'
+      if ('next' in session && session.next) {
+        if (session.next === 'change_password') return 'change_password'
+        if (
+          session.next === 'pending_approval' ||
+          session.next === 'rejected' ||
+          session.next === 'no_modules' ||
+          session.next === 'await_email'
+        ) {
+          return { next: session.next, message: session.message }
+        }
       }
       if (!('token' in session) || !session.token) {
-        throw new Error('לא התקבל טוקן התחברות')
+        throw new Error(
+          'message' in session && session.message
+            ? session.message
+            : 'לא התקבל טוקן התחברות',
+        )
       }
       saveSession(session)
       setUser(session)

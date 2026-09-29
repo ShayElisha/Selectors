@@ -24,6 +24,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   manager_invite: 'שליחת סיסמה זמנית',
   password_reset: 'איפוס סיסמה',
   assignment_settings: 'הגדרת אופן שיבוץ',
+  org_delete: 'מחיקת ארגון',
 }
 
 export function auditActionLabel(action: string): string {

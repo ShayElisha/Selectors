@@ -167,6 +167,11 @@ export function LoginPage() {
         setNewPassword('')
         setNewPasswordConfirm('')
         setStep('change_password')
+        return
+      }
+      if (next && typeof next === 'object') {
+        setInfo(next.message || null)
+        setStep(next.next)
       }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'התחברות נכשלה')

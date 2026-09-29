@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  deleteOrganizationRemote,
   fetchOrganizationsRemote,
   reviewOrganizationRemote,
   type OrganizationSummary,
@@ -40,6 +41,23 @@ export function SuperAdminPage() {
     if (user?.role !== 'super_admin') return
     void load()
   }, [load, user?.role])
+
+  const remove = async (org: OrganizationSummary) => {
+    const ok = window.confirm(
+      `למחוק את הארגון ${org.name}? החשבונות וכל נתוני השיבוץ של הארגון יימחקו.`,
+    )
+    if (!ok) return
+    setBusyId(org.id)
+    try {
+      await deleteOrganizationRemote(org.id)
+      setRows((current) => current.filter((row) => row.id !== org.id))
+      notify.success('הארגון נמחק')
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'מחיקת הארגון נכשלה')
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const patch = async (
     org: OrganizationSummary,
@@ -176,7 +194,22 @@ export function SuperAdminPage() {
                               דחייה
                             </button>
                           )}
+                          <button
+                            type="button"
+                            className="ui-btn ui-btn-danger"
+                            disabled={busy}
+                            onClick={() => void remove(org)}
+                          >
+                            מחיקה
+                          </button>
                         </div>
+                        {org.status === 'approved' &&
+                          !org.modules.selectors &&
+                          !org.modules.inspectors && (
+                            <p className="mt-2 max-w-[16rem] text-[12px] leading-relaxed text-warn">
+                              המנהל לא יכול להיכנס עד שפותחים סלקטורים או בודקים.
+                            </p>
+                          )}
                       </td>
                     </tr>
                   )

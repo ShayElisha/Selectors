@@ -164,6 +164,13 @@ export function fetchOrganizationsRemote(): Promise<OrganizationSummary[]> {
   return request('/api/organizations')
 }
 
+export function deleteOrganizationRemote(id: string): Promise<{ ok: boolean }> {
+  return request('/api/organizations', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  })
+}
+
 export function reviewOrganizationRemote(
   id: string,
   patch: {
