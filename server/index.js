@@ -29,6 +29,11 @@ import { createSessionToken, requireSuperAdmin, requireUser } from './session.js
 const PORT = Number(process.env.PORT || 3001)
 
 const app = express()
+app.disable('etag')
+app.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store')
+  next()
+})
 app.use(cors())
 app.use((req, res, next) => {
   if (req.body != null && typeof req.body === 'object') {
