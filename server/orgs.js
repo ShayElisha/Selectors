@@ -1,9 +1,12 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
-import { getAuditCollection, getDb, getMetaCollection } from './db.js'
+import { getAuditCollection, getDb, getMetaCollection, withDbTransaction } from './db.js'
 import { appendAuditLog } from './audit.js'
 import {
+  sendModulesOpenedEmail,
+  sendNewOrganizationAdminEmail,
   sendOrganizationApprovedEmail,
   sendOrganizationCreatedEmail,
+  sendOrganizationRejectedEmail,
   sendTempPasswordEmail,
 } from './mail.js'
 import {
@@ -138,6 +141,28 @@ async function recognizeModuleOrgManager(account, org) {
   return { ...account, isOrgManager: true }
 }
 
+export async function refreshManagerSession(user) {
+  if (!user?.orgId || user.role !== 'org_manager') {
+    throw httpError('נדרשת התחברות', 401)
+  }
+  const org = await getOrganization(user.orgId)
+  if (!org) throw httpError('הארגון נמחק. יש להתחבר מחדש.', 401)
+  const accountCol = await accounts()
+  let account =
+    (await accountCol.findOne({ _id: String(user.id), orgId: String(user.orgId) })) ||
+    (await accountCol.findOne({
+      phone: normalizePhone(user.phone),
+      orgId: String(user.orgId),
+    }))
+  if (!account || account.status === 'inactive') {
+    throw httpError('אין הרשאת מנהל למספר זה', 401)
+  }
+  account = await recognizeModuleOrgManager(account, org)
+  const session = sessionFromAccount(account, org)
+  if (user.module && session.modules[user.module]) session.module = user.module
+  return session
+}
+
 function sessionFromAccount(account, org) {
   const modules = modulesForAccount(account, org)
   return {
@@ -258,6 +283,16 @@ export async function registerOrganization(body) {
   } catch (err) {
     console.error('[mail] organization created email failed', err?.message || err)
   }
+  try {
+    await sendNewOrganizationAdminEmail({
+      organizationName: name,
+      managerName: fullName,
+      phone,
+      email,
+    })
+  } catch (err) {
+    console.error('[mail] new organization notice failed', err?.message || err)
+  }
 
   return {
     ok: true,
@@ -331,6 +366,15 @@ export async function reviewOrganization(id, patch) {
   if (next.status === 'approved' && org.status !== 'approved') {
     await notifyOrganizationApproved(saved)
   }
+  if (next.status === 'rejected' && org.status !== 'rejected') {
+    await notifyOrganizationRejected(saved)
+  }
+  if (saved?.status === 'approved' && next.modules) {
+    const opened =
+      (next.modules.selectors && !org.modules?.selectors) ||
+      (next.modules.inspectors && !org.modules?.inspectors)
+    if (opened) await notifyModulesOpened(saved)
+  }
   const rows = await listOrganizations()
   return rows.find((row) => row.id === String(saved._id)) || null
 }
@@ -346,10 +390,6 @@ export async function deleteOrganization(id) {
   const org = await orgCol.findOne({ _id: orgId })
   if (!org) throw httpError('הארגון לא נמצא', 404)
 
-  const accountCol = await accounts()
-  await accountCol.deleteMany({ orgId })
-  await orgCol.deleteOne({ _id: orgId })
-
   const targets = ['selectors']
   if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
   for (const target of targets) {
@@ -363,11 +403,59 @@ export async function deleteOrganization(id) {
     await audit.deleteMany({ orgId })
   }
 
+  const accountCol = await accounts()
+  await withDbTransaction(async (session) => {
+    const opts = session ? { session } : {}
+    await accountCol.deleteMany({ orgId }, opts)
+    await orgCol.deleteOne({ _id: orgId }, opts)
+  })
+
   await appendAuditLog({
     action: 'org_delete',
     details: `נמחק הארגון ${org.name || orgId}`,
   })
   return { ok: true }
+}
+
+async function managerForMail(org) {
+  const accountCol = await accounts()
+  const managers = await accountCol
+    .find({ orgId: String(org._id), status: 'active' })
+    .toArray()
+  return (
+    managers.find((account) => account.isOrgManager && isValidEmail(account.email)) ||
+    managers.find((account) => isValidEmail(account.email)) ||
+    null
+  )
+}
+
+async function notifyOrganizationRejected(org) {
+  const manager = await managerForMail(org)
+  if (!manager) return
+  try {
+    await sendOrganizationRejectedEmail({
+      to: normalizeEmail(manager.email),
+      fullName: manager.fullName || '',
+      organizationName: org.name || '',
+    })
+  } catch (err) {
+    console.error('[mail] organization rejected email failed', err?.message || err)
+  }
+}
+
+async function notifyModulesOpened(org) {
+  const manager = await managerForMail(org)
+  if (!manager) return
+  try {
+    await sendModulesOpenedEmail({
+      to: normalizeEmail(manager.email),
+      fullName: manager.fullName || '',
+      organizationName: org.name || '',
+      modules: publicModules(org.modules),
+    })
+  } catch (err) {
+    console.error('[mail] modules email failed', err?.message || err)
+  }
 }
 
 async function notifyOrganizationApproved(org) {
@@ -681,12 +769,22 @@ function assignmentModeLabel(mode) {
   return mode === 'rounds' ? 'שיבוץ בסבבים' : 'שיבוץ אחד לכל המשמרת'
 }
 
+const ROUND_CHOICES = [60, 90, 120, 180]
+
+export function publicRoundMinutes(org) {
+  const raw = org?.roundMinutes || {}
+  const pick = (value) =>
+    ROUND_CHOICES.includes(Number(value)) ? Number(value) : 120
+  return { selectors: pick(raw.selectors), inspectors: pick(raw.inspectors) }
+}
+
 export async function readOrgAssignmentSettings(orgId) {
   const org = await getOrganization(orgId)
   if (!org) throw httpError('הארגון לא נמצא', 404)
   return {
     modules: publicModules(org.modules),
     assignmentModes: publicAssignmentModes(org),
+    roundMinutes: publicRoundMinutes(org),
   }
 }
 
@@ -696,22 +794,41 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
   if (!org) throw httpError('הארגון לא נמצא', 404)
   const current = publicAssignmentModes(org)
   const next = { ...current }
-  if (patch?.selectors != null) {
-    if (patch.selectors !== 'rounds' && patch.selectors !== 'single') {
+  const modes =
+    patch?.assignmentModes && typeof patch.assignmentModes === 'object'
+      ? patch.assignmentModes
+      : patch
+  if (modes?.selectors != null) {
+    if (modes.selectors !== 'rounds' && modes.selectors !== 'single') {
       throw httpError('אופן שיבוץ לא תקין לסלקטורים', 400)
     }
-    next.selectors = patch.selectors
+    next.selectors = modes.selectors
   }
-  if (patch?.inspectors != null) {
-    if (patch.inspectors !== 'rounds' && patch.inspectors !== 'single') {
+  if (modes?.inspectors != null) {
+    if (modes.inspectors !== 'rounds' && modes.inspectors !== 'single') {
       throw httpError('אופן שיבוץ לא תקין לבודקים', 400)
     }
-    next.inspectors = patch.inspectors
+    next.inspectors = modes.inspectors
   }
-  if (next.selectors === current.selectors && next.inspectors === current.inspectors) {
+  const minutes = publicRoundMinutes(org)
+  const minutePatch = patch?.roundMinutes
+  if (minutePatch && typeof minutePatch === 'object') {
+    for (const key of ['selectors', 'inspectors']) {
+      if (ROUND_CHOICES.includes(Number(minutePatch[key]))) {
+        minutes[key] = Number(minutePatch[key])
+      }
+    }
+  }
+  const sameModes =
+    next.selectors === current.selectors && next.inspectors === current.inspectors
+  const sameMinutes =
+    minutes.selectors === publicRoundMinutes(org).selectors &&
+    minutes.inspectors === publicRoundMinutes(org).inspectors
+  if (sameModes && sameMinutes) {
     return {
       modules: publicModules(org.modules),
       assignmentModes: current,
+      roundMinutes: minutes,
     }
   }
   await orgCol.updateOne(
@@ -719,6 +836,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     {
       $set: {
         assignmentModes: next,
+        roundMinutes: minutes,
         updatedAt: new Date().toISOString(),
       },
     },
@@ -742,5 +860,6 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
   return {
     modules: publicModules(org.modules),
     assignmentModes: next,
+    roundMinutes: minutes,
   }
 }

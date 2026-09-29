@@ -64,7 +64,8 @@ import {
   type ExportRoundCell,
 } from '../lib/export'
 import { buildHandoverText } from '../lib/handover'
-import { postAuditEvent } from '../api'
+import { postAuditEvent, reportShiftPresence } from '../api'
+import { startLanePointerDrag } from '../lib/laneDrag'
 import { pluralizeHe } from '../lib/hebrew'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
 import {
@@ -135,6 +136,7 @@ export function ShiftPage() {
   const [requestExplainModal, setRequestExplainModal] = useState(false)
   const [explainModalOpen, setExplainModalOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
+  const [otherEditors, setOtherEditors] = useState<string[]>([])
   const [feasibilityOpen, setFeasibilityOpen] = useState(false)
   const [attendanceQuery, setAttendanceQuery] = useState('')
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -142,6 +144,28 @@ export function ShiftPage() {
     () => resolveShiftModels(data.shiftModels, module),
     [data.shiftModels, module],
   )
+
+  useEffect(() => {
+    if (!draft?.id) {
+      setOtherEditors([])
+      return
+    }
+    let stop = false
+    const ping = async () => {
+      try {
+        const result = await reportShiftPresence(draft.id)
+        if (!stop) setOtherEditors(result.others)
+      } catch {
+        if (!stop) setOtherEditors([])
+      }
+    }
+    void ping()
+    const timer = window.setInterval(() => void ping(), 15000)
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+    }
+  }, [draft?.id])
 
   const selectableLanes = useMemo(
     () => managedLanes(data.lanes),
@@ -204,7 +228,7 @@ export function ShiftPage() {
 
   const exportSelectorBoard = async (mode: 'download' | 'whatsapp') => {
     if (!draft) return
-    const meta = { preparedBy: user?.fullName }
+    const meta = { preparedBy: user?.fullName, organizationName: user?.orgName || undefined }
     const text = buildRoundsWhatsAppText(
       draft.date,
       draft.shiftType,
@@ -720,6 +744,12 @@ export function ShiftPage() {
       </ol>
       ) : null}
 
+      {otherEditors.length > 0 ? (
+        <p className="rounded-xl border border-warn/30 bg-warn-soft px-3 py-2 text-[13px] font-semibold text-warn">
+          גם {otherEditors.join(', ')} עורך את המשמרת הזו עכשיו. שמירה עלולה לדרוס את העבודה שלו.
+        </p>
+      ) : null}
+
       {shiftStep === 'lanes' && (
         <section className="ui-panel-solid p-4 sm:rounded-2xl sm:p-5">
           {selectableLanes.length === 0 ? (
@@ -813,18 +843,7 @@ export function ShiftPage() {
                     lane.requiredCertifications,
                   )
               return (
-                <li
-                  key={lane.id}
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    const fromId = e.dataTransfer.getData('text/plain')
-                    if (fromId) moveLane(fromId, lane.id)
-                  }}
-                >
+                <li key={lane.id} data-lane-row={lane.id}>
                       <div
                         className={`flex min-h-14 w-full items-center gap-2 rounded-xl border px-2.5 py-1.5 transition sm:gap-3 sm:px-3 ${
                           on
@@ -834,13 +853,10 @@ export function ShiftPage() {
                       >
                         <button
                           type="button"
-                          draggable
                           aria-label={`גרור לשינוי סדר ${lane.name}`}
                           title="גרור לשינוי סדר"
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', lane.id)
-                            e.dataTransfer.effectAllowed = 'move'
-                          }}
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(e) => startLanePointerDrag(e, lane.id, moveLane)}
                           className="inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
                         >
                           <GripVertical className="size-4" aria-hidden />

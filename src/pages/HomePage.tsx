@@ -404,6 +404,7 @@ export function HomePage() {
         undefined,
         {
           preparedBy: savedBy || user?.fullName,
+          organizationName: user?.orgName || undefined,
           ...(gateManagerName ? { gateManagerName } : {}),
         },
       )

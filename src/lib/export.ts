@@ -12,6 +12,7 @@ export interface ExportLaneLine {
 
 export interface ExportMeta {
   preparedBy?: string
+  organizationName?: string
   /** Display name of designated מנהל שער for this shift */
   gateManagerName?: string
 }
@@ -55,11 +56,12 @@ function buildExportNode(
 
   const issued = formatTimeHe()
   const by = meta.preparedBy ? escapeHtml(meta.preparedBy) : '—'
+  const org = meta.organizationName ? escapeHtml(meta.organizationName) : ''
 
   root.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #0f3350;padding-bottom:14px;margin-bottom:18px">
       <div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#c45c26;text-transform:uppercase">GATE OUT</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#c45c26;text-transform:uppercase">GATE OUT${org ? ` · ${org}` : ''}</div>
         <div style="font-size:26px;font-weight:800;color:#0f3350;margin-top:2px;line-height:1.2">שיבוץ שער יציאה</div>
         <div style="font-size:14px;color:#3d4f66;margin-top:6px">${formatDateHe(date)}</div>
       </div>
@@ -373,6 +375,7 @@ function buildRoundsExportNode(
 
   const issued = formatTimeHe()
   const by = meta.preparedBy ? escapeHtml(meta.preparedBy) : '—'
+  const org = meta.organizationName ? escapeHtml(meta.organizationName) : ''
   const head = laneNames
     .map(
       (name) =>
@@ -394,7 +397,7 @@ function buildRoundsExportNode(
   root.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #0f3350;padding-bottom:14px;margin-bottom:16px">
       <div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#c45c26">CHECK IN</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;color:#c45c26">CHECK IN${org ? ` · ${org}` : ''}</div>
         <div style="font-size:26px;font-weight:800;color:#0f3350;margin-top:2px">שיבוץ סלקטורים</div>
         <div style="font-size:14px;color:#3d4f66;margin-top:6px">${formatDateHe(date)}</div>
       </div>

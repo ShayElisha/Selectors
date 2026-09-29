@@ -73,6 +73,7 @@ const emptyForm = (staffKind: StaffKind = 'selector'): Omit<Worker, 'id'> => ({
 type DialogKind =
   | { type: 'delete'; worker: Worker }
   | { type: 'deactivate'; worker: Worker }
+  | { type: 'archive'; worker: Worker }
   | { type: 'activate'; worker: Worker }
   | { type: 'grantAdmin'; name: string; email: string }
   | { type: 'revokeAdmin'; name: string }
@@ -234,11 +235,17 @@ function WorkerAvatar({ name }: { name: string }) {
   )
 }
 
-function ManagerBadge() {
+function ManagerBadge({ org = false }: { org?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent ring-1 ring-accent/20">
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold ring-1 ${
+        org
+          ? 'bg-brand text-white ring-brand'
+          : 'bg-accent-soft text-accent ring-accent/20'
+      }`}
+    >
       <Shield className="size-3" aria-hidden />
-      מנהל
+      {org ? 'מנהל ארגון' : 'מנהל משמרת'}
     </span>
   )
 }
@@ -256,7 +263,11 @@ function RoleBadges({ worker }: { worker: Worker }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {worker.isInspector ? <InspectorBadge /> : null}
-      {worker.isManager ? <ManagerBadge /> : null}
+      {worker.isOrgManager ? (
+        <ManagerBadge org />
+      ) : worker.isManager ? (
+        <ManagerBadge />
+      ) : null}
     </span>
   )
 }
@@ -480,6 +491,7 @@ function WorkerForm({
           options={[
             { value: 'active', label: 'פעיל' },
             { value: 'inactive', label: 'לא פעיל' },
+            { value: 'archived', label: 'ארכיון' },
           ]}
         />
 
@@ -674,12 +686,14 @@ function RowMenu({
   onEdit,
   onDeactivate,
   onActivate,
+  onArchive,
   onDelete,
 }: {
   worker: Worker
   onEdit: () => void
   onDeactivate: () => void
   onActivate: () => void
+  onArchive: () => void
   onDelete: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -758,6 +772,20 @@ function RowMenu({
               הפעלה
             </button>
           )}
+          {worker.status !== 'archived' ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+              onClick={() => {
+                setOpen(false)
+                onArchive()
+              }}
+            >
+              <Ban className="size-3.5" aria-hidden />
+              העברה לארכיון
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
@@ -1188,6 +1216,10 @@ export function WorkersPage() {
                       label: `לא פעילים (${statusCounts.inactive})`,
                     },
                     {
+                      id: 'archived' as const,
+                      label: `ארכיון (${statusCounts.archived})`,
+                    },
+                    {
                       id: 'all' as const,
                       label: `הכל (${data.workers.length})`,
                     },
@@ -1423,6 +1455,9 @@ export function WorkersPage() {
                                 onDeactivate={() =>
                                   setDialog({ type: 'deactivate', worker: w })
                                 }
+                                onArchive={() =>
+                                  setDialog({ type: 'archive', worker: w })
+                                }
                                 onActivate={() =>
                                   setDialog({ type: 'activate', worker: w })
                                 }
@@ -1501,6 +1536,9 @@ export function WorkersPage() {
                             onEdit={() => openEdit(w)}
                             onDeactivate={() =>
                               setDialog({ type: 'deactivate', worker: w })
+                            }
+                            onArchive={() =>
+                              setDialog({ type: 'archive', worker: w })
                             }
                             onActivate={() =>
                               setDialog({ type: 'activate', worker: w })
@@ -1601,6 +1639,26 @@ export function WorkersPage() {
               הבודק יישמר בהיסטוריה ולא ישובץ במשמרות חדשות.
             </p>
           </>
+        ) : null}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={dialog?.type === 'archive'}
+        title="העברה לארכיון"
+        confirmLabel="ארכיון"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => {
+          if (dialog?.type !== 'archive') return
+          updateWorker({ ...dialog.worker, status: 'archived' })
+          setDialog(null)
+          showToast('העובד הועבר לארכיון. ההיסטוריה נשמרת.')
+        }}
+      >
+        {dialog?.type === 'archive' ? (
+          <p>
+            להעביר את <strong>{dialog.worker.fullName}</strong> לארכיון? הוא לא
+            יופיע בשיבוץ החדש, ומשמרות ישנות יישארו על שמו.
+          </p>
         ) : null}
       </ConfirmDialog>
 

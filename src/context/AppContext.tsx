@@ -22,6 +22,7 @@ import {
   fetchAppData,
   loginRemote,
   postAuditEvent,
+  refreshSessionRemote,
   requestPasswordResetRemote,
   resendManagerTempPasswordRemote,
   fetchOrgSettings,
@@ -182,6 +183,8 @@ interface AppContextValue {
   setModule: (module: AppModule) => void
   assignmentModes: AssignmentModes
   saveAssignmentModes: (modes: AssignmentModes) => Promise<void>
+  roundMinutes: { selectors: number; inspectors: number }
+  saveRoundMinutes: (minutes: { selectors: number; inspectors: number }) => Promise<void>
   login: (
     phone: string,
     password: string,
@@ -457,6 +460,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [assignmentModes, setAssignmentModes] = useState<AssignmentModes>(
     DEFAULT_ASSIGNMENT_MODES,
   )
+  const [roundMinutes, setRoundMinutes] = useState({ selectors: 120, inspectors: 120 })
+  const roundMinutesRef = useRef(roundMinutes)
+  roundMinutesRef.current = roundMinutes
   const view = viewFromPath(location.pathname)
   const [shiftStep, setShiftStepState] = useState<ShiftStep>(() => restoreStep())
   const [draft, setDraft] = useState<ShiftDraft | null>(() => restoreDraft())
@@ -797,7 +803,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     void fetchOrgSettings()
       .then((settings) => {
-        if (!cancelled) setAssignmentModes(normalizeAssignmentModes(settings.assignmentModes))
+        if (!cancelled) {
+          setAssignmentModes(normalizeAssignmentModes(settings.assignmentModes))
+          if (settings.roundMinutes) {
+            setRoundMinutes({
+              selectors: Number(settings.roundMinutes.selectors) || 120,
+              inspectors: Number(settings.roundMinutes.inspectors) || 120,
+            })
+          }
+        }
       })
       .catch(() => {
         /* keep the built-in defaults until the next successful read */
@@ -807,10 +821,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.token, user?.role])
 
+  const saveRoundMinutes = useCallback(
+    async (minutes: { selectors: number; inspectors: number }) => {
+      const saved = await saveOrgSettings({
+        assignmentModes,
+        roundMinutes: minutes,
+      })
+      if (saved.roundMinutes) {
+        setRoundMinutes({
+          selectors: Number(saved.roundMinutes.selectors) || 120,
+          inspectors: Number(saved.roundMinutes.inspectors) || 120,
+        })
+      }
+    },
+    [assignmentModes],
+  )
+
   const saveAssignmentModes = useCallback(async (modes: AssignmentModes) => {
-    const saved = await saveOrgSettings(normalizeAssignmentModes(modes))
+    const saved = await saveOrgSettings({
+      assignmentModes: normalizeAssignmentModes(modes),
+      roundMinutes,
+    })
     setAssignmentModes(normalizeAssignmentModes(saved.assignmentModes))
+    if (saved.roundMinutes) {
+      setRoundMinutes({
+        selectors: Number(saved.roundMinutes.selectors) || 120,
+        inspectors: Number(saved.roundMinutes.inspectors) || 120,
+      })
+    }
   }, [])
+
+  useEffect(() => {
+    if (!user?.token || user.role !== 'org_manager') return
+    let stop = false
+    const tick = async () => {
+      try {
+        const fresh = await refreshSessionRemote()
+        if (stop) return
+        const prev = loadSession()
+        const changed =
+          Boolean(prev?.isOrgManager) !== Boolean(fresh.isOrgManager) ||
+          Boolean(prev?.modules.selectors) !== Boolean(fresh.modules?.selectors) ||
+          Boolean(prev?.modules.inspectors) !== Boolean(fresh.modules?.inspectors)
+        saveSession({ ...fresh, token: fresh.token })
+        if (changed) setUser({ ...fresh, token: fresh.token })
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) handleAuthFailure()
+      }
+    }
+    void tick()
+    const timer = window.setInterval(() => void tick(), 20000)
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+    }
+  }, [user?.token, user?.role, handleAuthFailure])
 
   useEffect(() => {
     if (!user?.token || user.role !== 'org_manager') {
@@ -1363,6 +1428,10 @@ function nightPartnersForMorning(
           data.shiftModels,
           user?.module === 'inspectors',
         ),
+        roundMinutes:
+          roundMinutesRef.current[
+            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+          ],
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
         workers: present,
@@ -1412,6 +1481,10 @@ function nightPartnersForMorning(
             data.shiftModels,
             user?.module === 'inspectors',
           ),
+          roundMinutes:
+            roundMinutesRef.current[
+              user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+            ],
           lanes: data.lanes,
           activeLaneIds: d.activeLaneIds,
           workers: present,
@@ -1505,6 +1578,10 @@ function nightPartnersForMorning(
           data.shiftModels,
           user?.module === 'inspectors',
         ),
+        roundMinutes:
+          roundMinutesRef.current[
+            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+          ],
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
         workers: present,
@@ -1572,6 +1649,9 @@ function nightPartnersForMorning(
                 d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
               ),
               d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
+              roundMinutesRef.current[
+                user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+              ],
             ),
             warnings: [],
             explanations: [],
@@ -2492,6 +2572,8 @@ function nightPartnersForMorning(
       setModule,
       assignmentModes,
       saveAssignmentModes,
+      roundMinutes,
+      saveRoundMinutes,
       login,
       checkLogin,
       requestPasswordReset,
@@ -2560,6 +2642,8 @@ function nightPartnersForMorning(
       user,
       assignmentModes,
       saveAssignmentModes,
+      roundMinutes,
+      saveRoundMinutes,
       setModule,
       login,
       checkLogin,

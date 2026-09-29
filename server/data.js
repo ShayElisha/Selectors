@@ -201,7 +201,8 @@ function normalizeWorker(w, fallbackKind = 'selector') {
     phone: w.phone || '',
     email: normalizeEmail(w.email),
     certifications: Array.isArray(w.certifications) ? w.certifications : [],
-    status: w.status === 'inactive' ? 'inactive' : 'active',
+    status:
+      w.status === 'inactive' || w.status === 'archived' ? w.status : 'active',
     isInspector,
     isManager: isManager || isOrgManager,
     staffKind,

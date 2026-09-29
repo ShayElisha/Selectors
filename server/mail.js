@@ -1,8 +1,11 @@
 import nodemailer from 'nodemailer'
 import {
   appDisplayName,
+  buildModulesOpenedEmail,
+  buildNewOrganizationAdminEmail,
   buildOrganizationApprovedEmail,
   buildOrganizationCreatedEmail,
+  buildOrganizationRejectedEmail,
   buildTempPasswordEmail,
   buildTestEmail,
   logoAttachment,
@@ -29,6 +32,20 @@ function smtpPass() {
 
 function smtpUser() {
   return String(process.env.SMTP_USER || '').trim()
+}
+
+/** Mailbox we are allowed to send as. Display name always follows the app, never a mistyped SMTP_FROM. */
+function mailboxAddress() {
+  const configured = String(process.env.MAIL_FROM || process.env.SMTP_FROM || '').trim()
+  const wrapped = configured.match(/<([^>]+)>/)
+  const embedded = wrapped?.[1]?.trim()
+  if (embedded?.includes('@')) return embedded
+  if (configured.includes('@') && !configured.includes('<')) return configured
+  return smtpUser()
+}
+
+function brandedFromAddress() {
+  return `${appDisplayName()} <${mailboxAddress()}>`
 }
 
 function createTransport() {
@@ -76,9 +93,7 @@ export async function sendMail({ to, subject, text, html, attachments }) {
     throw err
   }
 
-  const from =
-    process.env.SMTP_FROM ||
-    `${appDisplayName()} <${process.env.SMTP_USER}>`
+  const from = brandedFromAddress()
 
   const transporter = createTransport()
   try {
@@ -156,6 +171,41 @@ export async function sendOrganizationCreatedEmail({
 /**
  * @param {{ to: string, fullName: string, organizationName: string }} opts
  */
+export async function sendOrganizationRejectedEmail(opts) {
+  const built = buildOrganizationRejectedEmail(opts)
+  return sendMail({
+    to: opts.to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    attachments: withLogoAttachments(),
+  })
+}
+
+export async function sendModulesOpenedEmail(opts) {
+  const built = buildModulesOpenedEmail(opts)
+  return sendMail({
+    to: opts.to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    attachments: withLogoAttachments(),
+  })
+}
+
+export async function sendNewOrganizationAdminEmail(opts) {
+  const to = String(process.env.SUPER_ADMIN_EMAIL || process.env.SMTP_USER || '').trim()
+  if (!to) return { queued: false, devLogged: true }
+  const built = buildNewOrganizationAdminEmail(opts)
+  return sendMail({
+    to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    attachments: withLogoAttachments(),
+  })
+}
+
 export async function sendOrganizationApprovedEmail({
   to,
   fullName,

@@ -23,7 +23,12 @@ export async function scopeForRequest(req) {
     throw err
   }
   const org = await getOrganization(actor.orgId)
-  if (!org || org.status !== 'approved') {
+  if (!org) {
+    const err = new Error('הארגון נמחק. יש להתחבר מחדש.')
+    err.status = 401
+    throw err
+  }
+  if (org.status !== 'approved') {
     const err = new Error('הארגון אינו מאושר')
     err.status = 403
     throw err
