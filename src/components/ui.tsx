@@ -140,7 +140,7 @@ export function SectionCard({
           {subtitle ? <div className="ui-subtitle">{subtitle}</div> : null}
         </div>
         {actions ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 no-print">
+          <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-full no-print">
             {actions}
           </div>
         ) : null}

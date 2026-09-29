@@ -219,7 +219,7 @@ function LoadOverview({
 
       <div
         dir="ltr"
-        className="relative h-16 rounded-xl bg-surface/80 px-3 ring-1 ring-line/70"
+        className="relative h-16 overflow-hidden rounded-xl bg-surface/80 px-3 ring-1 ring-line/70"
         role="img"
         aria-label={`התפלגות עומס מ־0 עד ${formatLoadOneDecimal(max)}, ממוצע ${formatLoadOneDecimal(avgLoad)}`}
       >
@@ -513,18 +513,18 @@ export function AnalyticsPage() {
   const recalcDisabled = loading || recalcBusy || refreshing
 
   return (
-    <div className="analytics-print-root space-y-4">
+    <div className="analytics-print-root min-w-0 max-w-full space-y-4 overflow-x-clip">
       <SectionCard
         title="סטטיסטיקות ואנליזה"
         subtitle="תובנות הוגנות לפי עומס אפקטיבי — מנוחה / קל־יום מורידים עומס · קל לילה לא נספר כמנוחה"
         actions={
-          <div className="flex flex-wrap items-center gap-1.5 no-print">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 no-print">
             <button
               type="button"
               onClick={() => void handleRecalcLoads()}
               disabled={recalcDisabled}
               title="רענון מהשרת וחישוב עומסים מחדש (כולל מנוחה וקל־יום)"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink transition hover:border-brand/40 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink transition hover:border-brand/40 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               {recalcBusy || refreshing ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -542,7 +542,7 @@ export function AnalyticsPage() {
                   ? 'אין נתונים לייצוא בטווח'
                   : 'ייצוא הסטטיסטיקות של הטווח לאקסל (CSV)'
               }
-              className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-3 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-deep disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-xl bg-brand px-3 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-deep disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               <Download className="size-3.5" aria-hidden />
               ייצוא לאקסל
@@ -550,7 +550,7 @@ export function AnalyticsPage() {
             <button
               type="button"
               onClick={() => setView('tracking')}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink transition hover:border-brand/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink transition hover:border-brand/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               <Table2 className="size-3.5" aria-hidden />
               פתיחה במעקב נתיבים
@@ -574,7 +574,7 @@ export function AnalyticsPage() {
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+          <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0 sm:grid-cols-4 sm:gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="h-24 rounded-xl" />
             ))}
@@ -591,9 +591,9 @@ export function AnalyticsPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-            <div className="rounded-xl border border-line bg-surface/80 px-3 py-2.5">
-              <div className="mb-1 flex items-center gap-1 text-ink-soft">
+          <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0 sm:grid-cols-4 sm:gap-3">
+            <div className="min-w-0 rounded-xl border border-line bg-surface/80 px-3 py-2.5">
+              <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">משמרות בטווח</span>
                 <InfoTip label="הסבר משמרות בטווח">
                   מספר שיבוצים שמורים בטווח התאריכים שנבחר (כל סוג משמרת נספר
@@ -603,7 +603,7 @@ export function AnalyticsPage() {
               <p className="font-display text-xl font-bold tabular-nums text-brand-deep sm:text-2xl">
                 <Ltr>{String(analytics.shiftsInRange)}</Ltr>
               </p>
-              <p className="mt-1 text-[13px] text-ink-soft">{shiftMixSubtitle}</p>
+              <p className="mt-1 break-words text-[13px] text-ink-soft">{shiftMixSubtitle}</p>
             </div>
 
             <div className="rounded-xl border border-line bg-surface/80 px-3 py-2.5">
@@ -713,7 +713,7 @@ export function AnalyticsPage() {
 
       {!loading && !error && analytics.workersWithData > 0 ? (
         <>
-          <div className="grid items-stretch gap-4 lg:grid-cols-2">
+          <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2 [&>*]:min-w-0">
             <SectionCard
               title="מי צריך הקלה"
               subtitle={
@@ -973,7 +973,7 @@ function WorkerRankList({
             key={w.workerId}
             className="rounded-xl border border-line bg-surface px-3 py-2"
           >
-            <div className="mb-1.5 flex items-center gap-2">
+            <div className="mb-1.5 flex min-w-0 items-center gap-2">
               <span
                 className={`flex size-6 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${badge}`}
               >
@@ -1010,7 +1010,7 @@ function WorkerRankList({
                 <button
                   type="button"
                   onClick={onOpenTracking}
-                  className="ms-auto inline-flex max-w-full items-center gap-1 rounded-md bg-card px-1.5 py-0.5 text-[12px] font-semibold text-ink ring-1 ring-line transition hover:ring-brand/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                  className="ms-auto inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-card px-1.5 py-0.5 text-[12px] font-semibold text-ink ring-1 ring-line transition hover:ring-brand/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
                 >
                   <Table2 className="size-3 shrink-0 text-brand" aria-hidden />
                   <span className="truncate">
