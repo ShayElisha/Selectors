@@ -489,7 +489,7 @@ function WorkerForm({
           </p>
           <p className="mb-2 text-[11px] text-ink-soft">
             בודק רואה רק את הבודקים. סלקטור רואה רק את הסלקטורים. מנהל ארגון
-            רואה את שניהם.
+            של הבודקים נשאר אצל הבודקים.
           </p>
           <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="שיוך עובד">
             {(
