@@ -1,5 +1,6 @@
 import { domToPng } from 'modern-screenshot'
 import { INTENSITY_LABELS, SHIFT_TYPE_LABELS } from '../constants'
+import { isGateManagerLane } from './gateManager'
 import type { Intensity, ShiftType } from '../types'
 
 export interface ExportLaneLine {
@@ -17,7 +18,9 @@ export interface ExportMeta {
   gateManagerName?: string
 }
 
-function formatDateHe(iso: string): string {
+function scheduleLines<T extends { laneName: string }>(lines: T[]): T[] {
+  return lines.filter((line) => !isGateManagerLane({ name: line.laneName }))
+}
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('he-IL', {
     weekday: 'long',
@@ -88,7 +91,8 @@ function buildExportNode(
     </thead>
   `
   const tbody = document.createElement('tbody')
-  lines.forEach((line, i) => {
+  const laneLines = scheduleLines(lines)
+  laneLines.forEach((line, i) => {
     const names = line.workers.filter(Boolean)
     const extra = names.length > line.staffingStandard
     const bg = i % 2 === 0 ? '#ffffff' : '#f5f8fb'
@@ -324,7 +328,7 @@ export function buildWhatsAppText(
   const gate = opts?.gateManagerName?.trim()
     ? `\n• *מנהל משמרת:* ${opts.gateManagerName.trim()}`
     : ''
-  const body = lines
+  const body = scheduleLines(lines)
     .map((l) => {
       const names = l.workers.length ? l.workers.join(', ') : '—'
       const note = l.notes?.trim()
