@@ -21,6 +21,8 @@ export interface ExportMeta {
 function scheduleLines<T extends { laneName: string }>(lines: T[]): T[] {
   return lines.filter((line) => !isGateManagerLane({ name: line.laneName }))
 }
+
+function formatDateHe(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('he-IL', {
     weekday: 'long',
