@@ -56,8 +56,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function fetchAppData(): Promise<AppData> {
-  return request<AppData>('/api/data')
+export function fetchAppData(module?: 'selectors' | 'inspectors'): Promise<AppData> {
+  return request<AppData>('/api/data', {
+    headers: module ? { 'X-App-Module': module } : {},
+  })
 }
 
 export function saveAppDataRemote(data: AppData): Promise<AppData> {

@@ -698,7 +698,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     else setLoading(true)
     setError(null)
     try {
-      const remote = await fetchAppData()
+      const remote = await fetchAppData(userRef.current?.module)
       applyRemoteData(remote)
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -859,12 +859,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const fresh = await refreshSessionRemote()
         if (stop) return
         const prev = loadSession()
+        const module =
+          prev?.module && fresh.modules?.[prev.module] ? prev.module : fresh.module
+        const next = { ...fresh, token: fresh.token, module }
         const changed =
-          Boolean(prev?.isOrgManager) !== Boolean(fresh.isOrgManager) ||
-          Boolean(prev?.modules.selectors) !== Boolean(fresh.modules?.selectors) ||
-          Boolean(prev?.modules.inspectors) !== Boolean(fresh.modules?.inspectors)
-        saveSession({ ...fresh, token: fresh.token })
-        if (changed) setUser({ ...fresh, token: fresh.token })
+          Boolean(prev?.isOrgManager) !== Boolean(next.isOrgManager) ||
+          Boolean(prev?.modules.selectors) !== Boolean(next.modules?.selectors) ||
+          Boolean(prev?.modules.inspectors) !== Boolean(next.modules?.inspectors) ||
+          prev?.module !== next.module
+        saveSession(next)
+        if (changed) setUser(next)
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) handleAuthFailure()
       }
