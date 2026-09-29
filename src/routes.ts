@@ -13,6 +13,7 @@ export const VIEW_PATH: Record<View, string> = {
   briefings: '/briefings',
   shiftModels: '/shift-models',
   customsBrokers: '/customs-brokers',
+  settings: '/settings',
 }
 
 export function viewFromPath(pathname: string): View {
@@ -28,6 +29,7 @@ export function viewFromPath(pathname: string): View {
   if (path === '/briefings') return 'briefings'
   if (path === '/shift-models') return 'shiftModels'
   if (path === '/customs-brokers') return 'customsBrokers'
+  if (path === '/settings') return 'settings'
   if (path === '/history-matrix') return 'history'
   if (path === '/history' || path.startsWith('/history/')) return 'history'
   return 'home'

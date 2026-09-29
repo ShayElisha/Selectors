@@ -1,3 +1,4 @@
+import { usesRounds } from './assignmentMode'
 import { formatShiftDateShort, pluralizeHe } from './hebrew'
 import { normalizeHeSearch, workerMatchesSearch } from './trackingHeatmap'
 import { effectiveStaffingStandard } from './shiftStaffing'
@@ -297,11 +298,10 @@ export function shiftCountsLabel(shift: ShiftSchedule): string {
       many: 'נוכחים',
     }),
   ]
-  if (shift.audience === 'selector') {
+  if (usesRounds(shift)) {
     const rounds = shift.rounds?.length ?? 0
-    parts.unshift(
-      rounds > 0 ? `סלקטורים · ${rounds} סבבים` : 'סלקטורים',
-    )
+    const who = shift.audience === 'selector' ? 'סלקטורים · ' : ''
+    parts.unshift(rounds > 0 ? `${who}${rounds} סבבים` : who ? 'סלקטורים' : 'סבבים')
   }
   return parts.join(' · ')
 }

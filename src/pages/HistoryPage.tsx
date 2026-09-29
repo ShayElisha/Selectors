@@ -26,6 +26,7 @@ import {
 } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
+import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import {
   formatShiftDate,
@@ -331,7 +332,7 @@ function ShiftAccordion({
 
       {open ? (
         <div className="min-w-0 overflow-hidden border-t border-line px-3 py-3">
-          {shift.audience === 'selector' ? (
+          {usesRounds(shift) ? (
             <SelectorRoundTable
               rounds={shift.rounds ?? []}
               lanes={selectorLanes(

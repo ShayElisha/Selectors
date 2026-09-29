@@ -12,6 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import {
   previousLocalDate,
+  runAssignmentAlgorithm,
   type PlacementExplanation,
 } from '../algorithm'
 import {
@@ -23,7 +24,9 @@ import {
   postAuditEvent,
   requestPasswordResetRemote,
   resendManagerTempPasswordRemote,
+  fetchOrgSettings,
   saveAppDataRemote,
+  saveOrgSettings,
   saveShiftRemote,
   seedAppDataRemote,
   type LoginNextStep,
@@ -81,6 +84,13 @@ import {
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
 import { roundCutsForWindows } from '../lib/shiftCatalog'
+import {
+  assignmentModeOf,
+  DEFAULT_ASSIGNMENT_MODES,
+  normalizeAssignmentModes,
+  usesRounds,
+  type AssignmentModes,
+} from '../lib/assignmentMode'
 import { currentShiftModel, resolveShiftModels, shiftModelAbsoluteEnd, shiftModelById } from '../lib/shiftModels'
 import {
   formatBrokerPhone,
@@ -94,6 +104,7 @@ import type {
   Lane,
   LaneAssignment,
   SelectorRound,
+  AssignmentMode,
   ShiftAudience,
   ShiftSchedule,
   ShiftType,
@@ -141,6 +152,7 @@ export interface ShiftDraft {
   date: string
   shiftType: ShiftType
   audience: ShiftAudience
+  assignmentMode: AssignmentMode
   activeLaneIds: string[]
   presentWorkerIds: string[]
   /** Designated מנהל שער — present, no lane required */
@@ -168,6 +180,8 @@ interface AppContextValue {
   user: SessionUser | null
   module: AppModule
   setModule: (module: AppModule) => void
+  assignmentModes: AssignmentModes
+  saveAssignmentModes: (modes: AssignmentModes) => Promise<void>
   login: (
     phone: string,
     password: string,
@@ -337,7 +351,7 @@ function stripEmpty(assignments: LaneAssignment[]): LaneAssignment[] {
 }
 
 function withGateManagerSync(d: ShiftDraft, lanes: Lane[]): ShiftDraft {
-  if (d.audience === 'selector') {
+  if (usesRounds(d)) {
     return {
       ...d,
       unassignedWorkerIds: unassignedSelectorIds(
@@ -375,6 +389,7 @@ function restoreDraft(): ShiftDraft | null {
     return {
       ...parsed,
       audience: parsed.audience === 'selector' ? 'selector' : 'inspector',
+      assignmentMode: assignmentModeOf(parsed),
       rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
       workerWindows:
         parsed.workerWindows && typeof parsed.workerWindows === 'object'
@@ -402,6 +417,7 @@ function snapshotDraft(d: ShiftDraft): string {
     date: d.date,
     shiftType: d.shiftType,
     audience: d.audience ?? 'inspector',
+    assignmentMode: assignmentModeOf(d),
     rounds: d.rounds ?? [],
     workerWindows: d.workerWindows ?? {},
     activeLaneIds: d.activeLaneIds,
@@ -432,6 +448,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<SessionUser | null>(() => loadSession())
+  const [assignmentModes, setAssignmentModes] = useState<AssignmentModes>(
+    DEFAULT_ASSIGNMENT_MODES,
+  )
   const view = viewFromPath(location.pathname)
   const [shiftStep, setShiftStepState] = useState<ShiftStep>(() => restoreStep())
   const [draft, setDraft] = useState<ShiftDraft | null>(() => restoreDraft())
@@ -723,6 +742,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearSession()
     clearDraftStorage()
     setUser(null)
+    setAssignmentModes(DEFAULT_ASSIGNMENT_MODES)
     draftBaselineRef.current = null
     setDraftDirty(false)
     setDraft(null)
@@ -753,6 +773,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [draftDirty, navigate, user],
   )
+
+  useEffect(() => {
+    if (!user?.token || user.role !== 'org_manager') return
+    let cancelled = false
+    void fetchOrgSettings()
+      .then((settings) => {
+        if (!cancelled) setAssignmentModes(normalizeAssignmentModes(settings.assignmentModes))
+      })
+      .catch(() => {
+        /* keep the built-in defaults until the next successful read */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.token, user?.role])
+
+  const saveAssignmentModes = useCallback(async (modes: AssignmentModes) => {
+    const saved = await saveOrgSettings(normalizeAssignmentModes(modes))
+    setAssignmentModes(normalizeAssignmentModes(saved.assignmentModes))
+  }, [])
 
   useEffect(() => {
     if (!user?.token || user.role !== 'org_manager') {
@@ -800,6 +840,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           date: item.date,
           shiftType: item.shiftType,
           audience: item.audience === 'selector' ? 'selector' : 'inspector',
+          assignmentMode: assignmentModeOf(item),
           activeLaneIds: item.activeLaneIds,
           presentWorkerIds: item.presentWorkerIds,
           gateManagerWorkerId,
@@ -810,9 +851,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             item.staffingOverrides,
           ),
           rounds:
-            item.audience === 'selector' && Array.isArray(item.rounds)
-              ? item.rounds
-              : [],
+            usesRounds(item) && Array.isArray(item.rounds) ? item.rounds : [],
           workerWindows: item.workerWindows ?? {},
           warnings: [],
           unassignedWorkerIds: [],
@@ -846,11 +885,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeLaneIds: d.activeLaneIds,
       presentWorkerIds: d.presentWorkerIds,
       ...(gateManagerWorkerId ? { gateManagerWorkerId } : {}),
-      assignments:
-        d.audience === 'selector' ? [] : stripEmpty(d.assignments),
-      ...(d.audience === 'selector'
+      assignmentMode: usesRounds(d) ? 'rounds' : 'single',
+      assignments: usesRounds(d) ? [] : stripEmpty(d.assignments),
+      ...(d.audience === 'selector' ? { audience: 'selector' as const } : {}),
+      ...(usesRounds(d)
         ? {
-            audience: 'selector' as const,
             rounds: d.rounds ?? [],
             ...(Object.keys(d.workerWindows ?? {}).length > 0
               ? { workerWindows: d.workerWindows }
@@ -868,6 +907,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const startShift = useCallback((audience: ShiftAudience = 'inspector') => {
     const inspectors = user?.module === 'inspectors'
     const lockedAudience: ShiftAudience = inspectors ? 'inspector' : audience
+    const assignmentMode =
+      assignmentModes[inspectors ? 'inspectors' : 'selectors']
     const models = resolveShiftModels(
       data.shiftModels,
       inspectors ? 'inspectors' : 'selectors',
@@ -888,6 +929,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       date,
       shiftType,
       audience: lockedAudience,
+      assignmentMode,
       activeLaneIds: [],
       presentWorkerIds: [],
       assignments: [],
@@ -900,7 +942,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
     setShiftStep('lanes')
     setView('shift')
-  }, [adoptCleanDraft, data.history, data.shiftModels, setShiftStep, setView, user?.module])
+  }, [adoptCleanDraft, assignmentModes, data.history, data.shiftModels, setShiftStep, setView, user?.module])
 
   const discardDraft = useCallback(() => {
     draftBaselineRef.current = null
@@ -1085,7 +1127,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...d,
           presentWorkerIds: [...d.presentWorkerIds, workerId],
         }
-        if (d.audience === 'selector') {
+        if (usesRounds(d)) {
           return withGateManagerSync(next, data.lanes)
         }
         return {
@@ -1121,10 +1163,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           presentWorkerIds,
           gateManagerWorkerId,
           assignments,
-          rounds:
-            d.audience === 'selector'
-              ? clearWorkerFromRounds(d.rounds ?? [], workerId)
-              : d.rounds,
+          rounds: usesRounds(d)
+            ? clearWorkerFromRounds(d.rounds ?? [], workerId)
+            : [],
         },
         data.lanes,
       )
@@ -1291,7 +1332,7 @@ function nightPartnersForMorning(
 
   const commitSelectorBoard = useCallback(() => {
     setDraft((d) => {
-      if (!d || d.audience === 'selector') return d
+      if (!d || !usesRounds(d) || (d.rounds?.length ?? 0) > 0) return d
       const present = selectorStaff(
         data.workers,
         d.presentWorkerIds,
@@ -1320,7 +1361,8 @@ function nightPartnersForMorning(
       return withGateManagerSync(
         {
           ...d,
-          audience: 'selector',
+          audience: user?.module === 'inspectors' ? 'inspector' : 'selector',
+          assignmentMode: 'rounds',
           assignments: [],
           rounds: result.rounds,
           warnings: result.warnings,
@@ -1329,7 +1371,7 @@ function nightPartnersForMorning(
         data.lanes,
       )
     })
-  }, [data.history, data.lanes, data.workers])
+  }, [data.history, data.lanes, data.shiftModels, data.workers, user?.module])
 
   const setWorkerWindow = useCallback(
     (workerId: string, windowId: string | null) => {
@@ -1339,7 +1381,7 @@ function nightPartnersForMorning(
         if (!windowId) delete workerWindows[workerId]
         else workerWindows[workerId] = windowId
         const next = { ...d, workerWindows }
-        if ((d.rounds?.length ?? 0) === 0) return next
+        if (!usesRounds(d) || (d.rounds?.length ?? 0) === 0) return next
         const present = selectorStaff(
           data.workers,
           d.presentWorkerIds,
@@ -1368,7 +1410,8 @@ function nightPartnersForMorning(
         return withGateManagerSync(
           {
             ...next,
-            audience: 'selector',
+            audience: user?.module === 'inspectors' ? 'inspector' : 'selector',
+            assignmentMode: 'rounds',
             rounds: result.rounds,
             warnings: result.warnings,
           },
@@ -1376,12 +1419,62 @@ function nightPartnersForMorning(
         )
       })
     },
-    [data.history, data.lanes, data.workers],
+    [data.history, data.lanes, data.shiftModels, data.workers, user?.module],
   )
 
   const runAutoAssign = useCallback(() => {
     setDraft((d) => {
       if (!d) return d
+      if (!usesRounds(d)) {
+        const activeLanes = data.lanes
+          .filter(
+            (lane) =>
+              d.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
+          )
+          .map((lane) => ({
+            ...lane,
+            staffingStandard: effectiveStaffingStandard(lane, d.staffingOverrides),
+          }))
+        const presentWorkers = data.workers.filter(
+          (worker) =>
+            d.presentWorkerIds.includes(worker.id) &&
+            worker.id !== d.gateManagerWorkerId &&
+            worker.status === 'active',
+        )
+        const placed = runAssignmentAlgorithm(
+          activeLanes,
+          presentWorkers,
+          data.history,
+          data.lanes,
+          { date: d.date, shiftType: d.shiftType },
+        )
+        const filled = placed.assignments.reduce(
+          (count, row) => count + row.workerIds.filter(Boolean).length,
+          0,
+        )
+        void postAuditEvent(
+          'auto_assign',
+          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · שיבוץ אחד למשמרת · ${filled} שיבוצים${
+            placed.warnings[0] ? ` · ${placed.warnings[0]}` : ''
+          }`,
+        )
+        return withGateManagerSync(
+          {
+            ...d,
+            assignmentMode: 'single',
+            rounds: [],
+            assignments: padAssignments(
+              placed.assignments,
+              data.lanes,
+              d.activeLaneIds,
+              d.staffingOverrides,
+            ),
+            warnings: placed.warnings,
+            explanations: placed.explanations,
+          },
+          data.lanes,
+        )
+      }
       const present = selectorStaff(
         data.workers,
         d.presentWorkerIds,
@@ -1418,14 +1511,15 @@ function nightPartnersForMorning(
       )
       void postAuditEvent(
         'auto_assign',
-        `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · סלקטורים · ${result.rounds.length} סבבים · ${filled} שיבוצים${
+        `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${result.rounds.length} סבבים · ${filled} שיבוצים${
           result.warnings[0] ? ` · ${result.warnings[0]}` : ''
         }`,
       )
       return withGateManagerSync(
         {
           ...d,
-          audience: 'selector',
+          audience: user?.module === 'inspectors' ? 'inspector' : 'selector',
+          assignmentMode: 'rounds',
           assignments: [],
           rounds: result.rounds,
           warnings: result.warnings,
@@ -1435,12 +1529,12 @@ function nightPartnersForMorning(
       )
     })
     setShiftStep('board')
-  }, [data.history, data.lanes, data.workers])
+  }, [data.history, data.lanes, data.shiftModels, data.workers, user?.module])
 
   const startManualAssign = useCallback(() => {
     setDraft((d) => {
       if (!d) return d
-      if (d.audience === 'selector') {
+      if (usesRounds(d)) {
         void postAuditEvent(
           'manual_assign',
           `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · סלקטורים · טבלת סבבים ריקה · ${d.activeLaneIds.length} נתיבים · ${d.presentWorkerIds.length} נוכחים`,
@@ -1448,6 +1542,7 @@ function nightPartnersForMorning(
         return withGateManagerSync(
           {
             ...d,
+            assignmentMode: 'rounds',
             assignments: [],
             rounds: emptySelectorRounds(
               d.shiftType,
@@ -1486,6 +1581,8 @@ function nightPartnersForMorning(
       return withGateManagerSync(
         {
           ...d,
+          assignmentMode: 'single',
+          rounds: [],
           assignments: empty,
           warnings: [],
           explanations: [],
@@ -1578,7 +1675,7 @@ function nightPartnersForMorning(
       workerId: string | null,
     ) => {
       setDraft((d) => {
-        if (!d || d.audience !== 'selector') return d
+        if (!d || !usesRounds(d)) return d
         const rounds = setSelectorCell(
           d.rounds ?? [],
           roundIndex,
@@ -1781,10 +1878,9 @@ function nightPartnersForMorning(
             presentWorkerIds,
             gateManagerWorkerId,
             assignments,
-            rounds:
-              d.audience === 'selector'
-                ? clearWorkerFromRounds(d.rounds ?? [], workerId)
-                : d.rounds,
+            rounds: usesRounds(d)
+              ? clearWorkerFromRounds(d.rounds ?? [], workerId)
+              : [],
           },
           data.lanes,
         )
@@ -1816,8 +1912,8 @@ function nightPartnersForMorning(
       throw new Error(message)
     }
     const unassigned = synced.unassignedWorkerIds
-    if (synced.audience !== 'selector' && unassigned.length > 0) {
-      const message = `לא ניתן לשמור — נשארו ${unassigned.length} בודקים שלא שובצו לעמדה`
+    if (!usesRounds(synced) && unassigned.length > 0) {
+      const message = `לא ניתן לשמור — נשארו ${unassigned.length} אנשים שלא שובצו לעמדה`
       setError(message)
       throw new Error(message)
     }
@@ -2346,6 +2442,8 @@ function nightPartnersForMorning(
       user,
       module: user?.module === 'inspectors' ? 'inspectors' : 'selectors',
       setModule,
+      assignmentModes,
+      saveAssignmentModes,
       login,
       checkLogin,
       requestPasswordReset,
@@ -2411,6 +2509,8 @@ function nightPartnersForMorning(
       syncing,
       error,
       user,
+      assignmentModes,
+      saveAssignmentModes,
       setModule,
       login,
       checkLogin,

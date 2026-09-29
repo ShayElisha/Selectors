@@ -19,6 +19,7 @@ import {
   BookOpen,
   Clock,
   Briefcase,
+  SlidersHorizontal,
 } from 'lucide-react'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -53,6 +54,12 @@ const MANAGE: NavItem[] = [
   { id: 'certs', label: 'הסמכות', icon: BadgeCheck },
   { id: 'shiftModels', label: 'משמרות', icon: Clock },
 ]
+
+const SETTINGS_NAV: NavItem = {
+  id: 'settings',
+  label: 'הגדרות שיבוץ',
+  icon: SlidersHorizontal,
+}
 
 const MOBILE_PRIMARY: View[] = ['home', 'shift', 'workers', 'history']
 const MOBILE_MORE: View[] = [
@@ -138,7 +145,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
     top: number
     left: number
   } | null>(null)
+  const [profileMenuPos, setProfileMenuPos] = useState<{
+    top: number
+    left: number
+    width: number
+  } | null>(null)
   const profileRef = useRef<HTMLDivElement>(null)
+  const profileBtnRef = useRef<HTMLButtonElement>(null)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
   const manageRef = useRef<HTMLDivElement>(null)
   const manageMenuRef = useRef<HTMLDivElement>(null)
   const manageBtnRef = useRef<HTMLButtonElement>(null)
@@ -191,20 +205,58 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setView(id)
   }
 
+  const manageNav = useMemo(
+    () => (user?.isOrgManager ? [...MANAGE, SETTINGS_NAV] : MANAGE),
+    [user?.isOrgManager],
+  )
   const dataNav = DATA.filter(
     (item) => item.id !== 'customsBrokers' || module === 'inspectors',
   )
-  const moreViews = MOBILE_MORE.filter(
-    (id) => id !== 'customsBrokers' || module === 'inspectors',
+  const moreViews = useMemo(
+    () => [
+      ...MOBILE_MORE.filter((id) => id !== 'customsBrokers' || module === 'inspectors'),
+      ...(user?.isOrgManager ? (['settings'] as View[]) : []),
+    ],
+    [module, user?.isOrgManager],
   )
   const moreActive = useMemo(() => moreViews.includes(view), [moreViews, view])
-  const manageActive = useMemo(() => MANAGE.some((n) => n.id === view), [view])
+  const manageActive = useMemo(() => manageNav.some((n) => n.id === view), [manageNav, view])
   const manageCurrent = useMemo(
-    () => MANAGE.find((n) => n.id === view) ?? null,
-    [view],
+    () => manageNav.find((n) => n.id === view) ?? null,
+    [manageNav, view],
   )
   const statusText = syncLabel(loading, refreshing, syncing)
   const online = !loading && !refreshing && !syncing
+
+  useLayoutEffect(() => {
+    if (!profileOpen || !profileBtnRef.current) {
+      setProfileMenuPos(null)
+      return
+    }
+    const place = () => {
+      const r = profileBtnRef.current!.getBoundingClientRect()
+      const margin = 12
+      const width = Math.min(224, window.innerWidth - margin * 2)
+      let left = r.right - width
+      if (left < margin) left = margin
+      if (left + width > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - margin - width)
+      }
+      const menuHeight = 140
+      let top = r.bottom + 6
+      if (top + menuHeight > window.innerHeight - margin) {
+        top = Math.max(margin, r.top - menuHeight - 6)
+      }
+      setProfileMenuPos({ top, left, width })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [profileOpen])
 
   useLayoutEffect(() => {
     if (!manageOpen || !manageBtnRef.current) {
@@ -233,8 +285,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
     if (!profileOpen && !manageOpen) return
     const onPointer = (e: MouseEvent | TouchEvent) => {
       const t = e.target as Node
-      if (profileOpen && profileRef.current && !profileRef.current.contains(t)) {
-        setProfileOpen(false)
+      if (profileOpen) {
+        const inBtn = profileRef.current?.contains(t)
+        const inMenu = profileMenuRef.current?.contains(t)
+        if (!inBtn && !inMenu) setProfileOpen(false)
       }
       if (manageOpen) {
         const inBtn = manageRef.current?.contains(t)
@@ -341,6 +395,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {user && (
             <div className="relative" ref={profileRef}>
               <button
+                ref={profileBtnRef}
                 type="button"
                 onClick={() => setProfileOpen((o) => !o)}
                 aria-expanded={profileOpen}
@@ -362,34 +417,43 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 />
               </button>
 
-              {profileOpen && (
-                <div
-                  role="menu"
-                  className="absolute end-0 z-[60] mt-2 w-56 overflow-hidden rounded-xl border border-line/80 bg-card py-1 shadow-[var(--shadow-panel-hover)] animate-fade-up"
-                >
-                  <div className="border-b border-line/70 px-3.5 py-3">
-                    <p className="truncate text-sm font-semibold text-ink">
-                      {user.fullName}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-ink-soft">
-                      {user.orgName || 'מנהל'} ·{' '}
-                      {module === 'inspectors' ? 'בודקים' : 'סלקטורים'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setProfileOpen(false)
-                      logout()
+              {profileOpen &&
+                profileMenuPos &&
+                createPortal(
+                  <div
+                    ref={profileMenuRef}
+                    role="menu"
+                    className="fixed z-[60] overflow-hidden rounded-xl border border-line/80 bg-card py-1 shadow-[var(--shadow-panel-hover)] animate-fade-up"
+                    style={{
+                      top: profileMenuPos.top,
+                      left: profileMenuPos.left,
+                      width: profileMenuPos.width,
                     }}
-                    className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-surface hover:text-hard"
                   >
-                    <LogOut className="size-4 shrink-0" aria-hidden />
-                    יציאה מהמערכת
-                  </button>
-                </div>
-              )}
+                    <div className="border-b border-line/70 px-3.5 py-3">
+                      <p className="truncate text-sm font-semibold text-ink">
+                        {user.fullName}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-soft">
+                        {user.orgName || 'מנהל'} ·{' '}
+                        {module === 'inspectors' ? 'בודקים' : 'סלקטורים'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileOpen(false)
+                        logout()
+                      }}
+                      className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-surface hover:text-hard"
+                    >
+                      <LogOut className="size-4 shrink-0" aria-hidden />
+                      יציאה מהמערכת
+                    </button>
+                  </div>,
+                  document.body,
+                )}
             </div>
           )}
         </div>
@@ -469,7 +533,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             className="fixed z-[200] min-w-[12rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)] animate-fade-up no-print"
             style={{ top: manageMenuPos.top, left: manageMenuPos.left }}
           >
-            {MANAGE.map((item) => {
+            {manageNav.map((item) => {
               const Icon = item.icon
               const active = view === item.id
               return (
@@ -523,7 +587,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {ALL_NAV.filter((n) => moreViews.includes(n.id)).map((item) => {
+              {[...ALL_NAV, SETTINGS_NAV]
+                .filter((n) => moreViews.includes(n.id))
+                .map((item) => {
                 const Icon = item.icon
                 const active = view === item.id
                 return (

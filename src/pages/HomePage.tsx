@@ -51,6 +51,7 @@ import {
 } from '../components/ui'
 import type { Intensity, ShiftSchedule } from '../types'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
+import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 
 /** Optional health snapshot if/when persisted on ShiftSchedule. */
@@ -116,8 +117,11 @@ export function HomePage() {
     loadShiftFromHistory,
     user,
     module,
+    assignmentModes,
   } = useApp()
   const inspectorModule = module === 'inspectors'
+  const showSelectorEntry =
+    !inspectorModule && assignmentModes.selectors === 'rounds'
 
   const activeWorkers = data.workers.filter(
     (w) => w.status === 'active' && w.isInspector,
@@ -536,7 +540,7 @@ export function HomePage() {
               >
                 בטל טיוטה
               </button>
-              {!inspectorModule && (
+              {showSelectorEntry && (
                 <button
                   type="button"
                   onClick={beginSelectorShift}
@@ -565,7 +569,7 @@ export function HomePage() {
                 <Play className="size-4 fill-current" aria-hidden />
                 משמרת חדשה
               </button>
-              {!inspectorModule && (
+              {showSelectorEntry && (
                 <button
                   type="button"
                   onClick={beginSelectorShift}
@@ -585,7 +589,7 @@ export function HomePage() {
               <Play className="size-4 fill-current" aria-hidden />
               התחלת משמרת
             </button>
-            {!inspectorModule && (
+            {showSelectorEntry && (
               <button
                 type="button"
                 onClick={beginSelectorShift}
@@ -671,7 +675,7 @@ export function HomePage() {
                 >
                   התחלת משמרת
                 </button>
-                {!inspectorModule && (
+                {showSelectorEntry && (
                   <button
                     type="button"
                     onClick={beginSelectorShift}
@@ -687,6 +691,21 @@ export function HomePage() {
           <p className="text-[13px] text-ink-soft">
             אין שיבוץ בודקים למשמרת הזו. שיבוץ הסלקטורים מופיע מתחת.
           </p>
+        ) : usesRounds(currentShift) ? (
+          <SelectorRoundTable
+            rounds={currentShift.rounds ?? []}
+            lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
+            workers={data.workers.filter((worker) =>
+              currentShift.presentWorkerIds.includes(worker.id),
+            )}
+            overrides={currentShift.staffingOverrides}
+            ramashName={
+              currentShift.gateManagerWorkerId
+                ? data.workers.find((worker) => worker.id === currentShift.gateManagerWorkerId)
+                    ?.fullName ?? ''
+                : ''
+            }
+          />
         ) : (
           <>
             <div className="overflow-hidden rounded-xl border border-line/70">

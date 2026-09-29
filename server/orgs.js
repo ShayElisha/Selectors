@@ -549,3 +549,82 @@ export async function createLegacyOrganization(workers) {
   }
   return orgId
 }
+
+export function publicAssignmentModes(org) {
+  const raw =
+    org?.assignmentModes && typeof org.assignmentModes === 'object'
+      ? org.assignmentModes
+      : {}
+  return {
+    selectors: raw.selectors === 'single' ? 'single' : 'rounds',
+    inspectors: raw.inspectors === 'rounds' ? 'rounds' : 'single',
+  }
+}
+
+function assignmentModeLabel(mode) {
+  return mode === 'rounds' ? 'שיבוץ בסבבים' : 'שיבוץ אחד לכל המשמרת'
+}
+
+export async function readOrgAssignmentSettings(orgId) {
+  const org = await getOrganization(orgId)
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+  return {
+    modules: publicModules(org.modules),
+    assignmentModes: publicAssignmentModes(org),
+  }
+}
+
+export async function updateOrgAssignmentSettings(orgId, patch, actor) {
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: String(orgId) })
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+  const current = publicAssignmentModes(org)
+  const next = { ...current }
+  if (patch?.selectors != null) {
+    if (patch.selectors !== 'rounds' && patch.selectors !== 'single') {
+      throw httpError('אופן שיבוץ לא תקין לסלקטורים', 400)
+    }
+    next.selectors = patch.selectors
+  }
+  if (patch?.inspectors != null) {
+    if (patch.inspectors !== 'rounds' && patch.inspectors !== 'single') {
+      throw httpError('אופן שיבוץ לא תקין לבודקים', 400)
+    }
+    next.inspectors = patch.inspectors
+  }
+  if (next.selectors === current.selectors && next.inspectors === current.inspectors) {
+    return {
+      modules: publicModules(org.modules),
+      assignmentModes: current,
+    }
+  }
+  await orgCol.updateOne(
+    { _id: org._id },
+    {
+      $set: {
+        assignmentModes: next,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  )
+  const details = [
+    next.selectors !== current.selectors
+      ? `סלקטורים: ${assignmentModeLabel(next.selectors)}`
+      : '',
+    next.inspectors !== current.inspectors
+      ? `בודקים: ${assignmentModeLabel(next.inspectors)}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  await appendAuditLog({
+    action: 'assignment_settings',
+    actor: actor || null,
+    orgId: String(org._id),
+    details: details || 'עדכון אופן שיבוץ',
+  })
+  return {
+    modules: publicModules(org.modules),
+    assignmentModes: next,
+  }
+}

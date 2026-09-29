@@ -23,6 +23,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   data_reset: 'איפוס נתונים',
   manager_invite: 'שליחת סיסמה זמנית',
   password_reset: 'איפוס סיסמה',
+  assignment_settings: 'הגדרת אופן שיבוץ',
 }
 
 export function auditActionLabel(action: string): string {

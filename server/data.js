@@ -1142,8 +1142,19 @@ export async function upsertShift(id, body, actor, options = {}) {
   const schedule = { ...body, id }
   delete schedule.actor
   delete schedule.expectedRevision
+  if (schedule.assignmentMode !== 'rounds' && schedule.assignmentMode !== 'single') {
+    schedule.assignmentMode =
+      schedule.audience === 'selector' ||
+      (scope?.module !== 'inspectors' &&
+        Array.isArray(schedule.rounds) &&
+        schedule.rounds.length > 0)
+        ? 'rounds'
+        : 'single'
+  }
   if (scope?.module === 'inspectors') {
     schedule.audience = 'inspector'
+  }
+  if (schedule.assignmentMode !== 'rounds') {
     delete schedule.rounds
   }
 

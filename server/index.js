@@ -20,7 +20,7 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { ensureOrgIndexes, listOrganizations, registerOrganization, reviewOrganization } from './orgs.js'
+import { ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, requireSuperAdmin, requireUser } from './session.js'
@@ -128,6 +128,41 @@ app.patch('/api/organizations', async (req, res) => {
       throw err
     }
     res.json(await reviewOrganization(id, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/org-settings', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    if (user.role !== 'org_manager' || !user.orgId) {
+      const err = new Error('אין הרשאה להגדרות הארגון')
+      err.status = 403
+      throw err
+    }
+    res.json(await readOrgAssignmentSettings(user.orgId))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/org-settings', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    if (user.role !== 'org_manager' || !user.orgId) {
+      const err = new Error('אין הרשאה להגדרות הארגון')
+      err.status = 403
+      throw err
+    }
+    if (!user.isOrgManager) {
+      const err = new Error('רק מנהל הארגון יכול לשנות את אופן השיבוץ')
+      err.status = 403
+      throw err
+    }
+    res.json(
+      await updateOrgAssignmentSettings(user.orgId, req.body?.assignmentModes || req.body || {}, user),
+    )
   } catch (err) {
     sendError(res, err)
   }

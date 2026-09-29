@@ -58,6 +58,9 @@ export interface LaneAssignment {
 /** Inspector board (one placement for the shift) or selector rounds. */
 export type ShiftAudience = 'inspector' | 'selector'
 
+/** How a section places people: rotating rounds, or one post for the whole shift. */
+export type AssignmentMode = 'rounds' | 'single'
+
 /**
  * One 2-hour route round on a selector shift.
  * Rows of the selector table; columns are lanes inside `assignments`.
@@ -80,6 +83,11 @@ export interface ShiftSchedule {
    * and can exist beside an inspector shift of the same date and type.
    */
   audience?: ShiftAudience
+  /**
+   * Missing on older shifts: selectors used rounds, inspectors used one placement.
+   * New shifts copy the organization setting so later setting changes do not rewrite history.
+   */
+  assignmentMode?: AssignmentMode
   activeLaneIds: string[]
   presentWorkerIds: string[]
   /**
@@ -181,3 +189,4 @@ export type View =
   | 'briefings'
   | 'shiftModels'
   | 'customsBrokers'
+  | 'settings'
