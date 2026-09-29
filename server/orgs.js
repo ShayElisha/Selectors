@@ -1,7 +1,11 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { getDb } from './db.js'
 import { appendAuditLog } from './audit.js'
-import { sendTempPasswordEmail } from './mail.js'
+import {
+  sendOrganizationApprovedEmail,
+  sendOrganizationCreatedEmail,
+  sendTempPasswordEmail,
+} from './mail.js'
 import {
   generateTempPassword,
   hashPassword,
@@ -204,9 +208,23 @@ export async function registerOrganization(body) {
     staffKind: 'selector',
   })
 
+  let mailed = false
+  try {
+    const sent = await sendOrganizationCreatedEmail({
+      to: email,
+      fullName,
+      organizationName: name,
+    })
+    mailed = Boolean(sent?.queued)
+  } catch (err) {
+    console.error('[mail] organization created email failed', err?.message || err)
+  }
+
   return {
     ok: true,
-    message: 'הבקשה נשלחה. אפשר להיכנס אחרי שאישור סופר אדמין יפתח מודול לארגון.',
+    message: mailed
+      ? 'הבקשה נשלחה למייל. אפשר להיכנס אחרי שאישור סופר אדמין יפתח מודול לארגון.'
+      : 'הבקשה נשלחה. אפשר להיכנס אחרי שאישור סופר אדמין יפתח מודול לארגון.',
   }
 }
 
@@ -271,8 +289,31 @@ export async function reviewOrganization(id, patch) {
 
   await orgCol.updateOne({ _id: org._id }, { $set: next })
   const saved = await orgCol.findOne({ _id: org._id })
+  if (next.status === 'approved' && org.status !== 'approved') {
+    await notifyOrganizationApproved(saved)
+  }
   const rows = await listOrganizations()
   return rows.find((row) => row.id === String(saved._id)) || null
+}
+
+async function notifyOrganizationApproved(org) {
+  const accountCol = await accounts()
+  const managers = await accountCol
+    .find({ orgId: String(org._id), status: 'active' })
+    .toArray()
+  const manager =
+    managers.find((account) => account.isOrgManager && isValidEmail(account.email)) ||
+    managers.find((account) => isValidEmail(account.email))
+  if (!manager) return
+  try {
+    await sendOrganizationApprovedEmail({
+      to: normalizeEmail(manager.email),
+      fullName: manager.fullName || '',
+      organizationName: org.name || '',
+    })
+  } catch (err) {
+    console.error('[mail] organization approved email failed', err?.message || err)
+  }
 }
 
 export async function authenticateManager(phoneRaw, credentials = {}) {

@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer'
 import {
   appDisplayName,
+  buildOrganizationApprovedEmail,
+  buildOrganizationCreatedEmail,
   buildTempPasswordEmail,
   buildTestEmail,
   logoAttachment,
@@ -124,6 +126,42 @@ export async function sendTempPasswordEmail({
   reason,
 }) {
   const built = buildTempPasswordEmail({ fullName, tempPassword, reason })
+  return sendMail({
+    to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    attachments: withLogoAttachments(),
+  })
+}
+
+/**
+ * @param {{ to: string, fullName: string, organizationName: string }} opts
+ */
+export async function sendOrganizationCreatedEmail({
+  to,
+  fullName,
+  organizationName,
+}) {
+  const built = buildOrganizationCreatedEmail({ fullName, organizationName })
+  return sendMail({
+    to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    attachments: withLogoAttachments(),
+  })
+}
+
+/**
+ * @param {{ to: string, fullName: string, organizationName: string }} opts
+ */
+export async function sendOrganizationApprovedEmail({
+  to,
+  fullName,
+  organizationName,
+}) {
+  const built = buildOrganizationApprovedEmail({ fullName, organizationName })
   return sendMail({
     to,
     subject: built.subject,
