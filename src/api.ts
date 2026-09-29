@@ -1,5 +1,5 @@
 import type { AppData, ShiftSchedule } from './types'
-import { clearSession, loadSession, type SessionUser } from './auth'
+import { clearSession, loadAppDataCache, loadSession, type SessionUser } from './auth'
 
 export class ApiError extends Error {
   status: number
@@ -21,14 +21,20 @@ function authHeaders(): HeadersInit {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(),
-      ...(init?.headers ?? {}),
-    },
-  })
+  const headers = {
+    'Content-Type': 'application/json',
+    ...authHeaders(),
+    ...(init?.headers ?? {}),
+  }
+  let res = await fetch(path, { ...init, headers })
+  if (res.status === 304) {
+    const method = (init?.method ?? 'GET').toUpperCase()
+    if (method === 'GET' && path === '/api/data') {
+      const cached = loadAppDataCache()
+      if (cached) return cached as T
+    }
+    res = await fetch(path, { ...init, cache: 'reload', headers })
+  }
   if (!res.ok) {
     let message = `API error ${res.status}`
     let current: AppData | undefined
