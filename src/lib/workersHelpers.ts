@@ -6,7 +6,7 @@ export const RARE_CERT_HOLDER_THRESHOLD = 3
 
 export type WorkerSortKey = 'name' | 'phone' | 'email' | 'role' | 'status'
 export type SortDir = 'asc' | 'desc'
-export type StatusTab = 'active' | 'inactive' | 'all'
+export type StatusTab = 'active' | 'inactive' | 'archived' | 'all'
 
 export function digitsOnlyPhone(phone: string): string {
   return phone.replace(/\D/g, '')
@@ -68,6 +68,7 @@ export function filterWorkers(
   return workers.filter((w) => {
     if (opts.statusTab === 'active' && w.status !== 'active') return false
     if (opts.statusTab === 'inactive' && w.status !== 'inactive') return false
+    if (opts.statusTab === 'archived' && w.status !== 'archived') return false
     if (opts.role === 'manager' && !w.isManager) return false
     if (opts.role === 'inspector' && !w.isInspector) return false
     if (opts.certs.length > 0) {
@@ -154,18 +155,23 @@ export function noCertTooltip(lanes: Lane[]): string {
 export function countByStatus(workers: Worker[]): {
   active: number
   inactive: number
+  archived: number
 } {
   let active = 0
   let inactive = 0
+  let archived = 0
   for (const w of workers) {
     if (w.status === 'active') active += 1
+    else if (w.status === 'archived') archived += 1
     else inactive += 1
   }
-  return { active, inactive }
+  return { active, inactive, archived }
 }
 
 export function statusLabel(status: WorkerStatus): string {
-  return status === 'active' ? 'פעיל' : 'לא פעיל'
+  if (status === 'active') return 'פעיל'
+  if (status === 'archived') return 'ארכיון'
+  return 'לא פעיל'
 }
 
 export function personInitials(name: string): string {

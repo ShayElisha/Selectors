@@ -23,7 +23,7 @@ interface ExportBarProps {
 export function ExportBar({ date, shiftType, lines, unassigned }: ExportBarProps) {
   const { user } = useApp()
   const [busy, setBusy] = useState(false)
-  const meta = { preparedBy: user?.fullName }
+  const meta = { preparedBy: user?.fullName, organizationName: user?.orgName || undefined }
 
   const handleDownload = async () => {
     setBusy(true)

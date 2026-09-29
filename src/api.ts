@@ -196,19 +196,31 @@ export function requestPasswordResetRemote(
 export interface OrgAssignmentSettings {
   modules: { selectors: boolean; inspectors: boolean }
   assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
+  roundMinutes?: { selectors: number; inspectors: number }
+}
+
+export function refreshSessionRemote(): Promise<SessionUser & { token: string }> {
+  return request('/api/session')
+}
+
+export function reportShiftPresence(shiftId: string): Promise<{ others: string[] }> {
+  return request('/api/shift-presence', {
+    method: 'POST',
+    body: JSON.stringify({ shiftId }),
+  })
 }
 
 export function fetchOrgSettings(): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings')
 }
 
-export function saveOrgSettings(assignmentModes: {
-  selectors: 'rounds' | 'single'
-  inspectors: 'rounds' | 'single'
+export function saveOrgSettings(body: {
+  assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
+  roundMinutes?: { selectors: number; inspectors: number }
 }): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings', {
     method: 'PATCH',
-    body: JSON.stringify({ assignmentModes }),
+    body: JSON.stringify(body),
   })
 }
 

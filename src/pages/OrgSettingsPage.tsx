@@ -24,7 +24,8 @@ const CHOICES: { id: AssignmentMode; title: string; text: string }[] = [
 ]
 
 export function OrgSettingsPage() {
-  const { user, assignmentModes, saveAssignmentModes } = useApp()
+  const { user, assignmentModes, roundMinutes, saveAssignmentModes, saveRoundMinutes } =
+    useApp()
   const [draft, setDraft] = useState<AssignmentModes>(assignmentModes)
   const [saving, setSaving] = useState(false)
   const savedModes = useRef(assignmentModes)
@@ -112,6 +113,26 @@ export function OrgSettingsPage() {
                     )
                   })}
                 </div>
+                {draft[section.id] === 'rounds' ? (
+                  <label className="mt-3 block text-[13px] text-ink-soft">
+                    אורך סבב
+                    <select
+                      className="ui-field mt-1 max-w-xs"
+                      value={roundMinutes[section.id]}
+                      onChange={(e) =>
+                        void saveRoundMinutes({
+                          ...roundMinutes,
+                          [section.id]: Number(e.target.value),
+                        })
+                      }
+                    >
+                      <option value={60}>שעה</option>
+                      <option value={90}>שעה וחצי</option>
+                      <option value={120}>שעתיים</option>
+                      <option value={180}>שלוש שעות</option>
+                    </select>
+                  </label>
+                ) : null}
               </fieldset>
             ))}
             <div className="flex justify-end">

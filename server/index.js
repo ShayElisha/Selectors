@@ -20,7 +20,7 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
+import { deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, requireSuperAdmin, requireUser } from './session.js'
@@ -109,6 +109,60 @@ app.post('/api/register', async (req, res) => {
   }
 })
 
+app.get('/api/session', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    if (user.role === 'super_admin') {
+      res.json({ ...user, token: createSessionToken(user) })
+      return
+    }
+    const fresh = await refreshManagerSession(user)
+    const token = createSessionToken(fresh)
+    res.json({ ...fresh, token })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shift-presence', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    const shiftId = String(req.body?.shiftId || '')
+    if (!shiftId || !user.orgId) {
+      res.json({ others: [] })
+      return
+    }
+    const db = await getDb()
+    const col = db.collection('shift_presence')
+    const now = new Date()
+    await col.updateOne(
+      { _id: `${user.orgId}:${shiftId}:${user.id}` },
+      {
+        $set: {
+          orgId: user.orgId,
+          shiftId,
+          userId: user.id,
+          name: user.fullName || 'מנהל',
+          at: now,
+        },
+      },
+      { upsert: true },
+    )
+    const since = new Date(Date.now() - 45_000)
+    const rows = await col
+      .find({
+        orgId: user.orgId,
+        shiftId,
+        userId: { $ne: user.id },
+        at: { $gte: since },
+      })
+      .toArray()
+    res.json({ others: rows.map((row) => row.name).filter(Boolean) })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
 app.get('/api/organizations', async (req, res) => {
   try {
     requireSuperAdmin(req)
@@ -176,7 +230,7 @@ app.patch('/api/org-settings', async (req, res) => {
       throw err
     }
     res.json(
-      await updateOrgAssignmentSettings(user.orgId, req.body?.assignmentModes || req.body || {}, user),
+      await updateOrgAssignmentSettings(user.orgId, req.body || {}, user),
     )
   } catch (err) {
     sendError(res, err)

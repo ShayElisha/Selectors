@@ -29,7 +29,7 @@ export default async function handler(req, res) {
       res.status(200).json(
         await updateOrgAssignmentSettings(
           user.orgId,
-          req.body?.assignmentModes || req.body || {},
+          req.body || {},
           user,
         ),
       )

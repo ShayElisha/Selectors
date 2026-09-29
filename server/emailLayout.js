@@ -28,7 +28,8 @@ export function escapeHtml(s) {
 }
 
 export function appDisplayName() {
-  return process.env.APP_NAME || 'שיבוצון · CHECK IN'
+  const name = String(process.env.APP_NAME || 'שיבוצון · CHECK IN').trim()
+  return name || 'שיבוצון · CHECK IN'
 }
 
 const DEFAULT_APP_URL = 'https://shibutzon.vercel.app'
@@ -386,6 +387,67 @@ export function buildOrganizationApprovedEmail({ fullName, organizationName }) {
       greeting: fullName || '',
       bodyHtml,
     }),
+  }
+}
+
+export function buildOrganizationRejectedEmail({ fullName, organizationName }) {
+  const title = 'הבקשה לארגון נדחתה'
+  const intro = 'הבקשה לפתוח את הארגון בשיבוצון נדחתה. אי אפשר להיכנס עם החשבון הזה.'
+  const bodyHtml = `
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:${BRAND.soft};">${escapeHtml(intro)}</p>
+    ${infoCard('הארגון', organizationName || '')}
+  `
+  return {
+    subject: `${appDisplayName()} — ${title}`,
+    text: `שלום ${fullName || ''},\n\n${intro}\n\nהארגון: ${organizationName || ''}\n`,
+    html: renderBrandedEmail({
+      preheader: intro,
+      title,
+      greeting: fullName || '',
+      bodyHtml,
+    }),
+  }
+}
+
+export function buildModulesOpenedEmail({ fullName, organizationName, modules }) {
+  const opened = [
+    modules?.selectors ? 'סלקטורים' : '',
+    modules?.inspectors ? 'בודקים' : '',
+  ].filter(Boolean)
+  const title = 'נפתח מודול בארגון'
+  const intro = `נפתחו המודולים: ${opened.join(' ו') || 'מודול'}. אפשר להיכנס לשיבוצון.`
+  const bodyHtml = `
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:${BRAND.soft};">${escapeHtml(intro)}</p>
+    ${infoCard('הארגון', organizationName || '')}
+  `
+  return {
+    subject: `${appDisplayName()} — ${title}`,
+    text: `שלום ${fullName || ''},\n\n${intro}\n\nהארגון: ${organizationName || ''}\n${appPublicUrl()}\n`,
+    html: renderBrandedEmail({
+      preheader: intro,
+      title,
+      greeting: fullName || '',
+      bodyHtml,
+    }),
+  }
+}
+
+export function buildNewOrganizationAdminEmail({ organizationName, managerName, phone, email }) {
+  const title = 'נרשם ארגון חדש'
+  const intro = 'ארגון חדש ממתין לאישור במסך הסופר אדמין.'
+  const bodyHtml = `
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:${BRAND.soft};">${escapeHtml(intro)}</p>
+    ${infoCard('הארגון', organizationName || '')}
+    <p style="margin:0;font-size:13px;line-height:1.7;color:${BRAND.soft};">
+      מנהל: ${escapeHtml(managerName || '')}<br/>
+      טלפון: ${escapeHtml(phone || '')}<br/>
+      מייל: ${escapeHtml(email || '')}
+    </p>
+  `
+  return {
+    subject: `${appDisplayName()} — ${title}: ${organizationName || ''}`,
+    text: `${intro}\nהארגון: ${organizationName || ''}\nמנהל: ${managerName || ''}\nטלפון: ${phone || ''}\nמייל: ${email || ''}\n`,
+    html: renderBrandedEmail({ preheader: intro, title, bodyHtml }),
   }
 }
 

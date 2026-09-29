@@ -20,7 +20,6 @@ import {
   type StaffingOverrides,
 } from './shiftStaffing'
 
-const ROUND_MINUTES = 120
 /** A leftover shorter than this is folded into the previous round. */
 const MIN_OWN_ROUND = 45
 
@@ -29,6 +28,7 @@ export function buildRoundWindows(
   cutMinutes: number[] = [],
   windowIds: Array<string | undefined> = [],
   bounds?: { start: number; end: number },
+  roundMinutes = 120,
 ): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
   const fallback = MAIN_SHIFT_BOUNDS[shiftType]
   const end = bounds?.end ?? fallback?.end
@@ -41,7 +41,7 @@ export function buildRoundWindows(
     []
   let t = start
   while (t < end) {
-    let next = Math.min(t + ROUND_MINUTES, end)
+    let next = Math.min(t + Math.max(30, roundMinutes), end)
     const cut = cuts.find((point) => point > t && point < next)
     if (cut != null) next = cut
     if (next < end && end - next < MIN_OWN_ROUND && cut == null) next = end
@@ -98,9 +98,10 @@ export function emptySelectorRounds(
   overrides?: StaffingOverrides | null,
   cutMinutes: number[] = [],
   windowIds: Array<string | undefined> = [],
+  roundMinutes = 120,
 ): SelectorRound[] {
   const active = selectorLanes(lanes, activeLaneIds)
-  return buildRoundWindows(shiftType, cutMinutes, windowIds).map((w) => ({
+  return buildRoundWindows(shiftType, cutMinutes, windowIds, undefined, roundMinutes).map((w) => ({
     ...w,
     assignments: emptyAssignments(active, overrides),
   }))
@@ -232,6 +233,8 @@ export function assignSelectorRounds(args: {
   nightPartners?: Worker[]
   /** Override the built-in shift clock when the module defines its own window. */
   bounds?: { start: number; end: number }
+  /** Length of one round, in minutes. Default is two hours. */
+  roundMinutes?: number
 }): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
@@ -243,6 +246,7 @@ export function assignSelectorRounds(args: {
     roundCutsForWindows(args.shiftType, windowIds),
     windowIds,
     args.bounds,
+    args.roundMinutes,
   )
   const warnings: string[] = []
 

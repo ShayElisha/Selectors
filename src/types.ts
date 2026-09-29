@@ -1,5 +1,5 @@
 export type Intensity = 'easy' | 'medium' | 'hard'
-export type WorkerStatus = 'active' | 'inactive'
+export type WorkerStatus = 'active' | 'inactive' | 'archived'
 export type ShiftType =
   | 'morning'
   | 'afternoonA'

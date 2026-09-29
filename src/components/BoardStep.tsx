@@ -65,8 +65,9 @@ import { isGateManagerLane } from '../lib/gateManager'
 import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
-import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { postAuditEvent } from '../api'
+import { startLanePointerDrag } from '../lib/laneDrag'
+import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
 import type { AppData, LaneAssignment, ShiftType, Worker } from '../types'
 
@@ -502,6 +503,7 @@ export function BoardStep({
     setShareBusy(true)
     const meta = {
       preparedBy: user?.fullName,
+      organizationName: user?.orgName || undefined,
       ...(gateManagerName ? { gateManagerName } : {}),
     }
     try {
@@ -702,7 +704,7 @@ export function BoardStep({
     : explanationGroups
 
   return (
-    <section className="board-print-root space-y-4 pb-28 sm:space-y-5 sm:pb-32">
+    <section className="board-print-root space-y-4 touch-pan-y pb-40 sm:space-y-5 sm:pb-32">
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line/70 bg-card/90 px-4 py-3 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-5">
         <p className="min-w-0 flex-1 text-[13px] font-medium leading-relaxed tracking-tight text-ink sm:text-sm">
           <span className="font-bold">{SHIFT_TYPE_LABELS[draft.shiftType]}</span>
@@ -893,6 +895,9 @@ export function BoardStep({
           <h3 className="relative mt-1 font-display text-2xl font-bold tracking-tight sm:text-[1.75rem]">
             שיבוץ שער יציאה
           </h3>
+          {user?.orgName ? (
+            <p className="relative mt-1 text-sm font-semibold text-white">{user.orgName}</p>
+          ) : null}
           <p className="relative mt-1.5 text-sm text-white/75 sm:text-[15px]">
             {new Date(draft.date).toLocaleDateString('he-IL', {
               weekday: 'long',
@@ -903,7 +908,7 @@ export function BoardStep({
           </p>
         </div>
 
-        <div className="flex flex-col gap-3 bg-surface/80 p-3 sm:gap-3.5 sm:p-4">
+        <div className="flex touch-pan-y flex-col gap-3 bg-surface/80 p-3 sm:gap-3.5 sm:p-4">
           {[...draft.activeLaneIds]
             .sort((a, b) => {
               const la = data.lanes.find((l) => l.id === a)
@@ -931,23 +936,7 @@ export function BoardStep({
               <div
                 key={laneId}
                 id={`board-lane-${laneId}`}
-                onDragOver={
-                  isGateLane
-                    ? undefined
-                    : (e) => {
-                        e.preventDefault()
-                        e.dataTransfer.dropEffect = 'move'
-                      }
-                }
-                onDrop={
-                  isGateLane
-                    ? undefined
-                    : (e) => {
-                        e.preventDefault()
-                        const fromId = e.dataTransfer.getData('text/plain')
-                        if (fromId) moveLane(fromId, laneId)
-                      }
-                }
+                data-lane-row={isGateLane ? undefined : laneId}
                 className={`scroll-mt-24 rounded-2xl border px-3.5 py-3.5 shadow-[var(--shadow-panel)] sm:px-5 sm:py-4 ${
                   isGateLane
                     ? 'border-brand/20 bg-brand/[0.06]'
@@ -958,14 +947,11 @@ export function BoardStep({
                   {!isGateLane ? (
                     <button
                       type="button"
-                      draggable
                       aria-label={`גרור לשינוי סדר ${lane.name}`}
                       title="גרור לשינוי סדר"
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', laneId)
-                        e.dataTransfer.effectAllowed = 'move'
-                      }}
-                      className="inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
+                      style={{ touchAction: 'none' }}
+                      onPointerDown={(e) => startLanePointerDrag(e, laneId, moveLane)}
+                      className="inline-flex size-9 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
                     >
                       <GripVertical className="size-4" aria-hidden />
                     </button>
