@@ -20,7 +20,7 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
+import { deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, requireSuperAdmin, requireUser } from './session.js'
@@ -113,6 +113,21 @@ app.get('/api/organizations', async (req, res) => {
   try {
     requireSuperAdmin(req)
     res.json(await listOrganizations())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.delete('/api/organizations', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    const id = String(req.body?.id || req.query?.id || '')
+    if (!id) {
+      const err = new Error('חסר מזהה ארגון')
+      err.status = 400
+      throw err
+    }
+    res.json(await deleteOrganization(id))
   } catch (err) {
     sendError(res, err)
   }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
-import { getDb } from './db.js'
+import { getAuditCollection, getDb, getMetaCollection } from './db.js'
 import { appendAuditLog } from './audit.js'
 import {
   sendOrganizationApprovedEmail,
@@ -15,6 +15,16 @@ import {
 
 const ORG_COLLECTION = 'organizations'
 const ACCOUNT_COLLECTION = 'accounts'
+const OPERATIONAL_COLLECTIONS = [
+  'workers',
+  'lanes',
+  'shifts',
+  'certifications',
+  'briefing_sections',
+  'questions',
+  'customs_brokers',
+  'shift_models',
+]
 
 export function normalizePhone(phone) {
   return String(phone || '').replace(/\D/g, '')
@@ -294,6 +304,41 @@ export async function reviewOrganization(id, patch) {
   }
   const rows = await listOrganizations()
   return rows.find((row) => row.id === String(saved._id)) || null
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export async function deleteOrganization(id) {
+  const orgId = String(id || '')
+  if (!orgId) throw httpError('חסר מזהה ארגון', 400)
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: orgId })
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+
+  const accountCol = await accounts()
+  await accountCol.deleteMany({ orgId })
+  await orgCol.deleteOne({ _id: orgId })
+
+  const targets = ['selectors']
+  if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
+  for (const target of targets) {
+    const db = await getDb(target)
+    for (const name of OPERATIONAL_COLLECTIONS) {
+      await db.collection(name).deleteMany({ orgId })
+    }
+    const meta = await getMetaCollection(target)
+    await meta.deleteMany({ _id: { $regex: `^${escapeRegex(orgId)}:` } })
+    const audit = await getAuditCollection(target)
+    await audit.deleteMany({ orgId })
+  }
+
+  await appendAuditLog({
+    action: 'org_delete',
+    details: `נמחק הארגון ${org.name || orgId}`,
+  })
+  return { ok: true }
 }
 
 async function notifyOrganizationApproved(org) {
