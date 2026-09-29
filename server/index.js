@@ -124,6 +124,13 @@ app.get('/api/session', async (req, res) => {
       return
     }
     const fresh = await refreshManagerSession(user)
+    const requested = String(req.headers['x-app-module'] || '')
+    if (
+      (requested === 'selectors' || requested === 'inspectors') &&
+      fresh.modules?.[requested]
+    ) {
+      fresh.module = requested
+    }
     const token = createSessionToken(fresh)
     res.json({ ...fresh, token })
   } catch (err) {
