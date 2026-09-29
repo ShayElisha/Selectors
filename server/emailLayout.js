@@ -280,6 +280,115 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
   }
 }
 
+function infoCard(label, value) {
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;background:${BRAND.surface};border:1px solid ${BRAND.line};border-radius:12px;">
+      <tr>
+        <td style="padding:16px 18px;text-align:center;">
+          <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.14em;color:${BRAND.accent};text-transform:uppercase;margin-bottom:8px;">
+            ${escapeHtml(label)}
+          </div>
+          <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;color:${BRAND.deep};">
+            ${escapeHtml(value)}
+          </div>
+        </td>
+      </tr>
+    </table>`
+}
+
+/**
+ * Confirmation after a manager registers a new organization.
+ * @param {{ fullName: string, organizationName: string }} opts
+ */
+export function buildOrganizationCreatedEmail({ fullName, organizationName }) {
+  const title = 'הבקשה להקמת הארגון התקבלה'
+  const intro =
+    'קיבלנו את הבקשה לפתוח ארגון בשיבוצון. הבקשה ממתינה לאישור. אחרי האישור אפשר להיכנס עם מספר הטלפון והסיסמה שהגדרתם בהרשמה.'
+  const bodyHtml = `
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:${BRAND.soft};">
+      ${escapeHtml(intro)}
+    </p>
+    ${infoCard('הארגון', organizationName || '')}
+    <p style="margin:0;font-size:13px;line-height:1.65;color:${BRAND.soft};">
+      אין צורך להירשם שוב. כשהארגון יאושר תישלח הודעה נוספת לאותה כתובת.
+    </p>
+  `
+  const text = [
+    `שלום ${fullName || ''},`,
+    '',
+    intro,
+    '',
+    `הארגון: ${organizationName || ''}`,
+    '',
+    'אין צורך להירשם שוב. כשהארגון יאושר תישלח הודעה נוספת.',
+    '',
+    appPublicUrl() ? `כניסה: ${appPublicUrl()}` : '',
+    '',
+    appDisplayName(),
+  ]
+    .filter((line) => line !== '')
+    .join('\n')
+  return {
+    subject: `${appDisplayName()} — ${title}`,
+    text,
+    html: renderBrandedEmail({
+      preheader: `הבקשה עבור ${organizationName || 'הארגון'} התקבלה וממתינה לאישור`,
+      title,
+      greeting: fullName || '',
+      bodyHtml,
+    }),
+  }
+}
+
+/**
+ * Sent when a super admin approves the organization.
+ * @param {{ fullName: string, organizationName: string }} opts
+ */
+export function buildOrganizationApprovedEmail({ fullName, organizationName }) {
+  const title = 'הארגון אושר'
+  const intro =
+    'הארגון אושר במערכת השיבוץ. אפשר להיכנס עם מספר הטלפון והסיסמה מההרשמה.'
+  const bodyHtml = `
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:${BRAND.soft};">
+      ${escapeHtml(intro)}
+    </p>
+    ${infoCard('הארגון', organizationName || '')}
+    <p style="margin:0 0 16px;font-size:13px;line-height:1.7;color:${BRAND.soft};">
+      1. היכנסו עם מספר הטלפון והסיסמה שהגדרתם<br/>
+      2. אם עדיין אין מודול פתוח, הכניסה תיפתח ברגע שיופעלו סלקטורים או בודקים
+    </p>
+    <p style="margin:0;padding:12px 14px;background:${BRAND.okSoft};border-radius:10px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:${BRAND.ok};">
+      אם לא פתחתם את הארגון — פנו למנהל המערכת.
+    </p>
+  `
+  const text = [
+    `שלום ${fullName || ''},`,
+    '',
+    intro,
+    '',
+    `הארגון: ${organizationName || ''}`,
+    '',
+    '1. היכנסו עם מספר הטלפון והסיסמה מההרשמה',
+    '2. אם עדיין אין מודול פתוח, הכניסה תיפתח כשיופעלו סלקטורים או בודקים',
+    '',
+    appPublicUrl() ? `כניסה: ${appPublicUrl()}` : '',
+    '',
+    appDisplayName(),
+  ]
+    .filter((line) => line !== '')
+    .join('\n')
+  return {
+    subject: `${appDisplayName()} — ${title}`,
+    text,
+    html: renderBrandedEmail({
+      preheader: `${organizationName || 'הארגון'} אושר. אפשר להיכנס לשיבוצון`,
+      title,
+      greeting: fullName || '',
+      bodyHtml,
+    }),
+  }
+}
+
 /**
  * @param {{ at?: string }} [opts]
  */
