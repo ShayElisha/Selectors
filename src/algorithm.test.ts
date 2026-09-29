@@ -333,6 +333,83 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(hardAsg?.workerIds[0]).toBe('l')
   })
 
+  it('prefers a low-load worker for a hard lane', () => {
+    const light = worker('light', 'קלה', ['forklift'])
+    const busy = worker('busy', 'עמוס', ['forklift'])
+    const history: ShiftSchedule[] = []
+    for (let i = 1; i <= 8; i++) {
+      const d = `2026-03-${String(i).padStart(2, '0')}`
+      history.push(
+        shift(
+          `b${i}`,
+          d,
+          'morning',
+          [{ laneId: 'med', workerIds: ['busy'] }],
+          ['busy'],
+          ['med'],
+        ),
+      )
+    }
+    history.push(
+      shift(
+        'r1',
+        '2026-03-02',
+        'afternoon',
+        [{ laneId: 'easy', workerIds: ['light'] }],
+        ['light'],
+        ['easy'],
+      ),
+    )
+    const result = runAssignmentAlgorithm(
+      [hard, easy],
+      [light, busy],
+      history,
+      [hard, medium, easy],
+      { date: '2026-03-16', shiftType: 'morning', rngSeed: 21 },
+    )
+    const hardAsg = result.assignments.find((a) => a.laneId === 'hard')
+    expect(hardAsg?.workerIds[0]).toBe('light')
+    const note = result.explanations.find((e) => e.workerId === 'light')
+    expect(note?.reasons.some((r) => r.includes('עומס'))).toBe(true)
+  })
+
+  it('does not put a short-return worker on a hard lane just because their load is lower', () => {
+    const quiet = worker('quiet', 'שקטה', ['forklift'])
+    const steady = worker('steady', 'יציב', ['forklift'])
+    const history = [
+      shift(
+        'q',
+        '2026-03-15',
+        'morning',
+        [{ laneId: 'hard', workerIds: ['quiet'] }],
+        ['quiet'],
+        ['hard'],
+      ),
+    ]
+    for (let i = 1; i <= 6; i++) {
+      const d = `2026-03-${String(i + 8).padStart(2, '0')}`
+      history.push(
+        shift(
+          `s${i}`,
+          d,
+          'morning',
+          [{ laneId: 'easy', workerIds: ['steady'] }],
+          ['steady'],
+          ['easy'],
+        ),
+      )
+    }
+    const result = runAssignmentAlgorithm(
+      [hard, easy],
+      [quiet, steady],
+      history,
+      [hard, easy],
+      { date: '2026-03-16', shiftType: 'morning', rngSeed: 22 },
+    )
+    const hardAsg = result.assignments.find((a) => a.laneId === 'hard')
+    expect(hardAsg?.workerIds[0]).toBe('steady')
+  })
+
   it('Test 6 — rotation fairness prefers farther last visit', () => {
     const recent = worker('r', 'Recent')
     const far = worker('f', 'Far')
