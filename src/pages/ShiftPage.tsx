@@ -18,6 +18,7 @@ import {
   Shield,
   Download,
   MessageCircle,
+  GripVertical,
 } from 'lucide-react'
 import {
   isQualified,
@@ -99,6 +100,7 @@ export function ShiftPage() {
     setShiftStep,
     updateDraftMeta,
     toggleLane,
+    moveLane,
     setLaneStaffingStandard,
     applyLaneSelection,
     applyPresentSelection,
@@ -811,7 +813,18 @@ export function ShiftPage() {
                     lane.requiredCertifications,
                   )
               return (
-                <li key={lane.id}>
+                <li
+                  key={lane.id}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    const fromId = e.dataTransfer.getData('text/plain')
+                    if (fromId) moveLane(fromId, lane.id)
+                  }}
+                >
                       <div
                         className={`flex min-h-14 w-full items-center gap-2 rounded-xl border px-2.5 py-1.5 transition sm:gap-3 sm:px-3 ${
                           on
@@ -819,6 +832,19 @@ export function ShiftPage() {
                             : 'border-line bg-card hover:border-brand/25'
                         }`}
                       >
+                        <button
+                          type="button"
+                          draggable
+                          aria-label={`גרור לשינוי סדר ${lane.name}`}
+                          title="גרור לשינוי סדר"
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', lane.id)
+                            e.dataTransfer.effectAllowed = 'move'
+                          }}
+                          className="inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
+                        >
+                          <GripVertical className="size-4" aria-hidden />
+                        </button>
                   <button
                     type="button"
                     onClick={() => {

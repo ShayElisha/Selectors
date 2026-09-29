@@ -225,6 +225,8 @@ interface AppContextValue {
   ) => void
   /** Set תקן for a lane in the current shift only (does not change the lane catalog). */
   setLaneStaffingStandard: (laneId: string, standard: StaffingStandard) => void
+  /** Reorder catalog lanes. The open shift follows the same order. */
+  moveLane: (fromId: string, toId: string) => void
   toggleWorker: (workerId: string) => void
   setWorkerWindow: (workerId: string, windowId: string | null) => void
   /** Activate/deactivate מנהל שער for a manager (at most one per shift). */
@@ -2078,6 +2080,36 @@ function nightPartnersForMorning(
     [patchData],
   )
 
+  const moveLane = useCallback((fromId: string, toId: string) => {
+    if (!fromId || fromId === toId) return
+    const current = dataRef.current.lanes
+    const blocked = current.some(
+      (lane) =>
+        (lane.id === fromId || lane.id === toId) && isGateManagerLane(lane),
+    )
+    if (blocked) return
+    const from = current.findIndex((lane) => lane.id === fromId)
+    const to = current.findIndex((lane) => lane.id === toId)
+    if (from < 0 || to < 0) return
+    const nextLanes = [...current]
+    const [moved] = nextLanes.splice(from, 1)
+    if (!moved) return
+    nextLanes.splice(to, 0, moved)
+    const rank = new Map(nextLanes.map((lane, index) => [lane.id, index]))
+    patchData((prev) => ({ ...prev, lanes: nextLanes }))
+    setDraft((draft) => {
+      if (!draft) return draft
+      const gate = draft.activeLaneIds.filter((id) => {
+        const lane = nextLanes.find((item) => item.id === id)
+        return lane && isGateManagerLane(lane)
+      })
+      const rest = draft.activeLaneIds
+        .filter((id) => !gate.includes(id))
+        .sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0))
+      return { ...draft, activeLaneIds: [...gate, ...rest] }
+    })
+  }, [patchData])
+
   const updateLane = useCallback(
     (l: Lane) => {
       patchData((prev) => {
@@ -2501,6 +2533,7 @@ function nightPartnersForMorning(
       deleteWorker,
       addLane,
       updateLane,
+      moveLane,
       deleteLane,
       addCertification,
       removeCertification,
@@ -2569,6 +2602,7 @@ function nightPartnersForMorning(
       deleteWorker,
       addLane,
       updateLane,
+      moveLane,
       deleteLane,
       addCertification,
       removeCertification,
