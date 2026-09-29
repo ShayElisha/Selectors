@@ -185,6 +185,11 @@ const ROTATION_SCORE_BUCKET = 5
  * qualified alternative exists. Also used for board warnings.
  */
 export const SHORT_RETURN_DAYS = 2
+/**
+ * On a hard lane, prefer someone whose recent load is lower by at least this
+ * many points (about two weeks). Smaller gaps stay with rotation and hard-count balance.
+ */
+export const IDLE_HARD_LOAD_GAP = 1.5
 /** Multi-pass local-search iteration cap. */
 const DEFAULT_MAX_OPTIMIZATION_PASSES = 200
 /** Only treat versatility as decisive when the gap is at least this many open lanes. */
@@ -938,10 +943,11 @@ export function buildWorkerProfile(
  * Ranking for a lane (lower compare result = better). Order:
  * 1) afternoon handoff
  * 2) short-return avoidance (almost-hard when alternatives exist in sort set)
- * 3) Maximum Distance rotation — bucketed raw score (not continuous)
- * 4) night→afternoon recovery
- * 5) load / hard balance by intensity (relative hard rate)
- * 6) versatility buckets (transitive)
+ * 3) night→afternoon recovery
+ * 4) hard lanes: clearly lower recent load than the other candidate
+ * 5) Maximum Distance rotation — raw score (not continuous)
+ * 6) load / hard balance by intensity (relative hard rate)
+ * 7) versatility buckets (transitive)
  */
 function compareForLane(
   a: Worker,
@@ -972,11 +978,6 @@ function compareForLane(
     const aShort = isShortReturnToLane(pa, lane.id) ? 1 : 0
     const bShort = isShortReturnToLane(pb, lane.id) ? 1 : 0
     if (aShort !== bShort) return aShort - bShort
-
-    // Longer gap (or never on this lane) beats load balance when the gap is real.
-    const ra = rotationScoreFor(pa, lane.id).rawScore
-    const rb = rotationScoreFor(pb, lane.id).rawScore
-    if (Math.abs(ra - rb) > 1) return rb - ra
   }
 
   const applyRecovery =
@@ -991,6 +992,18 @@ function compareForLane(
     if (easyLeft > 0) return aRec - bRec
     return bRec - aRec
     }
+  }
+
+  if (lane.intensity === 'hard') {
+    const loadGap = pa.load - pb.load
+    if (Math.abs(loadGap) >= IDLE_HARD_LOAD_GAP) return loadGap
+  }
+
+  if (!relaxRotation) {
+    // Longer gap (or never on this lane) beats load balance when the gap is real.
+    const ra = rotationScoreFor(pa, lane.id).rawScore
+    const rb = rotationScoreFor(pb, lane.id).rawScore
+    if (Math.abs(ra - rb) > 1) return rb - ra
   }
 
   const hardRate = (p: WorkerHistoryProfile) =>
@@ -1456,6 +1469,7 @@ export function evaluateBoard(
   }
   // Extra hard pull for missing required slots (beyond staffing component)
   score -= understaffedSlots * 4
+  score += idleHardPlacementAdjust(placements, ctx)
   score = clamp01to100(score)
 
   return {
@@ -1468,6 +1482,35 @@ export function evaluateBoard(
     minDaysSince: boardMinDaysSince(assignments, ctx.profiles),
     totalRotation: rotSum,
   }
+}
+
+/**
+ * Keep the optimizer from pulling a low-load worker off a hard lane
+ * just to chase a small rotation gain. Recovery and short-return still win
+ * earlier in ranking and in isBoardBetter.
+ */
+function idleHardPlacementAdjust(
+  placements: { lane: Lane; workerId: string; profile: WorkerHistoryProfile }[],
+  ctx: EvaluateBoardContext,
+): number {
+  let delta = 0
+  for (const { lane, workerId, profile } of placements) {
+    if (lane.intensity !== 'hard') continue
+    if (ctx.recoveringIds.has(workerId)) continue
+    const loads: number[] = []
+    for (const [id] of ctx.profiles) {
+      const worker = ctx.workersById.get(id)
+      if (!worker || !isQualified(worker, lane)) continue
+      loads.push(ctx.profiles.get(id)!.load)
+    }
+    if (loads.length < 2) continue
+    const minLoad = Math.min(...loads)
+    const maxLoad = Math.max(...loads)
+    if (maxLoad - minLoad < IDLE_HARD_LOAD_GAP) continue
+    if (profile.load - minLoad < IDLE_HARD_LOAD_GAP) delta += 4
+    else if (maxLoad - profile.load < IDLE_HARD_LOAD_GAP) delta -= 4
+  }
+  return delta
 }
 
 function illegalBoardEval(): BoardEvaluation {
@@ -1859,6 +1902,14 @@ function buildPlacementReasons(
   }
 
   if (lane.intensity === 'hard') {
+    const highestLoad = ranked.reduce((max, w) => {
+      return Math.max(max, profiles.get(w.id)?.load ?? 0)
+    }, 0)
+    if (highestLoad - p.load >= IDLE_HARD_LOAD_GAP) {
+      reasons.push(
+        `עומס ${fmtLoad(p.load)} ב־${ROTATION_LOOKBACK_DAYS} הימים האחרונים, נמוך משאר הנוכחים — עדיפות לעמדה קשה`,
+      )
+    }
     reasons.push(
       p.hardCount === 0
         ? 'עדיין לא קיבל עמדות קשות לאחרונה — מתאים לעמדה קשה'
@@ -1915,6 +1966,14 @@ function buildPlacementReasons(
       } else if (lane.intensity !== 'easy' && !aRec && bRec) {
         diffs.push(`${rival.fullName} נשמר למנוחה אחרי לילה`)
       }
+    }
+    if (
+      lane.intensity === 'hard' &&
+      rp.load - p.load >= IDLE_HARD_LOAD_GAP
+    ) {
+      diffs.push(
+        `עומס נמוך יותר (${fmtLoad(p.load)} מול ${fmtLoad(rp.load)} של ${rival.fullName})`,
+      )
     }
     const rs = rotationScoreFor(rp, lane.id)
     if (rotationBucket(rot.rawScore) !== rotationBucket(rs.rawScore)) {
