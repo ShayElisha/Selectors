@@ -102,11 +102,10 @@ async function findAccountByPhone(phone) {
 
 function modulesForAccount(account, org) {
   const enabled = publicModules(org.modules)
-  // An inspectors-side manager stays on inspectors, even as organization manager.
+  if (account?.isOrgManager) return enabled
   if (account?.staffKind === 'inspector') {
     return { selectors: false, inspectors: enabled.inspectors }
   }
-  if (account?.isOrgManager) return enabled
   return { selectors: enabled.selectors, inspectors: false }
 }
 
@@ -115,7 +114,7 @@ function isLegacySiteManager(account) {
   return account?.fullName === 'שי אלישע' || phone === '0537171884'
 }
 
-/** The original inspectors manager is the org manager of that module only. */
+/** The original inspectors manager is an organization manager and sees every open module. */
 async function recognizeModuleOrgManager(account, org) {
   if (!account || account.isOrgManager || !isLegacySiteManager(account)) return account
   if (account.staffKind !== 'inspector') return account
