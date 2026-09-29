@@ -698,7 +698,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     else setLoading(true)
     setError(null)
     try {
-      const remote = await fetchAppData(userRef.current?.module)
+      const remote = await fetchAppData(userRef.current?.module ?? undefined)
       applyRemoteData(remote)
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
