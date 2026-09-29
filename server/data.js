@@ -955,6 +955,83 @@ async function runInspectorsMigration() {
   )
 }
 
+/**
+ * Shifts saved into the old single document after it was archived never
+ * reached the live shifts collection. Keep only those later writes.
+ */
+export function shiftsWrittenAfterArchive(legacy) {
+  if (!legacy?.archivedAt || !Array.isArray(legacy.history)) return []
+  const archivedAt = new Date(legacy.archivedAt).getTime()
+  if (!Number.isFinite(archivedAt)) return []
+  return legacy.history.filter((item) => {
+    const stamp = Date.parse(item?.updatedAt || item?.createdAt || '')
+    return Number.isFinite(stamp) && stamp > archivedAt
+  })
+}
+
+async function catchUpArchivedShifts(scope, target) {
+  const metaCol = await getMetaCollection(target)
+  const flagId = `${metaIdFor(scope)}:archived-shifts-v1`
+  const done = await metaCol.findOne({ _id: flagId })
+  if (done?.done) return
+
+  const db = await getDb(target)
+  const shifts = db.collection(MODEL_COLLECTIONS.shifts)
+  const live = await shifts.find(scopeFilter(scope)).toArray()
+  const have = new Set(live.map((doc) => String(doc.id || '')))
+  const sources = target === 'inspectors' ? ['inspectors', 'selectors'] : [target]
+  const missing = []
+  for (const sourceTarget of sources) {
+    let legacy = null
+    try {
+      const legacyCol = await getStateCollection(sourceTarget)
+      legacy = await legacyCol.findOne({ _id: 'main' })
+    } catch {
+      continue
+    }
+    for (const item of shiftsWrittenAfterArchive(legacy)) {
+      const id = String(item?.id || '')
+      if (!id || have.has(id)) continue
+      have.add(id)
+      missing.push(item)
+    }
+  }
+  if (missing.length > 0) {
+    const base = live.reduce((max, doc) => Math.max(max, doc.listOrder ?? 0), -1)
+    const docs = missing.map((item, index) => {
+      const {
+        _id: _ignored,
+        orgId: _org,
+        module: _module,
+        listOrder: _order,
+        ...rest
+      } = item
+      return stampScope(
+        { ...rest, id: String(rest.id), listOrder: base + 1 + index },
+        scope,
+      )
+    })
+    try {
+      await shifts.insertMany(docs, { ordered: false })
+    } catch (err) {
+      const writeErrors = Array.isArray(err?.writeErrors) ? err.writeErrors : []
+      const onlyDuplicates =
+        err?.code === 11000 ||
+        (writeErrors.length > 0 && writeErrors.every((entry) => entry.code === 11000))
+      if (!onlyDuplicates) throw err
+    }
+    await metaCol.updateOne(
+      { _id: metaIdFor(scope) },
+      { $inc: { revision: 1 }, $set: { updatedAt: new Date() } },
+    )
+  }
+  await metaCol.updateOne(
+    { _id: flagId },
+    { $set: { done: true, at: new Date(), imported: missing.length } },
+    { upsert: true },
+  )
+}
+
 export async function readState(scope) {
   if (!scope?.orgId || !scope?.module) {
     const err = new Error('חסר הקשר ארגון')
@@ -964,6 +1041,7 @@ export async function readState(scope) {
   const target = targetForScope(scope)
   if (target === 'inspectors') await migrateInspectorsDatabase()
   else await migrateLegacyTenancy()
+  await catchUpArchivedShifts(scope, target)
   const metaCol = await getMetaCollection(target)
   const meta = await metaCol.findOne({ _id: metaIdFor(scope) })
   if (meta?.schema === 'collections') {
