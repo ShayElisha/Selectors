@@ -321,16 +321,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [profileOpen, manageOpen])
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
-      <header className="relative z-40 mb-6 flex flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
-        <div className="min-w-0">
+    <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col overflow-x-clip px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
+      <header className="relative z-40 mb-6 flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
+        <div className="min-w-0 max-w-full">
           <div className="mb-1.5 flex items-center gap-2.5">
             <BrandMark className="size-11" />
             <div className="min-w-0">
               <h1 className="font-display text-[1.65rem] font-bold leading-none tracking-tight text-ink sm:text-[2rem]">
                 שיבוצון
               </h1>
-              <p className="mt-1 text-[13px] text-ink-soft sm:text-sm">
+              <p className="mt-1 break-words text-[13px] text-ink-soft sm:text-sm">
                 {module === 'inspectors'
                   ? 'ניהול ושיבוץ עמדות בודקים'
                   : 'ניהול ושיבוץ עמדות סלקטורים'}
@@ -377,7 +377,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           <ThemeToggle />
           <div
             className="hidden items-center gap-1.5 rounded-full border border-line/80 bg-card/80 px-2.5 py-1 text-[11px] text-ink-soft shadow-sm backdrop-blur-md lg:inline-flex"

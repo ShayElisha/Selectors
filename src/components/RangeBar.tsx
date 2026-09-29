@@ -36,9 +36,9 @@ export function RangeBar({
   toDate?: string
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 max-w-full flex-col gap-2">
       <div
-        className="flex flex-wrap items-center gap-1 rounded-xl border border-line bg-surface p-1 text-xs sm:text-[13px]"
+        className="flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded-xl border border-line bg-surface p-1 text-xs sm:text-[13px]"
         role="group"
         aria-label="בחירת טווח תאריכים"
       >
