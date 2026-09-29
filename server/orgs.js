@@ -102,11 +102,41 @@ async function findAccountByPhone(phone) {
 
 function modulesForAccount(account, org) {
   const enabled = publicModules(org.modules)
-  if (account?.isOrgManager) return enabled
+  // An inspectors-side manager stays on inspectors, even as organization manager.
   if (account?.staffKind === 'inspector') {
     return { selectors: false, inspectors: enabled.inspectors }
   }
+  if (account?.isOrgManager) return enabled
   return { selectors: enabled.selectors, inspectors: false }
+}
+
+function isLegacySiteManager(account) {
+  const phone = normalizePhone(account?.phone)
+  return account?.fullName === 'שי אלישע' || phone === '0537171884'
+}
+
+/** The original inspectors manager is the org manager of that module only. */
+async function recognizeModuleOrgManager(account, org) {
+  if (!account || account.isOrgManager || !isLegacySiteManager(account)) return account
+  if (account.staffKind !== 'inspector') return account
+  if (!process.env.MONGODB_URI_INSPECTORS?.trim()) return account
+  const db = await getDb('inspectors')
+  const phone = normalizePhone(account.phone)
+  const workers = await db
+    .collection('workers')
+    .find({ orgId: String(org._id), module: 'inspectors' })
+    .toArray()
+  const worker = workers.find((item) => normalizePhone(item.phone) === phone)
+  if (!worker) return account
+  if (worker && !worker.isOrgManager) {
+    await db.collection('workers').updateOne(
+      { _id: worker._id },
+      { $set: { isOrgManager: true, isManager: true } },
+    )
+  }
+  const accountCol = await accounts()
+  await accountCol.updateOne({ _id: account._id }, { $set: { isOrgManager: true } })
+  return { ...account, isOrgManager: true }
 }
 
 function sessionFromAccount(account, org) {
@@ -366,10 +396,11 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
   if (!phone) throw httpError('נא להזין מספר טלפון', 400)
 
   const superAdmin = superAdminIdentity(phone)
-  const account = superAdmin ? null : await findAccountByPhone(phone)
+  let account = superAdmin ? null : await findAccountByPhone(phone)
   if (!superAdmin && !account) throw httpError('אין הרשאת מנהל למספר זה', 401)
 
   const org = account ? await getOrganization(account.orgId) : null
+  if (account && org) account = await recognizeModuleOrgManager(account, org)
   if (account && !org) throw httpError('הארגון לא נמצא', 401)
   if (account && account.status === 'inactive') {
     throw httpError('אין הרשאת מנהל למספר זה', 401)
