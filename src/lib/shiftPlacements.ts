@@ -1,3 +1,4 @@
+import { usesRounds } from './assignmentMode'
 import type { ShiftSchedule } from '../types'
 
 export interface ShiftPlacement {
@@ -23,7 +24,7 @@ function roundMinutes(start: number, end: number): number {
 /** Lane cells that count toward load and statistics. */
 export function shiftPlacements(shift: ShiftSchedule): ShiftPlacement[] {
   const rounds = shift.rounds ?? []
-  if (shift.audience === 'selector' && rounds.length > 0) {
+  if (usesRounds(shift) && rounds.length > 0) {
     const minutes = rounds.map((round) =>
       roundMinutes(round.startMinutes, round.endMinutes),
     )

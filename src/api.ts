@@ -186,6 +186,25 @@ export function requestPasswordResetRemote(
   })
 }
 
+export interface OrgAssignmentSettings {
+  modules: { selectors: boolean; inspectors: boolean }
+  assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
+}
+
+export function fetchOrgSettings(): Promise<OrgAssignmentSettings> {
+  return request<OrgAssignmentSettings>('/api/org-settings')
+}
+
+export function saveOrgSettings(assignmentModes: {
+  selectors: 'rounds' | 'single'
+  inspectors: 'rounds' | 'single'
+}): Promise<OrgAssignmentSettings> {
+  return request<OrgAssignmentSettings>('/api/org-settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ assignmentModes }),
+  })
+}
+
 export function resendManagerTempPasswordRemote(
   workerId: string,
 ): Promise<{ ok: boolean }> {

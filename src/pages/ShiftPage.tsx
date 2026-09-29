@@ -41,6 +41,7 @@ import {
 import { IntensityBadge, Ltr } from '../components/ui'
 import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
+import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRounds'
 import {
   continuesIntoShift,
@@ -120,6 +121,7 @@ export function ShiftPage() {
     user,
     module,
   } = useApp()
+  const roleName = module === 'inspectors' ? 'בודקים' : 'סלקטורים'
 
   const [extraFlow, setExtraFlow] = useState<ExtraFlow>('closed')
   const [extraAskedOnce, setExtraAskedOnce] = useState(false)
@@ -176,7 +178,7 @@ export function ShiftPage() {
   }, [draft, data.workers])
 
   const roundExport = useMemo(() => {
-    if (!draft || draft.audience !== 'selector') {
+    if (!draft || !usesRounds(draft)) {
       return { laneNames: [] as string[], rounds: [] as ExportRoundCell[] }
     }
     const lanes = selectorLanes(data.lanes, draft.activeLaneIds)
@@ -230,7 +232,7 @@ export function ShiftPage() {
       }
       void postAuditEvent(
         'export_board',
-        `${draft.date} · ${shiftModelLabel(shiftModels, draft.shiftType)} · ייצוא סלקטורים · ${roundExport.rounds.length} סבבים`,
+        `${draft.date} · ${shiftModelLabel(shiftModels, draft.shiftType)} · ייצוא ${roleName} · ${roundExport.rounds.length} סבבים`,
       )
     } catch {
       notify.error(
@@ -385,7 +387,7 @@ export function ShiftPage() {
 
   const handleAutoAssign = () => {
     if (
-      (draft?.audience === 'selector'
+      (draft && usesRounds(draft)
         ? selectorRoundsHavePlacements(draft.rounds ?? [])
         : draft?.assignments.some((a) => a.workerIds.some(Boolean))) &&
       !window.confirm(
@@ -404,7 +406,7 @@ export function ShiftPage() {
 
   const handleManualAssign = () => {
     if (
-      (draft?.audience === 'selector'
+      (draft && usesRounds(draft)
         ? selectorRoundsHavePlacements(draft.rounds ?? [])
         : draft?.assignments.some((a) => a.workerIds.some(Boolean))) &&
       !window.confirm(
@@ -424,7 +426,7 @@ export function ShiftPage() {
   // Surplus prompt — only once after each auto-assign
   useEffect(() => {
     if (!draft || shiftStep !== 'board' || extraAskedOnce) return
-    if (draft.audience === 'selector') return
+    if (usesRounds(draft)) return
     if (requestExplainModal || explainModalOpen) return
     const moreWorkersThanLanes =
       laneStaffPresentIds(draft.presentWorkerIds, draft.gateManagerWorkerId)
@@ -454,10 +456,10 @@ export function ShiftPage() {
   }
 
   useLayoutEffect(() => {
-    if (module === 'inspectors') return
-    if (shiftStep !== 'board' || !draft || draft.audience === 'selector') return
+    if (shiftStep !== 'board' || !draft || !usesRounds(draft)) return
+    if (draft.audience === 'selector' || (draft.rounds?.length ?? 0) > 0) return
     commitSelectorBoard()
-  }, [module, shiftStep, draft, commitSelectorBoard])
+  }, [shiftStep, draft, commitSelectorBoard])
 
   const handleSave = async () => {
     if (!draft) return
@@ -465,11 +467,11 @@ export function ShiftPage() {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return
     }
-    if (draft.audience !== 'selector' && draft.unassignedWorkerIds.length > 0) {
+    if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
       setSaveFlash(false)
       notify.error(
         'לא ניתן לשמור',
-        `נשארו ${draft.unassignedWorkerIds.length} בודקים שלא שובצו לעמדה. שבצו את כולם לפני השמירה.`,
+        `נשארו ${draft.unassignedWorkerIds.length} ${roleName} שלא שובצו לעמדה. שבצו את כולם לפני השמירה.`,
       )
       return
     }
@@ -536,9 +538,9 @@ export function ShiftPage() {
           : 'pb-44 sm:pb-36'
       }`}
     >
-      {draft.audience === 'selector' && shiftStep !== 'board' ? (
+      {usesRounds(draft) && shiftStep !== 'board' ? (
         <p className="rounded-xl border border-line bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink-soft">
-          שיבוץ סלקטורים. בסוף התהליך מתקבלת טבלה: כל שורה היא סבב של שעתיים מתחילת המשמרת, וכל עמודה היא נתיב. הסלקטורים מתחלפים בין הנתיבים בכל סבב.
+          שיבוץ {roleName} בסבבים. בסוף התהליך מתקבלת טבלה: כל שורה היא סבב של שעתיים מתחילת המשמרת, וכל עמודה היא נתיב. האנשים מתחלפים בין הנתיבים בכל סבב.
         </p>
       ) : null}
       {shiftStep !== 'board' ? (
@@ -1461,15 +1463,15 @@ export function ShiftPage() {
         </div>
       ) : null}
 
-      {shiftStep === 'board' && draft.audience === 'selector' ? (
+      {shiftStep === 'board' && usesRounds(draft) ? (
         <div className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
               <h2 className="font-display text-base font-bold text-ink sm:text-lg">
-                שיבוץ סלקטורים
+                שיבוץ {roleName}
               </h2>
               <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-soft">
-                שורות לפי שעות, כל שעתיים מתחילת המשמרת. עמודות לפי נתיבים. בכל תא בוחרים סלקטור, והשיבוץ האוטומטי מסובב אותם בין הנתיבים.
+                שורות לפי שעות, כל שעתיים מתחילת המשמרת. עמודות לפי נתיבים. בכל תא בוחרים אדם, והשיבוץ האוטומטי מסובב אותם בין הנתיבים.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1548,7 +1550,7 @@ export function ShiftPage() {
         </div>
       ) : null}
 
-      {shiftStep === 'board' && draft.audience !== 'selector' && (
+      {shiftStep === 'board' && !usesRounds(draft) && (
         <BoardStep
           draft={draft}
           data={data}
