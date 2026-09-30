@@ -145,6 +145,7 @@ export function BoardStep({
     moveLane,
     swapAssignments,
     removeWorkerFromShift,
+    removeLaneFromShift,
     addSlotToLane,
     updateLaneNotes,
     user,
@@ -159,7 +160,6 @@ export function BoardStep({
   const [shareBusy, setShareBusy] = useState(false)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set())
-  const [openLaneMenu, setOpenLaneMenu] = useState<string | null>(null)
   const [swapTarget, setSwapTarget] = useState<{
     laneId: string
     slotIndex: number
@@ -171,12 +171,7 @@ export function BoardStep({
   const summaryMenuRef = useRef<HTMLDivElement | null>(null)
   const summaryBtnRef = useRef<HTMLButtonElement | null>(null)
   const summaryPanelRef = useRef<HTMLDivElement | null>(null)
-  const laneBtnRefs = useRef(new Map<string, HTMLButtonElement>())
-  const lanePanelRef = useRef<HTMLDivElement | null>(null)
   const [summaryPos, setSummaryPos] = useState<{ top: number; left: number } | null>(
-    null,
-  )
-  const [laneMenuPos, setLaneMenuPos] = useState<{ top: number; left: number } | null>(
     null,
   )
 
@@ -266,25 +261,6 @@ export function BoardStep({
       window.removeEventListener('scroll', place, true)
     }
   }, [summaryMenuOpen])
-
-  useLayoutEffect(() => {
-    if (!openLaneMenu) {
-      setLaneMenuPos(null)
-      return
-    }
-    const place = () => {
-      const anchor = laneBtnRefs.current.get(openLaneMenu)
-      if (!anchor) return
-      setLaneMenuPos(placeFloatingMenu(anchor, 192))
-    }
-    place()
-    window.addEventListener('resize', place)
-    window.addEventListener('scroll', place, true)
-    return () => {
-      window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
-    }
-  }, [openLaneMenu])
 
   const showToast = useCallback((msg: string) => {
     notify.success(msg)
@@ -578,7 +554,7 @@ export function BoardStep({
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <select
-          className={`min-w-0 w-full appearance-none rounded-xl border px-3 py-2.5 text-[15px] font-semibold tracking-tight text-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.6)] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:py-3 sm:text-base ${
+          className={`min-w-0 w-full appearance-none rounded-xl border px-3 py-2 text-sm font-semibold tracking-tight text-ink transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
             selectedLacksCert
               ? 'border-warn/50 bg-warn-soft/40'
               : isExtra
@@ -785,7 +761,7 @@ export function BoardStep({
       </div>
 
       <div className="ui-panel-solid overflow-hidden shadow-[var(--shadow-panel-hover)] sm:rounded-[1.35rem]">
-        <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-l from-brand-deep via-brand to-brand px-5 py-6 text-white sm:px-7 sm:py-7">
+        <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-l from-brand-deep via-brand to-brand px-4 py-3 text-white sm:px-5">
           <div
             className="pointer-events-none absolute inset-0 opacity-[0.12]"
             style={{
@@ -798,7 +774,7 @@ export function BoardStep({
           <p className="relative text-[10px] font-semibold tracking-[0.28em] text-white/55 sm:text-[11px]">
             שיבוצון
           </p>
-          <h3 className="relative mt-1 font-display text-2xl font-bold tracking-tight sm:text-[1.75rem]">
+          <h3 className="relative mt-0.5 font-display text-lg font-bold tracking-tight sm:text-xl">
             שיבוץ שער יציאה
           </h3>
           {user?.orgName ? (
@@ -843,13 +819,13 @@ export function BoardStep({
                 key={laneId}
                 id={`board-lane-${laneId}`}
                 data-lane-row={isGateLane ? undefined : laneId}
-                className={`scroll-mt-24 rounded-2xl border px-3.5 py-3.5 shadow-[var(--shadow-panel)] sm:px-5 sm:py-4 ${
+                className={`scroll-mt-24 rounded-2xl border px-3 py-3 sm:px-4 ${
                   isGateLane
                     ? 'border-brand/20 bg-brand/[0.06]'
                     : 'border-line/80 bg-card'
                 }`}
               >
-                <div className="flex min-h-10 flex-wrap items-center gap-2">
+                <div className="flex items-start gap-2">
                   {!isGateLane ? (
                     <button
                       type="button"
@@ -857,97 +833,88 @@ export function BoardStep({
                       title="גרור לשינוי סדר"
                       style={{ touchAction: 'none' }}
                       onPointerDown={(e) => startLanePointerDrag(e, laneId, moveLane)}
-                      className="inline-flex size-9 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
+                      className="mt-0.5 inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
                     >
                       <GripVertical className="size-4" aria-hidden />
                     </button>
                   ) : null}
-                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    <h4 className="font-display text-base font-bold tracking-tight text-ink sm:text-lg">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <h4 className="font-display text-base font-bold tracking-tight text-ink">
+                        {isGateLane ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Shield className="size-4 text-brand" aria-hidden />
+                            {lane.name}
+                          </span>
+                        ) : (
+                          lane.name
+                        )}
+                      </h4>
                       {isGateLane ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Shield className="size-4 text-brand" aria-hidden />
-                          {lane.name}
+                        <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand">
+                          שובץ אוטומטית
                         </span>
                       ) : (
-                        lane.name
+                        <IntensityBadge intensity={lane.intensity} />
                       )}
-                    </h4>
-                    {isGateLane ? (
-                      <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold text-brand sm:text-[10px]">
-                        שובץ אוטומטית
+                      {draft.shiftType === 'afternoon' && lane.afternoonHandoff ? (
+                        <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent">
+                          החלפת צהריים
+                        </span>
+                      ) : null}
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
+                          chipKind === 'ok'
+                            ? 'bg-surface text-ink-soft ring-1 ring-line'
+                            : chipKind === 'over'
+                              ? 'bg-warn-soft text-warn ring-1 ring-warn/20'
+                              : 'bg-hard-soft text-hard ring-1 ring-hard/20'
+                        }`}
+                      >
+                        <Ltr>
+                          {filled}/{std}
+                        </Ltr>
+                        {chipKind === 'over' ? ' מעל תקן' : chipKind === 'under' ? ' חסר' : null}
                       </span>
-                    ) : (
-                      <IntensityBadge intensity={lane.intensity} />
-                    )}
-                    {draft.shiftType === 'afternoon' && lane.afternoonHandoff ? (
-                      <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[9px] font-bold text-accent sm:text-[10px]">
-                        החלפת צהריים
-                      </span>
-                    ) : null}
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums sm:text-[11px] ${
-                        chipKind === 'ok'
-                          ? 'bg-surface text-ink-soft ring-1 ring-line'
-                          : chipKind === 'over'
-                            ? 'bg-warn-soft text-warn ring-1 ring-warn/20'
-                            : 'bg-hard-soft text-hard ring-1 ring-hard/20'
-                      }`}
-                    >
-                      <Ltr>
-                        {filled}/{std}
-                      </Ltr>
-                      {chipKind === 'over' ? ' מעל תקן' : chipKind === 'under' ? ' חסר' : null}
-                    </span>
+                    </div>
                   </div>
                   {!isGateLane ? (
-                  <div className="relative no-print">
-                    <button
-                      ref={(node) => {
-                        if (node) laneBtnRefs.current.set(laneId, node)
-                        else laneBtnRefs.current.delete(laneId)
-                      }}
-                      type="button"
-                      aria-haspopup="menu"
-                      aria-expanded={openLaneMenu === laneId}
-                      aria-label={`פעולות בנתיב ${lane.name}`}
-                      onClick={() =>
-                        setOpenLaneMenu((cur) => (cur === laneId ? null : laneId))
-                      }
-                      className="inline-flex size-8 items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                    >
-                      <MoreHorizontal className="size-4" aria-hidden />
-                    </button>
-                    {openLaneMenu === laneId && laneMenuPos
-                      ? createPortal(
-                          <div
-                            ref={lanePanelRef}
-                            role="menu"
-                            className="fixed z-[200] min-w-[11rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
-                            style={{ top: laneMenuPos.top, left: laneMenuPos.left }}
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex w-full items-center gap-2 px-3 py-2 text-start text-[12px] font-semibold text-ink hover:bg-surface"
-                              onClick={() => {
-                                setOpenLaneMenu(null)
-                                addSlotToLane(laneId)
-                              }}
-                              aria-label={`הוסף משבצת מעבר לתקן בנתיב ${lane.name}`}
-                            >
-                              <Plus className="size-3.5" aria-hidden />
-                              הוסף משבצת
-                            </button>
-                          </div>,
-                          document.body,
-                        )
-                      : null}
-                  </div>
+                    <div className="flex shrink-0 items-center gap-1 no-print">
+                      <button
+                        type="button"
+                        onClick={() => addSlotToLane(laneId)}
+                        className="inline-flex size-8 items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        title="הוסף משבצת"
+                        aria-label={`הוסף משבצת בנתיב ${lane.name}`}
+                      >
+                        <Plus className="size-4" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const parked = slots.filter(Boolean).map(
+                            (id) =>
+                              data.workers.find((worker) => worker.id === id)?.fullName ?? id,
+                          )
+                          removeLaneFromShift(laneId)
+                          showToast(
+                            parked.length > 0
+                              ? `${lane.name} הוסר. ${parked.join(', ')} ממתינים לשיבוץ`
+                              : `${lane.name} הוסר מהמשמרת`,
+                          )
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-bold text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        title="הסר את הנתיב מהמשמרת"
+                        aria-label={`הסר את הנתיב ${lane.name}`}
+                      >
+                        <Trash2 className="size-3.5" aria-hidden />
+                        הסר נתיב
+                      </button>
+                    </div>
                   ) : null}
                 </div>
 
-                <div className="mt-3 space-y-2.5">
+                <div className="mt-2.5 space-y-2">
                   {slots.map((workerId, slotIndex) => {
                     if (isGateLane) {
                       const name =
@@ -966,36 +933,34 @@ export function BoardStep({
                       )
                     }
                     return (
-                      <div key={slotIndex} className="flex flex-wrap items-center gap-2 sm:gap-3">
+                      <div key={slotIndex} className="flex items-center gap-2">
                         {std > 1 ? (
-                          <span className="w-4 text-[10px] text-ink-soft tabular-nums sm:w-5 sm:text-xs">
+                          <span className="w-4 shrink-0 text-[11px] text-ink-soft tabular-nums">
                             {slotIndex + 1}.
                           </span>
-                        ) : (
-                          <span className="w-0 sm:w-0" aria-hidden />
-                        )}
+                        ) : null}
                         {renderWorkerSelect(lane, laneId, slotIndex, workerId, std)}
                         {workerId ? (
-                          <div className="flex shrink-0 overflow-hidden rounded-xl border border-line bg-surface no-print">
+                          <div className="flex shrink-0 items-center gap-1 no-print">
                             <button
                               type="button"
                               onClick={() =>
                                 setSwapTarget({ laneId, slotIndex, workerId })
                               }
-                              className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-brand transition hover:bg-brand/8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              className="inline-flex size-9 items-center justify-center rounded-lg text-brand hover:bg-brand/8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                               title="החלף עם נתיב אחר"
+                              aria-label="החלף עם נתיב אחר"
                             >
-                              <ArrowLeftRight className="size-3.5" aria-hidden />
-                              החלף
+                              <ArrowLeftRight className="size-4" aria-hidden />
                             </button>
                             <button
                               type="button"
                               onClick={() => removeWorkerFromShift(workerId)}
-                              className="inline-flex items-center gap-1.5 border-s border-line px-3 py-2.5 text-xs font-bold text-hard transition hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              className="inline-flex size-9 items-center justify-center rounded-lg text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                               title="הסר מהשיבוץ ומהנוכחות"
+                              aria-label="הסר מהשיבוץ"
                             >
-                              <Trash2 className="size-3.5" aria-hidden />
-                              הסר
+                              <Trash2 className="size-4" aria-hidden />
                             </button>
                           </div>
                         ) : null}
@@ -1045,6 +1010,11 @@ export function BoardStep({
               </div>
             )
           })}
+          {draft.activeLaneIds.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-sm text-ink-soft">
+              אין נתיבים במשמרת. חזרו לבחירת נתיבים כדי להוסיף.
+            </p>
+          ) : null}
         </div>
 
         {draft.unassignedWorkerIds.length > 0 ? (

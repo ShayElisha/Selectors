@@ -113,6 +113,7 @@ export function ShiftPage() {
     commitSelectorBoard,
     startManualAssign,
     updateSelectorCell,
+    removeLaneFromShift,
     setWorkerWindow,
     addExtraWorkerToLane,
     saveCurrentShift,
@@ -1588,6 +1589,10 @@ export function ShiftPage() {
             }
             editable
             onChange={updateSelectorCell}
+            onRemoveLane={(laneId) => {
+              removeLaneFromShift(laneId)
+              notify.success('הנתיב הוסר מהמשמרת')
+            }}
           />
         </div>
       ) : null}

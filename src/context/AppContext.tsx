@@ -259,6 +259,8 @@ interface AppContextValue {
    * and drops them from present attendance so save is not blocked.
    */
   removeWorkerFromShift: (workerId: string) => void
+  /** Drop a lane from the open shift. People who were on it stay present and become unassigned. */
+  removeLaneFromShift: (laneId: string) => void
   updateLaneNotes: (laneId: string, notes: string) => void
   addExtraWorkerToLane: (laneId: string, workerId: string) => void
   addSlotToLane: (laneId: string) => void
@@ -2011,6 +2013,33 @@ function nightPartnersForMorning(
     [data.lanes],
   )
 
+  const removeLaneFromShift = useCallback(
+    (laneId: string) => {
+      setDraft((d) => {
+        if (!d) return d
+        const lane = data.lanes.find((item) => item.id === laneId)
+        if (!lane || isGateManagerLane(lane)) return d
+        const staffingOverrides = { ...d.staffingOverrides }
+        delete staffingOverrides[laneId]
+        return withGateManagerSync(
+          {
+            ...d,
+            activeLaneIds: d.activeLaneIds.filter((id) => id !== laneId),
+            assignments: d.assignments.filter((row) => row.laneId !== laneId),
+            staffingOverrides,
+            explanations: (d.explanations ?? []).filter((item) => item.laneId !== laneId),
+            rounds: (d.rounds ?? []).map((round) => ({
+              ...round,
+              assignments: round.assignments.filter((row) => row.laneId !== laneId),
+            })),
+          },
+          data.lanes,
+        )
+      })
+    },
+    [data.lanes],
+  )
+
   const saveCurrentShift = useCallback(async () => {
     if (!draft) return
     const synced = withGateManagerSync(draft, dataRef.current.lanes)
@@ -2628,6 +2657,7 @@ function nightPartnersForMorning(
       updateSelectorCell,
       swapAssignments,
       removeWorkerFromShift,
+      removeLaneFromShift,
       updateLaneNotes,
       addExtraWorkerToLane,
       addSlotToLane,
@@ -2699,6 +2729,7 @@ function nightPartnersForMorning(
       updateSelectorCell,
       swapAssignments,
       removeWorkerFromShift,
+      removeLaneFromShift,
       updateLaneNotes,
       addExtraWorkerToLane,
       addSlotToLane,
