@@ -117,6 +117,18 @@ import type {
   CustomsBrokerContact,
 } from '../types'
 
+function uniqueLabels(values: string[] | undefined): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values ?? []) {
+    const label = String(value).trim()
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    out.push(label)
+  }
+  return out
+}
+
 function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector'): Worker {
   const isManager = Boolean(w.isManager) || isDefaultManager(w)
   const hasInspector = Object.prototype.hasOwnProperty.call(w, 'isInspector')
@@ -127,6 +139,7 @@ function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector')
   const isOrgManager = Boolean(w.isOrgManager)
   return {
     ...w,
+    certifications: uniqueLabels(w.certifications),
     isManager: isManager || isOrgManager,
     isInspector,
     staffKind,
@@ -139,7 +152,11 @@ function normalizeAppData(data: AppData, module: 'selectors' | 'inspectors' = 's
   return {
     ...data,
     workers: data.workers.map((worker) => normalizeWorkerRoles(worker, fallbackKind)),
-    lanes: ensureGateManagerLane(data.lanes ?? [], () => uuid()),
+    lanes: ensureGateManagerLane(data.lanes ?? [], () => uuid()).map((lane) => ({
+      ...lane,
+      requiredCertifications: uniqueLabels(lane.requiredCertifications),
+    })),
+    certificationsCatalog: uniqueLabels(data.certificationsCatalog),
     briefingSections: normalizeBriefingSections(data.briefingSections),
     questionBank: normalizeQuestionBank(data.questionBank),
     customsBrokers: Array.isArray(data.customsBrokers) ? data.customsBrokers : [],

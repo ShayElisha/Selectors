@@ -187,6 +187,18 @@ export function createSeedData() {
   }
 }
 
+function uniqueLabels(values) {
+  const seen = new Set()
+  const out = []
+  for (const value of values || []) {
+    const label = String(value || '').trim()
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    out.push(label)
+  }
+  return out
+}
+
 function normalizeWorker(w, fallbackKind = 'selector') {
   const isManager = Boolean(w.isManager) || isDefaultManager(w)
   const hasInspectorFlag = Object.prototype.hasOwnProperty.call(w, 'isInspector')
@@ -200,7 +212,7 @@ function normalizeWorker(w, fallbackKind = 'selector') {
     fullName: w.fullName || '',
     phone: w.phone || '',
     email: normalizeEmail(w.email),
-    certifications: Array.isArray(w.certifications) ? w.certifications : [],
+    certifications: uniqueLabels(w.certifications),
     status:
       w.status === 'inactive' || w.status === 'archived' ? w.status : 'active',
     isInspector,
@@ -248,9 +260,7 @@ function normalizeLane(l) {
     id: l.id,
     name: l.name || '',
     staffingStandard,
-    requiredCertifications: Array.isArray(l.requiredCertifications)
-      ? l.requiredCertifications
-      : [],
+    requiredCertifications: uniqueLabels(l.requiredCertifications),
     intensity:
       l.intensity === 'easy' || l.intensity === 'hard' || l.intensity === 'medium'
         ? l.intensity
@@ -421,7 +431,7 @@ export function normalizeData(raw, fallbackKind = 'selector') {
     lanes,
     history: Array.isArray(raw?.history) ? raw.history : [],
     certificationsCatalog: Array.isArray(raw?.certificationsCatalog)
-      ? raw.certificationsCatalog
+      ? uniqueLabels(raw.certificationsCatalog)
       : [...DEFAULT_CERTIFICATIONS],
     briefingSections,
     questionBank,

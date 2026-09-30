@@ -64,6 +64,13 @@ describe('orderedCertifications', () => {
       'טסלה',
     ])
   })
+
+  it('keeps each certification once', () => {
+    expect(orderedCertifications(catalog, ['מכס', 'מכס', 'כללי', 'מכס'])).toEqual([
+      'כללי',
+      'מכס',
+    ])
+  })
 })
 
 describe('search and filter', () => {

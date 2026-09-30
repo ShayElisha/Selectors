@@ -34,10 +34,10 @@ export function orderedCertifications(
   held: string[],
 ): string[] {
   const order = new Map(catalog.map((c, i) => [c, i]))
-  const known = held
+  const known = [...new Set(held)]
     .filter((c) => order.has(c))
     .sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
-  const unknown = held
+  const unknown = [...new Set(held)]
     .filter((c) => !order.has(c))
     .slice()
     .sort((a, b) => a.localeCompare(b, 'he'))
