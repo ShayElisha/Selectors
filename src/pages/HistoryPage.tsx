@@ -26,6 +26,13 @@ import {
 } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
+import {
+  AssignmentExplainDialog,
+  groupExplanations,
+} from '../components/AssignmentExplainDialog'
+import { explainSavedBoard } from '../algorithm'
+import { isGateManagerLane } from '../lib/gateManager'
+import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import {
@@ -192,6 +199,72 @@ function HealthChip({ shift }: { shift: ShiftSchedule }) {
   )
 }
 
+function ShiftExplanation({ shift }: { shift: ShiftSchedule }) {
+  const { data } = useApp()
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const hasPlacements =
+    !usesRounds(shift) &&
+    shift.assignments.some((row) => row.workerIds.some(Boolean))
+  const canExplain = (shift.explanations?.length ?? 0) > 0 || hasPlacements
+
+  const groups = useMemo(() => {
+    if (!open || !canExplain) return []
+    const saved = shift.explanations ?? []
+    const source =
+      saved.length > 0
+        ? saved
+        : explainSavedBoard({
+            assignments: shift.assignments,
+            activeLanes: data.lanes
+              .filter(
+                (lane) =>
+                  shift.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
+              )
+              .map((lane) => ({
+                ...lane,
+                staffingStandard: effectiveStaffingStandard(
+                  lane,
+                  shift.staffingOverrides,
+                ),
+              })),
+            presentWorkers: data.workers.filter(
+              (worker) =>
+                shift.presentWorkerIds.includes(worker.id) &&
+                worker.id !== shift.gateManagerWorkerId,
+            ),
+            history: data.history.filter((item) => item.id !== shift.id),
+            allLanes: data.lanes,
+            date: shift.date,
+            shiftType: shift.shiftType,
+          })
+    return groupExplanations(source, data.lanes, data.workers)
+  }, [open, canExplain, shift, data.lanes, data.workers, data.history])
+
+  if (!canExplain) return null
+
+  return (
+    <div className="mb-3">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        הסבר השיבוץ
+      </button>
+      <AssignmentExplainDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        date={shift.date}
+        shiftType={shift.shiftType}
+        groups={groups}
+        returnFocusRef={buttonRef}
+      />
+    </div>
+  )
+}
+
 function ShiftAccordion({
   shift,
   search,
@@ -332,6 +405,7 @@ function ShiftAccordion({
 
       {open ? (
         <div className="min-w-0 overflow-hidden border-t border-line px-3 py-3">
+          <ShiftExplanation shift={shift} />
           {usesRounds(shift) ? (
             <SelectorRoundTable
               rounds={shift.rounds ?? []}

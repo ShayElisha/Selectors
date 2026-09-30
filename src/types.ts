@@ -109,6 +109,11 @@ export interface ShiftSchedule {
    * Missing means the person covers the whole main shift.
    */
   workerWindows?: Record<string, string>
+  /**
+   * Why each person was placed, saved with the shift.
+   * Older shifts may omit this; the history screen can rebuild it.
+   */
+  explanations?: { laneId: string; workerId: string; reasons: string[] }[]
   createdAt: string
   updatedAt: string
 }
