@@ -333,24 +333,27 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <header className="relative z-40 mb-6 flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
         <div className="min-w-0 max-w-full">
           <div className="mb-1.5 flex items-center gap-2.5">
-            {orgProfile.logo ? (
-              <img
-                src={orgProfile.logo}
-                alt=""
-                className="size-11 rounded-xl object-contain"
-              />
-            ) : (
-              <BrandMark className="size-11" />
-            )}
+            <BrandMark className="size-11" />
             <div className="min-w-0">
               <h1 className="font-display text-[1.65rem] font-bold leading-none tracking-tight text-ink sm:text-[2rem]">
                 שיבוצון
               </h1>
-              <p className="mt-1 break-words text-[13px] text-ink-soft sm:text-sm">
-                {module === 'inspectors'
-                  ? 'ניהול ושיבוץ עמדות בודקים'
-                  : 'ניהול ושיבוץ עמדות סלקטורים'}
-                {(orgProfile.name || user?.orgName) ? ` · ${orgProfile.name || user?.orgName}` : ''}
+              <p className="mt-1 flex flex-wrap items-center gap-1.5 break-words text-[13px] text-ink-soft sm:text-sm">
+                <span>
+                  {module === 'inspectors'
+                    ? 'ניהול ושיבוץ עמדות בודקים'
+                    : 'ניהול ושיבוץ עמדות סלקטורים'}
+                  {(orgProfile.name || user?.orgName)
+                    ? ` · ${orgProfile.name || user?.orgName}`
+                    : ''}
+                </span>
+                {orgProfile.logo ? (
+                  <img
+                    src={orgProfile.logo}
+                    alt={orgProfile.name || 'לוגו הארגון'}
+                    className="size-7 rounded-md object-contain"
+                  />
+                ) : null}
               </p>
             </div>
           </div>
