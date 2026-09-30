@@ -180,10 +180,22 @@ function sessionFromAccount(account, org) {
 }
 
 function orgGate(org, modules = publicModules(org?.modules)) {
+  if (org?.deletedAt) {
+    return {
+      next: 'rejected',
+      message: 'הארגון נמחק. אפשר לפנות לסופר אדמין.',
+    }
+  }
   if (!org || org.status === 'rejected') {
     return {
       next: 'rejected',
       message: 'בקשת הארגון נדחתה. אפשר לפנות לסופר אדמין.',
+    }
+  }
+  if (org.status === 'suspended') {
+    return {
+      next: 'suspended',
+      message: 'הגישה לארגון מושעית. אפשר לפנות לסופר אדמין.',
     }
   }
   if (org.status !== 'approved') {
@@ -303,6 +315,7 @@ export async function registerOrganization(body) {
 }
 
 export async function listOrganizations() {
+  await purgeExpiredOrganizations()
   const orgCol = await organizations()
   const accountCol = await accounts()
   const orgs = await orgCol.find({}).sort({ createdAt: -1 }).toArray()
@@ -321,20 +334,7 @@ export async function listOrganizations() {
     const manager =
       list.find((account) => String(account._id) === String(org.primaryAccountId)) ||
       list[0]
-    return {
-      id: String(org._id),
-      name: org.name || '',
-      status: org.status || 'pending',
-      modules: publicModules(org.modules),
-      createdAt: org.createdAt || '',
-      manager: manager
-        ? {
-            fullName: manager.fullName || '',
-            phone: manager.phone || '',
-            email: manager.email || '',
-          }
-        : null,
-    }
+    return orgSummary(org, manager)
   })
 }
 
@@ -346,11 +346,21 @@ export async function reviewOrganization(id, patch) {
   const next = {}
   if (patch?.status != null) {
     const status = String(patch.status)
-    if (status !== 'approved' && status !== 'rejected' && status !== 'pending') {
+    if (
+      status !== 'approved' &&
+      status !== 'rejected' &&
+      status !== 'pending' &&
+      status !== 'suspended'
+    ) {
       throw httpError('סטטוס לא תקין', 400)
     }
+    if (org.deletedAt) throw httpError('הארגון ממתין לשחזור או למחיקה סופית', 400)
+    const now = new Date().toISOString()
     next.status = status
-    next.reviewedAt = new Date().toISOString()
+    next.reviewedAt = now
+    if (status === 'approved') next.approvedAt = now
+    if (status === 'rejected') next.rejectedAt = now
+    if (status === 'suspended') next.suspendedAt = now
   }
   if (patch?.modules != null) {
     next.modules = {
@@ -383,12 +393,61 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+export async function restoreOrganization(id) {
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: String(id) })
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+  if (!org.deletedAt) throw httpError('הארגון לא מסומן למחיקה', 400)
+  const age = Date.now() - new Date(org.deletedAt).getTime()
+  if (!Number.isFinite(age) || age > DELETE_RESTORE_MS) {
+    throw httpError('חלון השחזור נסגר', 400)
+  }
+  await orgCol.updateOne(
+    { _id: org._id },
+    { $set: { updatedAt: new Date().toISOString() }, $unset: { deletedAt: '' } },
+  )
+  await appendAuditLog({
+    action: 'org_restore',
+    details: `שוחזר הארגון ${org.name || org._id}`,
+  })
+  const rows = await listOrganizations()
+  return rows.find((row) => row.id === String(org._id)) || null
+}
+
+async function purgeExpiredOrganizations() {
+  const orgCol = await organizations()
+  const cutoff = new Date(Date.now() - DELETE_RESTORE_MS).toISOString()
+  const expired = await orgCol.find({ deletedAt: { $lt: cutoff } }).toArray()
+  for (const org of expired) {
+    await hardDeleteOrganization(String(org._id))
+  }
+}
+
 export async function deleteOrganization(id) {
   const orgId = String(id || '')
   if (!orgId) throw httpError('חסר מזהה ארגון', 400)
   const orgCol = await organizations()
   const org = await orgCol.findOne({ _id: orgId })
   if (!org) throw httpError('הארגון לא נמצא', 404)
+
+  const now = new Date().toISOString()
+  await orgCol.updateOne(
+    { _id: orgId },
+    { $set: { deletedAt: now, updatedAt: now } },
+  )
+  await appendAuditLog({
+    action: 'org_delete',
+    details: `סומן למחיקה הארגון ${org.name || orgId}. אפשר לשחזר בתוך 7 ימים.`,
+  })
+  return { ok: true, deletedAt: now }
+}
+
+async function hardDeleteOrganization(id) {
+  const orgId = String(id || '')
+  if (!orgId) return
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: orgId })
+  if (!org) return
 
   const targets = ['selectors']
   if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
@@ -570,6 +629,7 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
       module: identity.module,
       details: 'הגדרת סיסמה קבועה והתחברות',
     })
+    await touchOrgLogin(identity.orgId)
     return identity
   }
 
@@ -580,7 +640,41 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
     module: identity.module,
     details: 'התחברות למערכת',
   })
+  await touchOrgLogin(identity.orgId)
   return identity
+}
+
+async function touchOrgLogin(orgId) {
+  if (!orgId) return
+  const orgCol = await organizations()
+  await orgCol.updateOne(
+    { _id: String(orgId) },
+    { $set: { lastLoginAt: new Date().toISOString() } },
+  )
+}
+
+const DELETE_RESTORE_MS = 7 * 24 * 60 * 60 * 1000
+
+function orgSummary(org, manager) {
+  return {
+    id: String(org._id),
+    name: org.name || '',
+    status: org.deletedAt ? 'deleted' : org.status || 'pending',
+    modules: publicModules(org.modules),
+    createdAt: org.createdAt || '',
+    approvedAt: org.approvedAt || '',
+    rejectedAt: org.rejectedAt || '',
+    suspendedAt: org.suspendedAt || '',
+    lastLoginAt: org.lastLoginAt || '',
+    deletedAt: org.deletedAt || '',
+    manager: manager
+      ? {
+          fullName: manager.fullName || '',
+          phone: manager.phone || '',
+          email: manager.email || '',
+        }
+      : null,
+  }
 }
 
 export async function requestAccountPasswordReset(phoneRaw) {

@@ -209,7 +209,7 @@ interface AppContextValue {
   ) => Promise<
     | void
     | 'change_password'
-    | { next: 'pending_approval' | 'rejected' | 'no_modules' | 'await_email'; message?: string }
+    | { next: 'pending_approval' | 'rejected' | 'suspended' | 'no_modules' | 'await_email'; message?: string }
   >
   /** Phone-only probe: which login UI to show next. */
   checkLogin: (
@@ -751,6 +751,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (
           session.next === 'pending_approval' ||
           session.next === 'rejected' ||
+          session.next === 'suspended' ||
           session.next === 'no_modules' ||
           session.next === 'await_email'
         ) {

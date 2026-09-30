@@ -22,6 +22,7 @@ type Step =
   | 'reset_sent'
   | 'pending_approval'
   | 'rejected'
+  | 'suspended'
   | 'no_modules'
 
 function PasswordField({
@@ -139,6 +140,7 @@ export function LoginPage() {
       if (
         result.next === 'pending_approval' ||
         result.next === 'rejected' ||
+        result.next === 'suspended' ||
         result.next === 'no_modules'
       ) {
         setInfo(result.message || null)
@@ -252,8 +254,10 @@ export function LoginPage() {
             ? 'לחשבון הזה עדיין אין סיסמה'
             : step === 'pending_approval'
               ? 'הארגון עדיין לא אושר'
-              : step === 'rejected'
-                ? 'בקשת הארגון נדחתה'
+            : step === 'rejected'
+              ? 'בקשת הארגון נדחתה'
+              : step === 'suspended'
+                ? 'הגישה לארגון מושעית'
                 : step === 'no_modules'
                   ? 'הארגון אושר, והמודולים עדיין סגורים'
             : step === 'reset'
@@ -278,6 +282,7 @@ export function LoginPage() {
             step === 'reset_sent' ||
             step === 'pending_approval' ||
             step === 'rejected' ||
+            step === 'suspended' ||
             step === 'no_modules') && (
             <div>
               <FieldLabel htmlFor="login-phone">מספר טלפון</FieldLabel>
@@ -393,6 +398,7 @@ export function LoginPage() {
 
           {(step === 'pending_approval' ||
             step === 'rejected' ||
+            step === 'suspended' ||
             step === 'no_modules') &&
             info && (
               <p className="rounded-xl border border-line bg-surface/80 px-3 py-3 text-xs text-ink-soft sm:text-sm">
@@ -418,6 +424,7 @@ export function LoginPage() {
             step !== 'reset_sent' &&
             step !== 'pending_approval' &&
             step !== 'rejected' &&
+            step !== 'suspended' &&
             step !== 'no_modules' && (
             <button
               type="submit"

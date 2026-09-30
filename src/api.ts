@@ -105,6 +105,7 @@ export type LoginNextStep =
   | 'await_email'
   | 'pending_approval'
   | 'rejected'
+  | 'suspended'
   | 'no_modules'
 
 export function checkLoginRemote(
@@ -162,9 +163,14 @@ export function registerOrganizationRemote(body: {
 export interface OrganizationSummary {
   id: string
   name: string
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending' | 'approved' | 'rejected' | 'suspended' | 'deleted'
   modules: { selectors: boolean; inspectors: boolean }
   createdAt: string
+  approvedAt?: string
+  rejectedAt?: string
+  suspendedAt?: string
+  lastLoginAt?: string
+  deletedAt?: string
   manager: { fullName: string; phone: string; email: string } | null
 }
 
@@ -179,10 +185,17 @@ export function deleteOrganizationRemote(id: string): Promise<{ ok: boolean }> {
   })
 }
 
+export function restoreOrganizationRemote(id: string): Promise<OrganizationSummary> {
+  return request('/api/organizations/restore', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+}
+
 export function reviewOrganizationRemote(
   id: string,
   patch: {
-    status?: 'pending' | 'approved' | 'rejected'
+    status?: 'pending' | 'approved' | 'rejected' | 'suspended'
     modules?: { selectors?: boolean; inspectors?: boolean }
   },
 ): Promise<OrganizationSummary> {
