@@ -553,13 +553,14 @@ export function BoardStep({
 
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="relative min-w-0">
         <select
-          className={`min-w-0 w-full appearance-none rounded-xl border px-3 py-2 text-sm font-semibold tracking-tight text-ink transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+          className={`min-w-0 w-full appearance-none rounded-xl border py-2 pe-8 ps-3 text-sm font-semibold tracking-tight text-ink transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
             selectedLacksCert
-              ? 'border-warn/50 bg-warn-soft/40'
+              ? 'border-warn/40 bg-warn-soft/50'
               : isExtra
-                ? 'border-accent/40 bg-accent-soft/50'
-                : 'border-line/90 bg-card'
+                ? 'border-accent/30 bg-accent-soft/40'
+                : 'border-line/80 bg-surface/70 hover:border-brand/30 hover:bg-card'
           }`}
           value={workerId || ''}
           onChange={(e) =>
@@ -577,6 +578,11 @@ export function BoardStep({
             <option value={workerId}>{optionLabel(selectedWorker)}</option>
           )}
         </select>
+        <ChevronDown
+          className="pointer-events-none absolute end-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
+          aria-hidden
+        />
+        </div>
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -591,23 +597,25 @@ export function BoardStep({
 
   return (
     <section className="board-print-root space-y-4 touch-pan-y pb-40 sm:space-y-5 sm:pb-32">
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line/70 bg-card/90 px-4 py-3 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-5">
-        <p className="min-w-0 flex-1 text-[13px] font-medium leading-relaxed tracking-tight text-ink sm:text-sm">
-          <span className="font-bold">{SHIFT_TYPE_LABELS[draft.shiftType]}</span>
-          <span className="mx-2 text-ink-soft/70">·</span>
-          <Ltr>{formatSetupDateLine(draft.date)}</Ltr>
-          <span className="mx-2 text-ink-soft/70">·</span>
-          <Ltr>{shiftWindowDisplay(draft.shiftType)}</Ltr>
-          <span className="mx-2 text-ink-soft/70">·</span>
-          <span className="tabular-nums">
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line/60 bg-card/80 px-3 py-2.5 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <span className="rounded-full bg-brand px-2.5 py-1 text-[12px] font-bold text-white">
+            {SHIFT_TYPE_LABELS[draft.shiftType]}
+          </span>
+          <span className="rounded-full bg-surface px-2.5 py-1 text-[12px] font-medium text-ink-soft ring-1 ring-line/80">
+            <Ltr>{formatSetupDateLine(draft.date)}</Ltr>
+          </span>
+          <span className="rounded-full bg-surface px-2.5 py-1 text-[12px] font-medium text-ink-soft ring-1 ring-line/80">
+            <Ltr>{shiftWindowDisplay(draft.shiftType)}</Ltr>
+          </span>
+          <span className="rounded-full bg-surface px-2.5 py-1 text-[12px] font-medium text-ink-soft ring-1 ring-line/80">
             {pluralizeHe(draft.activeLaneIds.length, {
               one: 'נתיב אחד',
               two: 'שני נתיבים',
               many: 'נתיבים',
             })}
           </span>
-          <span className="mx-2 text-ink-soft/70">·</span>
-          <span className="tabular-nums">
+          <span className="rounded-full bg-surface px-2.5 py-1 text-[12px] font-medium text-ink-soft ring-1 ring-line/80">
             {pluralizeHe(draft.presentWorkerIds.length, {
               one: 'נוכח אחד',
               two: 'שני נוכחים',
@@ -615,19 +623,16 @@ export function BoardStep({
             })}
           </span>
           {gateManagerName ? (
-            <>
-              <span className="mx-2 text-ink-soft/70">·</span>
-              <span className="inline-flex items-center gap-1 font-semibold text-brand">
-                <Shield className="size-3.5" aria-hidden />
-                מנהל משמרת: {gateManagerName}
-              </span>
-            </>
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand/8 px-2.5 py-1 text-[12px] font-semibold text-brand ring-1 ring-brand/15">
+              <Shield className="size-3.5" aria-hidden />
+              {gateManagerName}
+            </span>
           ) : null}
-        </p>
+        </div>
         <button
           type="button"
           onClick={onEditSettings}
-          className="ui-btn ui-btn-ghost !py-1.5 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           עריכת שיבוץ
         </button>
@@ -670,10 +675,10 @@ export function BoardStep({
       </div>
 
       <div
-        className={`rounded-2xl border px-4 py-3.5 shadow-[var(--shadow-panel)] sm:px-5 ${
+        className={`rounded-2xl border px-3.5 py-3 shadow-[var(--shadow-panel)] sm:px-4 ${
           healthItems.length === 0
-            ? 'border-ok/25 bg-ok-soft'
-            : 'border-warn/30 bg-warn-soft/70'
+            ? 'border-ok/20 bg-ok-soft/80'
+            : 'border-warn/25 bg-warn-soft/80'
         }`}
         role="status"
       >
@@ -719,7 +724,7 @@ export function BoardStep({
               ref={explainTriggerRef}
               type="button"
               onClick={() => setExplainModalOpen(true)}
-              className="text-[11px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
+              className="rounded-full bg-card px-3 py-1.5 text-[12px] font-semibold text-brand shadow-sm ring-1 ring-brand/15 transition hover:ring-brand/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               הסבר השיבוץ
             </button>
@@ -760,37 +765,27 @@ export function BoardStep({
         ) : null}
       </div>
 
-      <div className="ui-panel-solid overflow-hidden shadow-[var(--shadow-panel-hover)] sm:rounded-[1.35rem]">
-        <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-l from-brand-deep via-brand to-brand px-4 py-3 text-white sm:px-5">
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.12]"
-            style={{
-              backgroundImage:
-                'radial-gradient(circle at 20% 20%, white 0.5px, transparent 0.6px)',
-              backgroundSize: '14px 14px',
-            }}
-            aria-hidden
-          />
-          <p className="relative text-[10px] font-semibold tracking-[0.28em] text-white/55 sm:text-[11px]">
-            שיבוצון
+      <div className="overflow-hidden rounded-[1.35rem] border border-line/70 bg-card shadow-[var(--shadow-panel)]">
+        <div className="border-b border-line/70 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 sm:px-6 sm:py-5">
+          <p className="text-[11px] font-semibold tracking-[0.22em] text-brand/70">
+            GATE OUT
           </p>
-          <h3 className="relative mt-0.5 font-display text-lg font-bold tracking-tight sm:text-xl">
+          <h3 className="mt-1 font-display text-xl font-bold tracking-tight text-ink sm:text-2xl">
             שיבוץ שער יציאה
           </h3>
-          {user?.orgName ? (
-            <p className="relative mt-1 text-sm font-semibold text-white">{user.orgName}</p>
-          ) : null}
-          <p className="relative mt-1.5 text-sm text-white/75 sm:text-[15px]">
+          <p className="mt-1 text-sm text-ink-soft">
+            {user?.orgName ? `${user.orgName} · ` : ''}
             {new Date(draft.date).toLocaleDateString('he-IL', {
               weekday: 'long',
               day: 'numeric',
               month: 'long',
-            })}{' '}
-            · {SHIFT_TYPE_LABELS[draft.shiftType]}
+            })}
+            {' · '}
+            {SHIFT_TYPE_LABELS[draft.shiftType]}
           </p>
         </div>
 
-        <div className="flex touch-pan-y flex-col gap-3 bg-surface/80 p-3 sm:gap-3.5 sm:p-4">
+        <div className="flex touch-pan-y flex-col gap-2.5 bg-surface/50 p-2.5 sm:gap-3 sm:p-4">
           {[...draft.activeLaneIds]
             .sort((a, b) => {
               const la = data.lanes.find((l) => l.id === a)
@@ -819,10 +814,14 @@ export function BoardStep({
                 key={laneId}
                 id={`board-lane-${laneId}`}
                 data-lane-row={isGateLane ? undefined : laneId}
-                className={`scroll-mt-24 rounded-2xl border px-3 py-3 sm:px-4 ${
+                className={`scroll-mt-24 rounded-2xl border border-line/70 border-s-4 bg-card px-3 py-3 shadow-[var(--shadow-panel)] sm:px-4 ${
                   isGateLane
-                    ? 'border-brand/20 bg-brand/[0.06]'
-                    : 'border-line/80 bg-card'
+                    ? 'border-s-brand'
+                    : lane.intensity === 'hard'
+                      ? 'border-s-hard'
+                      : lane.intensity === 'medium'
+                        ? 'border-s-warn'
+                        : 'border-s-easy'
                 }`}
               >
                 <div className="flex items-start gap-2">
@@ -879,11 +878,11 @@ export function BoardStep({
                     </div>
                   </div>
                   {!isGateLane ? (
-                    <div className="flex shrink-0 items-center gap-1 no-print">
+                    <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
                       <button
                         type="button"
                         onClick={() => addSlotToLane(laneId)}
-                        className="inline-flex size-8 items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-card hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                         title="הוסף משבצת"
                         aria-label={`הוסף משבצת בנתיב ${lane.name}`}
                       >
@@ -903,12 +902,11 @@ export function BoardStep({
                               : `${lane.name} הוסר מהמשמרת`,
                           )
                         }}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-bold text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                         title="הסר את הנתיב מהמשמרת"
                         aria-label={`הסר את הנתיב ${lane.name}`}
                       >
                         <Trash2 className="size-3.5" aria-hidden />
-                        הסר נתיב
                       </button>
                     </div>
                   ) : null}
@@ -923,7 +921,7 @@ export function BoardStep({
                       return (
                         <div
                           key={slotIndex}
-                          className="flex items-center gap-3 rounded-xl border border-brand/20 bg-card px-4 py-3 shadow-sm"
+                          className="flex items-center gap-3 rounded-xl bg-brand/[0.06] px-3 py-2.5 ring-1 ring-brand/15"
                         >
                           <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
                             <Shield className="size-4" aria-hidden />
@@ -941,13 +939,13 @@ export function BoardStep({
                         ) : null}
                         {renderWorkerSelect(lane, laneId, slotIndex, workerId, std)}
                         {workerId ? (
-                          <div className="flex shrink-0 items-center gap-1 no-print">
+                          <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
                             <button
                               type="button"
                               onClick={() =>
                                 setSwapTarget({ laneId, slotIndex, workerId })
                               }
-                              className="inline-flex size-9 items-center justify-center rounded-lg text-brand hover:bg-brand/8 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              className="inline-flex size-8 items-center justify-center rounded-full text-brand transition hover:bg-card focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                               title="החלף עם נתיב אחר"
                               aria-label="החלף עם נתיב אחר"
                             >
@@ -956,11 +954,11 @@ export function BoardStep({
                             <button
                               type="button"
                               onClick={() => removeWorkerFromShift(workerId)}
-                              className="inline-flex size-9 items-center justify-center rounded-lg text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                               title="הסר מהשיבוץ ומהנוכחות"
                               aria-label="הסר מהשיבוץ"
                             >
-                              <Trash2 className="size-4" aria-hidden />
+                              <Trash2 className="size-3.5" aria-hidden />
                             </button>
                           </div>
                         ) : null}
@@ -1018,10 +1016,10 @@ export function BoardStep({
         </div>
 
         {draft.unassignedWorkerIds.length > 0 ? (
-          <div className="rounded-2xl border border-line/80 bg-card px-4 py-3.5 shadow-[var(--shadow-panel)] sm:px-5">
-            <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold text-ink-soft sm:mb-2 sm:text-xs">
-              <UserMinus className="size-3 sm:size-3.5" aria-hidden />
-              לא שובצו
+          <div className="border-t border-line/70 bg-surface/40 px-3 py-3 sm:px-5">
+            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-ink-soft">
+              <UserMinus className="size-3.5" aria-hidden />
+              ממתינים לשיבוץ
             </p>
             <ul className="flex flex-wrap gap-1.5 no-print">
               {draft.unassignedWorkerIds.map((id) => {
@@ -1029,7 +1027,7 @@ export function BoardStep({
                 return (
                   <li
                     key={id}
-                    className="inline-flex items-center gap-1 rounded-lg border border-line bg-card px-2 py-1 text-xs text-ink"
+                    className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-card px-2.5 py-1 text-xs text-ink shadow-sm"
                   >
                     <span>{name}</span>
                     <button
@@ -1066,8 +1064,8 @@ export function BoardStep({
       </button>
 
       {/* Sticky actions */}
-      <div className="fixed inset-x-0 bottom-16 z-40 border-t border-line/80 bg-card/95 px-3 py-2.5 shadow-[0_-8px_24px_rgb(15_28_46/0.08)] backdrop-blur-md no-print sm:px-4 lg:bottom-0">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2">
+      <div className="fixed inset-x-3 bottom-20 z-40 rounded-2xl border border-line/70 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-panel-hover)] backdrop-blur-md no-print sm:inset-x-4 lg:bottom-4 lg:left-1/2 lg:right-auto lg:w-[min(72rem,calc(100%-2rem))] lg:-translate-x-1/2">
+        <div className="mx-auto flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void onSave()}

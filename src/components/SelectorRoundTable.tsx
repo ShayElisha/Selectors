@@ -50,11 +50,11 @@ export function SelectorRoundTable({
           <span>{ramashName.trim() || 'לא סומן'}</span>
         </p>
       ) : null}
-    <div className="max-w-full overflow-hidden rounded-xl border border-line/70">
+    <div className="max-w-full overflow-hidden rounded-2xl border border-line/70 bg-card shadow-[var(--shadow-panel)]">
       <div className="max-w-full overflow-x-auto overscroll-x-contain">
         <table className="w-max min-w-full border-collapse text-right text-[13px]">
           <thead>
-            <tr className="border-b border-line/70 bg-surface/90">
+            <tr className="border-b border-line/70 bg-gradient-to-l from-brand/[0.07] via-surface to-surface">
               <th className="sticky right-0 z-10 bg-surface/95 px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft">
                 שעה
               </th>
@@ -72,7 +72,7 @@ export function SelectorRoundTable({
                           <button
                             type="button"
                             onClick={() => onRemoveLane(lane.id)}
-                            className="inline-flex size-6 items-center justify-center rounded-md text-hard hover:bg-hard-soft"
+                            className="inline-flex size-6 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard"
                             title="הסר את הנתיב מהמשמרת"
                             aria-label={`הסר את הנתיב ${lane.name}`}
                           >

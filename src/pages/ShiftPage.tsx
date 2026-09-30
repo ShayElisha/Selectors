@@ -1508,13 +1508,17 @@ export function ShiftPage() {
 
       {shiftStep === 'board' && usesRounds(draft) ? (
         <div className="space-y-3">
+          <div className="rounded-2xl border border-line/70 bg-card px-4 py-4 shadow-[var(--shadow-panel)] sm:px-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="font-display text-base font-bold text-ink sm:text-lg">
+              <p className="text-[11px] font-semibold tracking-[0.22em] text-brand/70">
+                GATE OUT
+              </p>
+              <h2 className="mt-1 font-display text-xl font-bold text-ink">
                 שיבוץ {roleName}
               </h2>
               <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-soft">
-                שורות לפי שעות, כל שעתיים מתחילת המשמרת. עמודות לפי נתיבים. בכל תא בוחרים אדם, והשיבוץ האוטומטי מסובב אותם בין הנתיבים.
+                שורות לפי שעות, עמודות לפי נתיבים. בכל תא בוחרים אדם. הסרה של נתיב משאירה את האנשים במשמרת.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1564,6 +1568,7 @@ export function ShiftPage() {
                 שמירה
               </button>
             </div>
+          </div>
           </div>
           {draft.warnings.length > 0 ? (
             <ul className="list-disc space-y-1 rounded-xl border border-warn/25 bg-warn-soft/80 px-4 py-2.5 text-[13px] text-warn pe-8">
