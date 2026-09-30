@@ -31,6 +31,7 @@ import { downloadAnalyticsExcel } from '../lib/analyticsExport'
 import { notify } from '../lib/notify'
 import { IntensityBadge, Ltr, SectionCard, Skeleton } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
+import { LoadExplainer } from '../components/LoadExplainer'
 import { useApp } from '../context/AppContext'
 import { formatShiftDate, pluralizeHe } from '../lib/hebrew'
 import { SHIFT_TYPE_LABELS } from '../constants'
@@ -516,14 +517,14 @@ export function AnalyticsPage() {
     <div className="analytics-print-root min-w-0 max-w-full space-y-4 overflow-x-clip">
       <SectionCard
         title="סטטיסטיקות ואנליזה"
-        subtitle="תובנות הוגנות לפי עומס אפקטיבי — מנוחה / קל־יום מורידים עומס · קל לילה לא נספר כמנוחה"
+        subtitle="מי עבד קשה יותר בטווח שנבחר. המספר עולה מנתיב קשה ומלילה, ויורד ממנוחה ומנתיב קל ביום."
         actions={
           <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 no-print">
             <button
               type="button"
               onClick={() => void handleRecalcLoads()}
               disabled={recalcDisabled}
-              title="רענון מהשרת וחישוב עומסים מחדש (כולל מנוחה וקל־יום)"
+              title="רענון מהשרת וחישוב העומס מחדש לפי המשמרות השמורות"
               className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink transition hover:border-brand/40 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               {recalcBusy || refreshing ? (
@@ -558,7 +559,8 @@ export function AnalyticsPage() {
           </div>
         }
       >
-        <div className="mb-4">
+        <div className="mb-4 space-y-3">
+          <LoadExplainer />
           <RangeBar
             value={range}
             onChange={selectPreset}
@@ -610,10 +612,8 @@ export function AnalyticsPage() {
               <div className="mb-1 flex items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">עומס ממוצע</span>
                 <InfoTip label="הסבר עומס ממוצע">
-                  ממוצע העומס האפקטיבי בין בודקים עם לפחות שיבוץ אחד בטווח.
-                  יום ללא עבודה מוריד עומס (×0.75); עמדה קלה ביום מוסיפה פחות
-                  ומורידה קצת מהמצטבר; יום שכולו קל מוריד עוד (×0.9). בודקים
-                  ללא היסטוריה בטווח לא נכללים.
+                  הממוצע של מי שעבד לפחות פעם אחת בטווח. מי שלא שובץ בטווח לא נכנס
+                  לחישוב. פירוט הנקודות נמצא ב«איך מחושב העומס».
                 </InfoTip>
               </div>
               <p className="font-display text-xl font-bold tabular-nums text-brand-deep sm:text-2xl">
@@ -626,9 +626,8 @@ export function AnalyticsPage() {
               <div className="mb-1 flex items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">פער הוגנות</span>
                 <InfoTip label="הסבר פער הוגנות">
-                  העומס הגבוה ביותר פחות העומס הנמוך ביותר בקרב בודקים עם שיבוצים
-                  בטווח. סף תצוגה (הנחה): תקין מתחת ל־3, לשים לב מ־3, פער גבוה
-                  מ־6.
+                  ההפרש בין מי שהכי עמוס למי שהכי פחות עמוס, מבין מי שעבד בטווח.
+                  מתחת ל־3 הנקודות המצב נחשב מאוזן. מ־3 כדאי לשים לב. מ־6 הפער גבוה.
                 </InfoTip>
               </div>
               <p className="font-display text-xl font-bold tabular-nums text-brand-deep sm:text-2xl">
@@ -720,8 +719,8 @@ export function AnalyticsPage() {
                 <span className="inline-flex flex-wrap items-center gap-1">
                   עומס גבוה יחסית — צריך הקלה
                   <InfoTip label="מקרא הקלה">
-                    דירוג לפי ציון הקלה: עומס×2 + קשה − קל־יום×1.5. העמודה
-                    מציגה את העומס האפקטיבי.
+                    לראש הרשימה עולה מי שהעומס האחרון שלו גבוה, ישב בהרבה נתיבים
+                    קשים, ומעט בנתיבים קלים ביום. המספר בעמודה הוא העומס עצמו.
                   </InfoTip>
                 </span>
               }
