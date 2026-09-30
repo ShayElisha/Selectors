@@ -2303,6 +2303,96 @@ function greedyAssignPass(
   }
 }
 
+/**
+ * Explain a board that was already saved, without assigning anyone again.
+ * History of the same date is ignored, so the shift does not explain itself.
+ */
+export function explainSavedBoard(input: {
+  assignments: LaneAssignment[]
+  activeLanes: Lane[]
+  presentWorkers: Worker[]
+  history: ShiftSchedule[]
+  allLanes: Lane[]
+  date: string
+  shiftType: ShiftType
+}): PlacementExplanation[] {
+  const {
+    assignments,
+    activeLanes,
+    presentWorkers,
+    history,
+    allLanes,
+    date,
+    shiftType,
+  } = input
+  if (activeLanes.length === 0 || presentWorkers.length === 0) return []
+
+  const lookbackDays = Math.max(DEFAULT_LOOKBACK_DAYS, ROTATION_LOOKBACK_DAYS)
+  const morning =
+    shiftType === 'afternoon' ? buildSameDayMorningContext(history, date) : null
+  const profiles = new Map<string, WorkerHistoryProfile>()
+  for (const worker of presentWorkers) {
+    profiles.set(
+      worker.id,
+      buildWorkerProfile(
+        worker.id,
+        history,
+        allLanes,
+        shiftType,
+        date,
+        lookbackDays,
+      ),
+    )
+  }
+
+  const recoveringIds = new Set<string>()
+  if (shiftType === 'afternoon') {
+    for (const worker of presentWorkers) {
+      if (needsAfternoonNightRecovery(worker.id, history, date, shiftType)) {
+        recoveringIds.add(worker.id)
+        continue
+      }
+      if (
+        worker.isManager &&
+        morning?.found &&
+        morning.morningWorkerIds.has(worker.id)
+      ) {
+        recoveringIds.add(worker.id)
+      }
+    }
+  }
+
+  const intensityOrder: Record<Intensity, number> = { hard: 0, medium: 1, easy: 2 }
+  const orderedLanes = [...activeLanes].sort((a, b) => {
+    if (shiftType === 'afternoon') {
+      const aH = a.afternoonHandoff ? 0 : 1
+      const bH = b.afternoonHandoff ? 0 : 1
+      if (aH !== bH) return aH - bH
+    }
+    const aOpen = a.requiredCertifications.length === 0 ? 1 : 0
+    const bOpen = b.requiredCertifications.length === 0 ? 1 : 0
+    if (aOpen !== bOpen) return aOpen - bOpen
+    const qa = presentWorkers.filter((w) => isQualified(w, a)).length
+    const qb = presentWorkers.filter((w) => isQualified(w, b)).length
+    if (qa !== qb) return qa - qb
+    if (intensityOrder[a.intensity] !== intensityOrder[b.intensity]) {
+      return intensityOrder[a.intensity] - intensityOrder[b.intensity]
+    }
+    return b.staffingStandard - a.staffingStandard
+  })
+
+  return buildFinalBoardExplanations(
+    orderedLanes,
+    assignments,
+    presentWorkers,
+    profiles,
+    recoveringIds,
+    morning,
+    shiftType,
+    assignments,
+  )
+}
+
 export function runAssignmentAlgorithm(
   activeLanes: Lane[],
   presentWorkers: Worker[],

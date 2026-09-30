@@ -949,7 +949,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workerWindows: item.workerWindows ?? {},
           warnings: [],
           unassignedWorkerIds: [],
-          explanations: [],
+          explanations: Array.isArray(item.explanations) ? item.explanations : [],
           staffingOverrides: normalizeStaffingOverrides(item.staffingOverrides),
         },
         data.lanes,
@@ -993,6 +993,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(Object.keys(overrides).length > 0
         ? { staffingOverrides: overrides }
         : {}),
+      explanations: (d.explanations ?? [])
+        .filter(
+          (item) =>
+            item.laneId &&
+            item.workerId &&
+            Array.isArray(item.reasons) &&
+            item.reasons.length > 0,
+        )
+        .map((item) => ({
+          laneId: item.laneId,
+          workerId: item.workerId,
+          reasons: item.reasons,
+        })),
       createdAt: now,
       updatedAt: now,
     }

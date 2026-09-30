@@ -16,9 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
-  Copy,
   Download,
-  Info,
   Loader2,
   MessageCircle,
   MoreHorizontal,
@@ -36,6 +34,10 @@ import {
   isQualified,
   type SameDayMorningContext,
 } from '../algorithm'
+import {
+  AssignmentExplainDialog,
+  groupExplanations,
+} from './AssignmentExplainDialog'
 import { IntensityBadge, Ltr } from './ui'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { ShiftDraft } from '../context/AppContext'
@@ -43,11 +45,9 @@ import {
   boardsEqual,
   countAssignmentChanges,
   formatOptimizationInfo,
-  findWhyNotLine,
   LANE_NOTE_MAX_LENGTH,
   missingCertsForLane,
   partitionWarnings,
-  pickExplainChips,
   snapshotBoard,
   staffingChipKind,
   validateBoard,
@@ -70,12 +70,6 @@ import { startLanePointerDrag } from '../lib/laneDrag'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
 import type { AppData, LaneAssignment, ShiftType, Worker } from '../types'
-
-type ExplanationGroup = {
-  laneId: string
-  laneName: string
-  placements: { workerId: string; workerName: string; reasons: string[] }[]
-}
 
 export interface BoardStepProps {
   draft: ShiftDraft
@@ -126,13 +120,6 @@ function workerLaneNameElsewhere(
   return null
 }
 
-function filterTechnicalReasons(reasons: string[], hideTechnical: boolean): string[] {
-  if (!hideTechnical) return reasons
-  return reasons.filter(
-    (r) => !r.includes('סדר מילוי') && !r.includes('#'),
-  )
-}
-
 export function BoardStep({
   draft,
   data,
@@ -168,13 +155,6 @@ export function BoardStep({
   )
   const [healthOpen, setHealthOpen] = useState(false)
   const [explainModalOpen, setExplainModalOpen] = useState(false)
-  const [explainModalExpanded, setExplainModalExpanded] = useState(false)
-  const [hideTechnical, setHideTechnical] = useState(true)
-  const [explainFocus, setExplainFocus] = useState<{
-    laneId: string
-    workerId?: string
-  } | null>(null)
-  const [copyFlash, setCopyFlash] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [shareBusy, setShareBusy] = useState(false)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
@@ -193,7 +173,6 @@ export function BoardStep({
   const summaryPanelRef = useRef<HTMLDivElement | null>(null)
   const laneBtnRefs = useRef(new Map<string, HTMLButtonElement>())
   const lanePanelRef = useRef<HTMLDivElement | null>(null)
-  const modalRef = useRef<HTMLDivElement | null>(null)
   const [summaryPos, setSummaryPos] = useState<{ top: number; left: number } | null>(
     null,
   )
@@ -215,8 +194,6 @@ export function BoardStep({
   useEffect(() => {
     if (!requestExplainModal) return
     if ((draft.explanations?.length ?? 0) > 0) {
-      setExplainModalExpanded(false)
-      setExplainFocus(null)
       setExplainModalOpen(true)
     }
     onClearExplainRequest()
@@ -309,57 +286,14 @@ export function BoardStep({
     }
   }, [openLaneMenu])
 
-  useEffect(() => {
-    if (!explainModalOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setExplainModalOpen(false)
-        explainTriggerRef.current?.focus()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [explainModalOpen])
-
   const showToast = useCallback((msg: string) => {
     notify.success(msg)
   }, [])
 
-  const explanationGroups = useMemo((): ExplanationGroup[] => {
-    if (!draft.explanations?.length) return []
-    const groups: ExplanationGroup[] = []
-    for (const laneId of draft.activeLaneIds) {
-      const lane = data.lanes.find((l) => l.id === laneId)
-      if (!lane) continue
-      const placements = draft.explanations
-        .filter((e) => e.laneId === laneId)
-        .map((e) => ({
-          workerId: e.workerId,
-          workerName:
-            data.workers.find((w) => w.id === e.workerId)?.fullName ?? e.workerId,
-          reasons: e.reasons,
-        }))
-      if (placements.length === 0) continue
-      groups.push({ laneId, laneName: lane.name, placements })
-    }
-    return groups
-  }, [draft, data.lanes, data.workers])
-
-  const explanationText = useMemo(() => {
-    if (explanationGroups.length === 0) return ''
-    const header = `הסבר שיבוץ · ${new Date(draft.date).toLocaleDateString('he-IL')} · ${SHIFT_TYPE_LABELS[draft.shiftType]}`
-    const blocks = explanationGroups.map((g) => {
-      const people = g.placements
-        .map((p) => {
-          const reasons = filterTechnicalReasons(p.reasons, hideTechnical)
-          const bullets = reasons.map((r) => `  • ${r}`).join('\n')
-          return `${p.workerName}\n${bullets}`
-        })
-        .join('\n')
-      return `▸ ${g.laneName}\n${people}`
-    })
-    return [header, ...blocks].join('\n\n')
-  }, [draft.date, draft.shiftType, explanationGroups, hideTechnical])
+  const explanationGroups = useMemo(
+    () => groupExplanations(draft.explanations ?? [], data.lanes, data.workers),
+    [draft.explanations, data.lanes, data.workers],
+  )
 
   const partitioned = useMemo(
     () => partitionWarnings(draft.warnings),
@@ -449,19 +383,6 @@ export function BoardStep({
       }
     }
     updateAssignment(laneId, slotIndex, workerId)
-  }
-
-  const copyExplanations = async () => {
-    if (!explanationText) return
-    try {
-      await navigator.clipboard.writeText(explanationText)
-      setCopyFlash(true)
-      window.setTimeout(() => setCopyFlash(false), 1600)
-      notify.success('ההסבר הועתק')
-    } catch {
-      notify.error('ההעתקה נכשלה')
-      window.prompt('העתיקו את ההסבר:', explanationText)
-    }
   }
 
   const scrollToLane = (laneId: string) => {
@@ -692,17 +613,6 @@ export function BoardStep({
     )
   }
 
-  const filteredModalGroups = explainFocus
-    ? explanationGroups
-        .filter((g) => g.laneId === explainFocus.laneId)
-        .map((g) => ({
-          ...g,
-          placements: explainFocus.workerId
-            ? g.placements.filter((p) => p.workerId === explainFocus.workerId)
-            : g.placements,
-        }))
-    : explanationGroups
-
   return (
     <section className="board-print-root space-y-4 touch-pan-y pb-40 sm:space-y-5 sm:pb-32">
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line/70 bg-card/90 px-4 py-3 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-5">
@@ -832,11 +742,7 @@ export function BoardStep({
             <button
               ref={explainTriggerRef}
               type="button"
-              onClick={() => {
-                setExplainFocus(null)
-                setExplainModalExpanded(false)
-                setExplainModalOpen(true)
-              }}
+              onClick={() => setExplainModalOpen(true)}
               className="text-[11px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
             >
               הסבר השיבוץ
@@ -1059,14 +965,6 @@ export function BoardStep({
                         </div>
                       )
                     }
-                    const placement = draft.explanations?.find(
-                      (e) => e.laneId === laneId && e.workerId === workerId,
-                    )
-                    const chips = placement ? pickExplainChips(placement.reasons) : []
-                    const whyNot = placement
-                      ? findWhyNotLine(placement.reasons)
-                      : null
-
                     return (
                       <div key={slotIndex} className="flex flex-wrap items-center gap-2 sm:gap-3">
                         {std > 1 ? (
@@ -1077,30 +975,6 @@ export function BoardStep({
                           <span className="w-0 sm:w-0" aria-hidden />
                         )}
                         {renderWorkerSelect(lane, laneId, slotIndex, workerId, std)}
-                        {workerId && placement ? (
-                          <div className="flex flex-wrap items-center gap-1 no-print">
-                            {chips.slice(0, 2).map((c) => (
-                              <span
-                                key={c}
-                                className="max-w-[8rem] truncate rounded-md bg-surface px-1.5 py-0.5 text-[10px] text-ink-soft ring-1 ring-line sm:max-w-[10rem] sm:text-[11px]"
-                                title={c}
-                              >
-                                {c}
-                              </span>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setExplainFocus({ laneId, workerId })
-                                setExplainModalExpanded(true)
-                                setExplainModalOpen(true)
-                              }}
-                              className="text-[10px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-[11px]"
-                            >
-                              למה?
-                            </button>
-                          </div>
-                        ) : null}
                         {workerId ? (
                           <div className="flex shrink-0 overflow-hidden rounded-xl border border-line bg-surface no-print">
                             <button
@@ -1124,11 +998,6 @@ export function BoardStep({
                               הסר
                             </button>
                           </div>
-                        ) : null}
-                        {whyNot && workerId ? (
-                          <p className="w-full text-[10px] text-ink-soft sm:text-[11px]">
-                            {whyNot}
-                          </p>
                         ) : null}
                       </div>
                     )
@@ -1466,128 +1335,14 @@ export function BoardStep({
           })()
         : null}
 
-      {/* Explain modal — portaled so overlay covers full viewport (main has transform) */}
-      {explainModalOpen && explanationGroups.length > 0
-        ? createPortal(
-            <div className="fixed inset-0 z-[200] flex items-end justify-center bg-ink/50 p-3 no-print sm:items-center sm:p-4">
-              <div
-                ref={modalRef}
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="explain-modal-title"
-                className="flex max-h-[85vh] w-full max-w-lg flex-col animate-fade-up rounded-2xl border border-line bg-card shadow-xl"
-              >
-                <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5 sm:py-4">
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-8 items-center justify-center rounded-xl bg-accent-soft text-accent sm:size-9">
-                      <Info className="size-4 sm:size-5" aria-hidden />
-                    </span>
-                    <div>
-                      <h3
-                        id="explain-modal-title"
-                        className="font-display text-base font-bold text-ink sm:text-lg"
-                      >
-                        הסבר השיבוץ
-                      </h3>
-                      <p className="text-[11px] text-ink-soft sm:text-xs">
-                        {explainModalExpanded ? 'פירוט מלא' : 'תצוגה מקוצרת'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExplainModalOpen(false)
-                      explainTriggerRef.current?.focus()
-                    }}
-                    className="rounded-lg p-1.5 text-ink-soft hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                    aria-label="סגור"
-                  >
-                    <X className="size-4" aria-hidden />
-                  </button>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
-                  {filteredModalGroups.map((g) => (
-                    <div
-                      key={g.laneId}
-                      className="mb-3 rounded-xl border border-line bg-surface/70 px-3 py-2.5 last:mb-0"
-                    >
-                      <h4 className="mb-1 text-sm font-bold text-brand">{g.laneName}</h4>
-                      {!explainModalExpanded ? (
-                        <p className="text-xs text-ink-soft sm:text-sm">
-                          {g.placements.map((p) => p.workerName).join(' · ')}
-                        </p>
-                      ) : (
-                        <div className="mt-1.5 space-y-2.5">
-                          {g.placements.map((p) => (
-                            <div key={`${g.laneId}-${p.workerId}`}>
-                              <p className="text-xs font-semibold text-ink sm:text-sm">
-                                {p.workerName}
-                              </p>
-                              <ul className="mt-0.5 list-inside list-disc space-y-0.5 text-[11px] leading-relaxed text-ink-soft sm:text-xs">
-                                {filterTechnicalReasons(p.reasons, hideTechnical).map(
-                                  (r, i) => (
-                                    <li key={i}>{r}</li>
-                                  ),
-                                )}
-                              </ul>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex shrink-0 flex-wrap gap-2 border-t border-line px-4 py-3 sm:px-5">
-                  <button
-                    type="button"
-                    onClick={() => setHideTechnical((h) => !h)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-sm"
-                  >
-                    {hideTechnical ? 'הצג פרטים טכניים' : 'הסתר פרטים טכניים'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setExplainModalExpanded((o) => !o)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-sm"
-                  >
-                    {explainModalExpanded ? (
-                      <ChevronUp className="size-3.5" aria-hidden />
-                    ) : (
-                      <ChevronDown className="size-3.5" aria-hidden />
-                    )}
-                    {explainModalExpanded ? 'מזער' : 'פירוט מלא'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copyExplanations()}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-sm"
-                  >
-                    {copyFlash ? (
-                      <Check className="size-3.5 text-ok" aria-hidden />
-                    ) : (
-                      <Copy className="size-3.5" aria-hidden />
-                    )}
-                    {copyFlash ? 'הועתק' : 'העתק'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExplainModalOpen(false)
-                      explainTriggerRef.current?.focus()
-                    }}
-                    className="ms-auto inline-flex flex-1 items-center justify-center rounded-xl bg-accent px-3.5 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:flex-none sm:px-5 sm:text-sm"
-                  >
-                    סגור
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <AssignmentExplainDialog
+        open={explainModalOpen && explanationGroups.length > 0}
+        onClose={() => setExplainModalOpen(false)}
+        date={draft.date}
+        shiftType={draft.shiftType}
+        groups={explanationGroups}
+        returnFocusRef={explainTriggerRef}
+      />
     </section>
   )
 }
