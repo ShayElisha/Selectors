@@ -202,6 +202,8 @@ interface AppContextValue {
   saveAssignmentModes: (modes: AssignmentModes) => Promise<void>
   roundMinutes: { selectors: number; inspectors: number }
   saveRoundMinutes: (minutes: { selectors: number; inspectors: number }) => Promise<void>
+  orgProfile: { name: string; logo: string }
+  saveOrgProfile: (profile: { name: string; logo: string }) => Promise<void>
   login: (
     phone: string,
     password: string,
@@ -480,6 +482,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     DEFAULT_ASSIGNMENT_MODES,
   )
   const [roundMinutes, setRoundMinutes] = useState({ selectors: 120, inspectors: 120 })
+  const [orgProfile, setOrgProfile] = useState({ name: '', logo: '' })
   const roundMinutesRef = useRef(roundMinutes)
   roundMinutesRef.current = roundMinutes
   const view = viewFromPath(location.pathname)
@@ -831,6 +834,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               inspectors: Number(settings.roundMinutes.inspectors) || 120,
             })
           }
+          if (settings.organization) setOrgProfile(settings.organization)
         }
       })
       .catch(() => {
@@ -855,6 +859,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     },
     [assignmentModes],
+  )
+
+  const saveOrgProfile = useCallback(
+    async (profile: { name: string; logo: string }) => {
+      const saved = await saveOrgSettings({ profile })
+      if (saved.organization) {
+        setOrgProfile(saved.organization)
+        setUser((current) => {
+          if (!current) return current
+          const next = { ...current, orgName: saved.organization!.name }
+          saveSession(next)
+          return next
+        })
+      }
+    },
+    [],
   )
 
   const saveAssignmentModes = useCallback(async (modes: AssignmentModes) => {
@@ -2645,6 +2665,8 @@ function nightPartnersForMorning(
       saveAssignmentModes,
       roundMinutes,
       saveRoundMinutes,
+      orgProfile,
+      saveOrgProfile,
       login,
       checkLogin,
       requestPasswordReset,
@@ -2716,6 +2738,8 @@ function nightPartnersForMorning(
       saveAssignmentModes,
       roundMinutes,
       saveRoundMinutes,
+      orgProfile,
+      saveOrgProfile,
       setModule,
       login,
       checkLogin,

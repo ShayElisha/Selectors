@@ -140,6 +140,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     logout,
     module,
     setModule,
+    orgProfile,
   } = useApp()
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -332,7 +333,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <header className="relative z-40 mb-6 flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
         <div className="min-w-0 max-w-full">
           <div className="mb-1.5 flex items-center gap-2.5">
-            <BrandMark className="size-11" />
+            {orgProfile.logo ? (
+              <img
+                src={orgProfile.logo}
+                alt=""
+                className="size-11 rounded-xl object-contain"
+              />
+            ) : (
+              <BrandMark className="size-11" />
+            )}
             <div className="min-w-0">
               <h1 className="font-display text-[1.65rem] font-bold leading-none tracking-tight text-ink sm:text-[2rem]">
                 שיבוצון
@@ -341,7 +350,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 {module === 'inspectors'
                   ? 'ניהול ושיבוץ עמדות בודקים'
                   : 'ניהול ושיבוץ עמדות סלקטורים'}
-                {user?.orgName ? ` · ${user.orgName}` : ''}
+                {(orgProfile.name || user?.orgName) ? ` · ${orgProfile.name || user?.orgName}` : ''}
               </p>
             </div>
           </div>
