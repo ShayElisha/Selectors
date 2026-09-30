@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Coffee, Moon, Sun } from 'lucide-react'
 import { useTheme, type ThemeMode } from '../lib/theme'
 
@@ -11,16 +12,51 @@ const OPTIONS: { id: ThemeMode; label: string; hint: string; icon: typeof Sun }[
 export function ThemeToggle({ className = '' }: { className?: string }) {
   const { theme, setTheme } = useTheme()
   const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  )
   const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const current = OPTIONS.find((option) => option.id === theme) ?? OPTIONS[0]!
   const CurrentIcon = current.icon
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) {
+      setMenuPos(null)
+      return
+    }
+    const place = () => {
+      const rect = buttonRef.current!.getBoundingClientRect()
+      const margin = 12
+      const width = Math.min(168, window.innerWidth - margin * 2)
+      let left = rect.left
+      if (left + width > window.innerWidth - margin) {
+        left = window.innerWidth - margin - width
+      }
+      if (left < margin) left = margin
+      const menuHeight = 168
+      let top = rect.bottom + 6
+      if (top + menuHeight > window.innerHeight - margin) {
+        top = Math.max(margin, rect.top - menuHeight - 6)
+      }
+      setMenuPos({ top, left, width })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
     const onPointer = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false)
-      }
+      const target = event.target as Node
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setOpen(false)
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false)
@@ -36,6 +72,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
   return (
     <div className={`relative ${className}`} ref={rootRef}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
@@ -46,40 +83,43 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       >
         <CurrentIcon className="size-4" aria-hidden />
       </button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute end-0 top-full z-[80] mt-1.5 min-w-[9.5rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
-        >
-          {OPTIONS.map((option) => {
-            const Icon = option.icon
-            const active = option.id === theme
-            return (
-              <button
-                key={option.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                onClick={() => {
-                  setTheme(option.id)
-                  setOpen(false)
-                }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-start transition ${
-                  active
-                    ? 'bg-brand/8 text-brand'
-                    : 'text-ink hover:bg-surface'
-                }`}
-              >
-                <Icon className="size-4 shrink-0" aria-hidden />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{option.label}</span>
-                  <span className="block text-[11px] text-ink-soft">{option.hint}</span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
+      {open && menuPos
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              className="fixed z-[80] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
+              style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
+            >
+              {OPTIONS.map((option) => {
+                const Icon = option.icon
+                const active = option.id === theme
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={active}
+                    onClick={() => {
+                      setTheme(option.id)
+                      setOpen(false)
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-start transition ${
+                      active ? 'bg-brand/8 text-brand' : 'text-ink hover:bg-surface'
+                    }`}
+                  >
+                    <Icon className="size-4 shrink-0" aria-hidden />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{option.label}</span>
+                      <span className="block text-[11px] text-ink-soft">{option.hint}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

@@ -384,7 +384,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             )}
         </div>
 
-        <div className="flex max-w-full flex-wrap items-center gap-2">
+        <div className="ms-auto flex max-w-full flex-wrap items-center justify-end gap-2">
           <ThemeToggle />
           <div
             className="hidden items-center gap-1.5 rounded-full border border-line/80 bg-card/80 px-2.5 py-1 text-[11px] text-ink-soft shadow-sm backdrop-blur-md lg:inline-flex"
@@ -413,7 +413,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <span className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-[11px] font-bold tracking-wide text-white">
                   {initials(user.fullName)}
                 </span>
-                <span className="hidden max-w-[9rem] truncate text-xs font-semibold text-ink sm:inline">
+                <span className="max-w-[7.5rem] truncate text-xs font-semibold text-ink sm:max-w-[9rem]">
                   {user.fullName}
                 </span>
                 <ChevronDown

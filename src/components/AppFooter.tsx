@@ -45,7 +45,9 @@ export function AppFooter({ className = '' }: { className?: string }) {
         ))}
       </nav>
 
-      <p className="mt-2 text-[10px] text-ink-soft/80">לשימוש פנימי</p>
+      <p className="mt-2 text-[10px] text-ink-soft/80">
+        כל הזכויות שמורות לשי אלישע · {YEAR}
+      </p>
     </footer>
   )
 }
