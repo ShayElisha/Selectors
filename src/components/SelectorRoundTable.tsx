@@ -1,4 +1,4 @@
-import { Shield } from 'lucide-react'
+import { Shield, Trash2 } from 'lucide-react'
 import { IntensityBadge, Ltr } from './ui'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { laneOpenDuring } from '../lib/shiftCatalog'
@@ -13,6 +13,7 @@ export function SelectorRoundTable({
   ramashName,
   editable = false,
   onChange,
+  onRemoveLane,
 }: {
   rounds: SelectorRound[]
   lanes: Lane[]
@@ -27,6 +28,7 @@ export function SelectorRoundTable({
     slotIndex: number,
     workerId: string | null,
   ) => void
+  onRemoveLane?: (laneId: string) => void
 }) {
   const byId = new Map(workers.map((w) => [w.id, w]))
   const nameOf = (id: string) => byId.get(id)?.fullName ?? id
@@ -64,7 +66,20 @@ export function SelectorRoundTable({
                     className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink"
                   >
                     <div className="flex flex-col items-start gap-1">
-                      <span>{lane.name}</span>
+                      <span className="inline-flex items-center gap-1">
+                        {lane.name}
+                        {editable && onRemoveLane ? (
+                          <button
+                            type="button"
+                            onClick={() => onRemoveLane(lane.id)}
+                            className="inline-flex size-6 items-center justify-center rounded-md text-hard hover:bg-hard-soft"
+                            title="הסר את הנתיב מהמשמרת"
+                            aria-label={`הסר את הנתיב ${lane.name}`}
+                          >
+                            <Trash2 className="size-3.5" aria-hidden />
+                          </button>
+                        ) : null}
+                      </span>
                       <span className="flex flex-wrap items-center gap-1 font-normal">
                         <IntensityBadge intensity={lane.intensity} />
                         <span className="text-ink-soft">תקן {standard}</span>
