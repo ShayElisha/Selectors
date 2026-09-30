@@ -8,6 +8,8 @@ const YEAR = new Date().getFullYear()
 const FOOTER_LINKS = [
   { to: '/privacy#terms', label: 'מדיניות שימוש' },
   { to: '/privacy#privacy', label: 'פרטיות' },
+  { to: '/help', label: 'שאלות נפוצות' },
+  { to: '/report', label: 'דיווח תקלה' },
 ] as const
 
 export function AppFooter({ className = '' }: { className?: string }) {
@@ -25,7 +27,7 @@ export function AppFooter({ className = '' }: { className?: string }) {
 
       <nav
         className="mt-3 flex flex-wrap items-center justify-center gap-x-1 gap-y-1"
-        aria-label="מדיניות ופרטיות"
+        aria-label="קישורים"
       >
         {FOOTER_LINKS.map((item, i) => (
           <span key={item.to} className="inline-flex items-center gap-x-1">

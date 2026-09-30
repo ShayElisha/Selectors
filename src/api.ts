@@ -192,6 +192,30 @@ export function reviewOrganizationRemote(
   })
 }
 
+export function changePasswordRemote(body: {
+  currentPassword: string
+  newPassword: string
+  newPasswordConfirm: string
+}): Promise<{ ok: boolean }> {
+  return request('/api/password', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function submitBugReportRemote(body: {
+  title: string
+  details: string
+  where?: string
+  contactName?: string
+  contactPhone?: string
+}): Promise<{ ok: boolean; emailed: boolean }> {
+  return request('/api/bug-reports', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 export function requestPasswordResetRemote(
   phone: string,
 ): Promise<{ ok: boolean; message: string }> {

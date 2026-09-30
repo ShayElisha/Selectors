@@ -21,10 +21,11 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
-import { createSessionToken, requireSuperAdmin, requireUser } from './session.js'
+import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
+import { submitBugReport } from './support.js'
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -84,6 +85,34 @@ app.post('/api/login', async (req, res) => {
     }
     const token = createSessionToken(result)
     res.json({ ...result, token })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/password', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    await assertRateLimit({
+      key: `password:${user.id}`,
+      limit: 8,
+      windowMs: 15 * 60_000,
+    })
+    res.json(await changeOwnPassword(user, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/bug-reports', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `bug:${clientKey(req)}`,
+      limit: 5,
+      windowMs: 15 * 60_000,
+    })
+    const user = verifySessionToken(getBearerToken(req))
+    res.status(201).json(await submitBugReport({ ...(req.body || {}), user }))
   } catch (err) {
     sendError(res, err)
   }

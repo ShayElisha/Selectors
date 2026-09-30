@@ -863,3 +863,42 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     roundMinutes: minutes,
   }
 }
+
+export async function changeOwnPassword(user, body) {
+  if (user?.role !== 'org_manager' || !user.orgId) {
+    throw httpError('סיסמת סופר אדמין משתנה רק בהגדרות השרת', 400)
+  }
+  const currentPassword = String(body?.currentPassword || '')
+  const newPassword = String(body?.newPassword || '')
+  const newPasswordConfirm = String(body?.newPasswordConfirm || '')
+  if (!currentPassword) throw httpError('נא להזין את הסיסמה הנוכחית', 400)
+  const ruleError = validatePasswordRules(newPassword)
+  if (ruleError) throw httpError(ruleError, 400)
+  if (newPassword !== newPasswordConfirm) throw httpError('אימות הסיסמה אינו תואם', 400)
+  if (newPassword === currentPassword) {
+    throw httpError('הסיסמה החדשה חייבת להיות שונה מהנוכחית', 400)
+  }
+
+  const col = await accounts()
+  const account = await col.findOne({
+    _id: String(user.id),
+    orgId: String(user.orgId),
+  })
+  if (!account?.passwordHash) throw httpError('לא נמצא חשבון לעדכון סיסמה', 400)
+  const ok = await verifyPassword(currentPassword, account.passwordHash)
+  if (!ok) throw httpError('הסיסמה הנוכחית שגויה', 400)
+
+  const passwordHash = await hashPassword(newPassword)
+  await col.updateOne(
+    { _id: account._id },
+    { $set: { passwordHash, mustChangePassword: false } },
+  )
+  await appendAuditLog({
+    action: 'password_change',
+    actor: user,
+    orgId: user.orgId,
+    module: user.module,
+    details: 'החלפת סיסמה',
+  })
+  return { ok: true }
+}

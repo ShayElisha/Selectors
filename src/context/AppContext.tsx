@@ -52,7 +52,7 @@ import {
   SHIFT_TYPE_LABELS,
   shiftSlotConflictMessage,
 } from '../constants'
-import { pathForView, viewFromPath } from '../routes'
+import { isAppPath, pathForView, viewFromPath } from '../routes'
 import { createSeedData, isDefaultManager } from '../storage'
 import {
   clampStaffingStandard,
@@ -890,14 +890,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void refreshFromServer()
   }, [user?.token, user?.role, user?.module, refreshFromServer])
 
-  // Redirect unauthenticated users away from app routes
+  // Redirect unauthenticated users away from app routes. Unknown paths stay on the 404 page.
   useEffect(() => {
     const path = location.pathname.replace(/\/+$/, '') || '/'
-    const isPublic = path === '/login' || path === '/privacy' || path === '/register'
+    const isPublic =
+      path === '/login' ||
+      path === '/privacy' ||
+      path === '/register' ||
+      path === '/help' ||
+      path === '/report' ||
+      path === '/algorithm'
+    if (!isPublic && !isAppPath(path)) return
     if (!user && !isPublic) {
       navigate('/login', { replace: true })
     }
-    if (user?.role === 'super_admin' && path !== '/admin' && path !== '/privacy') {
+    if (user?.role === 'super_admin' && path !== '/admin' && !isPublic) {
       navigate('/admin', { replace: true })
     }
     if (

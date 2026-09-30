@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   ClipboardList,
   History,
@@ -20,6 +21,8 @@ import {
   Clock,
   Briefcase,
   SlidersHorizontal,
+  KeyRound,
+  Scale,
 } from 'lucide-react'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -157,6 +160,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const manageMenuRef = useRef<HTMLDivElement>(null)
   const manageBtnRef = useRef<HTMLButtonElement>(null)
   const lastErrorToast = useRef<string | null>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const path = location.pathname.replace(/\/+$/, '') || '/'
+  const itemActive = (id: View) => view === id && (id !== 'home' || path === '/')
 
   useEffect(() => {
     if (!error) {
@@ -444,6 +451,30 @@ export function Shell({ children }: { children: React.ReactNode }) {
                       role="menuitem"
                       onClick={() => {
                         setProfileOpen(false)
+                        navigate('/algorithm')
+                      }}
+                      className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-surface hover:text-ink"
+                    >
+                      <Scale className="size-4 shrink-0" aria-hidden />
+                      כללי השיבוץ
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileOpen(false)
+                        navigate('/account/password')
+                      }}
+                      className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-surface hover:text-ink"
+                    >
+                      <KeyRound className="size-4 shrink-0" aria-hidden />
+                      החלפת סיסמה
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileOpen(false)
                         logout()
                       }}
                       className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-surface hover:text-hard"
@@ -479,7 +510,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <NavButton
               key={item.id}
               item={item}
-              active={view === item.id}
+              active={itemActive(item.id)}
               onClick={() => go(item.id)}
             />
           ))}
@@ -488,7 +519,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <NavButton
               key={item.id}
               item={item}
-              active={view === item.id}
+              active={itemActive(item.id)}
               onClick={() => go(item.id)}
             />
           ))}
@@ -535,7 +566,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           >
             {manageNav.map((item) => {
               const Icon = item.icon
-              const active = view === item.id
+              const active = itemActive(item.id)
               return (
                 <button
                   key={item.id}
@@ -591,7 +622,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 .filter((n) => moreViews.includes(n.id))
                 .map((item) => {
                 const Icon = item.icon
-                const active = view === item.id
+                const active = itemActive(item.id)
                 return (
                   <button
                     key={item.id}
@@ -621,7 +652,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex max-w-lg justify-around">
           {ALL_NAV.filter((n) => MOBILE_PRIMARY.includes(n.id)).map((item) => {
             const Icon = item.icon
-            const active = view === item.id
+            const active = itemActive(item.id)
             return (
               <button
                 key={item.id}
