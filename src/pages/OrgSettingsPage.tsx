@@ -23,12 +23,56 @@ const CHOICES: { id: AssignmentMode; title: string; text: string }[] = [
   },
 ]
 
+async function readLogoFile(file: File): Promise<string> {
+  const allowed = ['image/png', 'image/jpeg', 'image/webp']
+  if (!allowed.includes(file.type)) {
+    throw new Error('הלוגו צריך להיות PNG, JPG או WEBP')
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('לא ניתן לקרוא את התמונה'))
+      el.src = url
+    })
+    const size = 256
+    const scale = Math.min(1, size / Math.max(image.width, image.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.width * scale))
+    canvas.height = Math.max(1, Math.round(image.height * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('לא ניתן לעבד את התמונה')
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const data = canvas.toDataURL('image/jpeg', 0.85)
+    if (data.length > 180_000) throw new Error('התמונה גדולה מדי. בחרו לוגו קטן יותר')
+    return data
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 export function OrgSettingsPage() {
-  const { user, assignmentModes, roundMinutes, saveAssignmentModes, saveRoundMinutes } =
-    useApp()
+  const {
+    user,
+    assignmentModes,
+    roundMinutes,
+    saveAssignmentModes,
+    saveRoundMinutes,
+    orgProfile,
+    saveOrgProfile,
+  } = useApp()
+  const [orgName, setOrgName] = useState(orgProfile.name || user?.orgName || '')
+  const [logo, setLogo] = useState(orgProfile.logo)
+  const [profileSaving, setProfileSaving] = useState(false)
   const [draft, setDraft] = useState<AssignmentModes>(assignmentModes)
   const [saving, setSaving] = useState(false)
   const savedModes = useRef(assignmentModes)
+
+  useEffect(() => {
+    setOrgName(orgProfile.name || user?.orgName || '')
+    setLogo(orgProfile.logo)
+  }, [orgProfile, user?.orgName])
 
   useEffect(() => {
     setDraft((current) => {
@@ -59,8 +103,84 @@ export function OrgSettingsPage() {
     }
   }
 
+  const saveProfile = async () => {
+    setProfileSaving(true)
+    try {
+      await saveOrgProfile({ name: orgName.trim(), logo })
+      notify.success('פרטי הארגון נשמרו')
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'שמירת פרטי הארגון נכשלה')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <SectionCard
+        title="פרטי הארגון"
+        subtitle="השם והלוגו מופיעים בכותרת למנהלי הארגון. הלוגו לא מחליף את סימן שיבוצון במסכי ההתחברות."
+      >
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="flex size-24 items-center justify-center overflow-hidden rounded-2xl border border-line/80 bg-surface">
+            {logo ? (
+              <img src={logo} alt="" className="size-full object-contain" />
+            ) : (
+              <span className="px-2 text-center text-[12px] text-ink-soft">אין לוגו</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-3">
+            <label className="block text-sm font-semibold text-ink">
+              שם הארגון
+              <input
+                className="ui-field mt-1"
+                value={orgName}
+                maxLength={80}
+                onChange={(e) => setOrgName(e.target.value)}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <label className="ui-btn ui-btn-secondary cursor-pointer">
+                בחירת לוגו
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ''
+                    if (!file) return
+                    void readLogoFile(file)
+                      .then(setLogo)
+                      .catch((err) =>
+                        notify.error(
+                          err instanceof Error ? err.message : 'העלאת הלוגו נכשלה',
+                        ),
+                      )
+                  }}
+                />
+              </label>
+              {logo ? (
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-ghost"
+                  onClick={() => setLogo('')}
+                >
+                  הסרת לוגו
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="ui-btn ui-btn-primary disabled:opacity-40"
+              disabled={profileSaving || orgName.trim().length < 2}
+              onClick={() => void saveProfile()}
+            >
+              {profileSaving ? 'שומר…' : 'שמירת פרטי הארגון'}
+            </button>
+          </div>
+        </div>
+      </SectionCard>
       <SectionCard
         title="הגדרות שיבוץ"
         subtitle="לכל חלקה אפשר לבחור אם האנשים מתחלפים בסבבים או נשארים בנתיב אחד לכל המשמרת. ההגדרה חלה על משמרות חדשות. שיבוצים שכבר נשמרו נשארים כמו שהיו."

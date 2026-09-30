@@ -21,7 +21,7 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -287,9 +287,15 @@ app.patch('/api/org-settings', async (req, res) => {
       err.status = 403
       throw err
     }
-    res.json(
-      await updateOrgAssignmentSettings(user.orgId, req.body || {}, user),
-    )
+    const body = req.body || {}
+    if (body.profile) {
+      res.json({
+        ...(await updateOrgAssignmentSettings(user.orgId, body, user)),
+        organization: await updateOrgProfile(user.orgId, body.profile),
+      })
+      return
+    }
+    res.json(await updateOrgAssignmentSettings(user.orgId, body, user))
   } catch (err) {
     sendError(res, err)
   }

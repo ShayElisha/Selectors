@@ -879,7 +879,44 @@ export async function readOrgAssignmentSettings(orgId) {
     modules: publicModules(org.modules),
     assignmentModes: publicAssignmentModes(org),
     roundMinutes: publicRoundMinutes(org),
+    organization: publicOrgProfile(org),
   }
+}
+
+function publicOrgProfile(org) {
+  const logo = typeof org?.logo === 'string' ? org.logo : ''
+  return {
+    name: String(org?.name || ''),
+    logo: logo.startsWith('data:image/') ? logo : '',
+  }
+}
+
+export async function updateOrgProfile(orgId, profile) {
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: String(orgId) })
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+  const name = String(profile?.name || '').trim()
+  if (name.length < 2 || name.length > 80) {
+    throw httpError('שם הארגון צריך להיות בין 2 ל־80 תווים', 400)
+  }
+  let logo = profile?.logo == null ? publicOrgProfile(org).logo : String(profile.logo)
+  if (logo) {
+    if (!/^data:image\/(png|jpeg|webp);base64,/.test(logo) || logo.length > 180_000) {
+      throw httpError('הלוגו צריך להיות תמונה קטנה מסוג PNG, JPG או WEBP', 400)
+    }
+  } else {
+    logo = ''
+  }
+  await orgCol.updateOne(
+    { _id: org._id },
+    { $set: { name, logo, updatedAt: new Date().toISOString() } },
+  )
+  await appendAuditLog({
+    action: 'org_profile',
+    orgId: String(org._id),
+    details: name !== org.name ? `שם הארגון עודכן ל־${name}` : 'לוגו הארגון עודכן',
+  })
+  return publicOrgProfile({ name, logo })
 }
 
 export async function updateOrgAssignmentSettings(orgId, patch, actor) {
@@ -923,6 +960,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
       modules: publicModules(org.modules),
       assignmentModes: current,
       roundMinutes: minutes,
+      organization: publicOrgProfile(org),
     }
   }
   await orgCol.updateOne(
@@ -955,6 +993,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     modules: publicModules(org.modules),
     assignmentModes: next,
     roundMinutes: minutes,
+    organization: publicOrgProfile(org),
   }
 }
 

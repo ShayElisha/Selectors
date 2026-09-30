@@ -238,10 +238,16 @@ export function requestPasswordResetRemote(
   })
 }
 
+export interface OrgProfile {
+  name: string
+  logo: string
+}
+
 export interface OrgAssignmentSettings {
   modules: { selectors: boolean; inspectors: boolean }
   assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
   roundMinutes?: { selectors: number; inspectors: number }
+  organization?: OrgProfile
 }
 
 export function refreshSessionRemote(): Promise<SessionUser & { token: string }> {
@@ -260,8 +266,9 @@ export function fetchOrgSettings(): Promise<OrgAssignmentSettings> {
 }
 
 export function saveOrgSettings(body: {
-  assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
+  assignmentModes?: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
   roundMinutes?: { selectors: number; inspectors: number }
+  profile?: OrgProfile
 }): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings', {
     method: 'PATCH',
