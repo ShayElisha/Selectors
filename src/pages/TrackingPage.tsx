@@ -15,6 +15,7 @@ import { computeWorkerLaneStats } from '../algorithm'
 import type { WorkerLaneStats } from '../algorithm'
 import { Ltr, SectionCard } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
+import { LoadExplainer } from '../components/LoadExplainer'
 import { INTENSITY_LABELS, SHIFT_TYPE_LABELS } from '../constants'
 import { useApp } from '../context/AppContext'
 import { formatShiftDate } from '../lib/hebrew'
@@ -245,9 +246,8 @@ function DayEasyTip() {
         role="tooltip"
         className="pointer-events-none absolute end-0 top-full z-[70] mt-1.5 hidden w-56 rounded-lg border border-line bg-card px-2.5 py-2 text-start text-[11px] font-normal leading-relaxed text-ink shadow-[var(--shadow-panel-hover)] group-focus-within:block group-hover:block"
       >
-        קל יום = מנוחה אמיתית (בוקר/צהריים) — מוסיף פחות לעומס ומוריד קצת
-        מהמצטבר. יום שכולו קל מוריד עוד (×0.9). יום ללא עבודה מוריד חזק יותר
-        (×0.75). קל בלילה לא נספר כמנוחה ונכנס לעומס כמו בינוני.
+        כמה פעמים האדם ישב בנתיב קל בבוקר או בצהריים. זה נחשב מנוחה, ולכן
+        מוסיף רק חצי נקודה לעומס. נתיב קל בלילה לא נספר כאן.
       </span>
     </span>
   )
@@ -502,7 +502,7 @@ export function TrackingPage() {
     <div className="space-y-4">
       <SectionCard
         title="מעקב נתיבים"
-        subtitle="כמה משמרת כל בודק בילה בכל נתיב. סבב נספר לפי חלקו במשמרת, לא כביקור נפרד"
+        subtitle="כמה כל אדם ישב בכל נתיב, וכמה העבודה האחרונה שלו שוקלת. סבב נספר כחלק מהמשמרת, לא כמשמרת שלמה."
         actions={
           <button
             type="button"
@@ -516,6 +516,7 @@ export function TrackingPage() {
         }
       >
         <div className="mb-4 flex flex-col gap-3">
+          <LoadExplainer />
           <RangeBar
             value={range}
             onChange={selectPreset}
