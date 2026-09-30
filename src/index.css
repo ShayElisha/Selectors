@@ -106,6 +106,42 @@ html.dark body {
     linear-gradient(180deg, #0c141c 0%, var(--color-surface) 45%, #0a1016 100%);
 }
 
+html.warm {
+  --color-ink: #3c2a1c;
+  --color-ink-soft: #7d6552;
+  --color-surface: #f4eadf;
+  --color-card: #fffaf4;
+  --color-line: #e4d3c2;
+  --color-brand: #6b3e24;
+  --color-brand-deep: #4a2a18;
+  --color-accent: #a45c34;
+  --color-accent-soft: #f3e2d4;
+  --color-ok: #3d6844;
+  --color-ok-soft: #e5f0e4;
+  --color-warn: #9a6230;
+  --color-warn-soft: #f8ead4;
+  --color-hard: #8d3b38;
+  --color-hard-soft: #f8e4df;
+  --color-mid: #9a6230;
+  --color-mid-soft: #f8ead4;
+  --color-easy: #4d7a4a;
+  --color-easy-soft: #e8f0e4;
+  --shadow-panel:
+    0 1px 2px rgb(74 42 24 / 0.05),
+    0 6px 18px rgb(74 42 24 / 0.06);
+  --shadow-panel-hover:
+    0 2px 4px rgb(74 42 24 / 0.06),
+    0 12px 28px rgb(74 42 24 / 0.1);
+  color-scheme: light;
+}
+
+html.warm body {
+  background:
+    radial-gradient(ellipse 70% 45% at 100% 0%, rgba(164, 92, 52, 0.12), transparent 55%),
+    radial-gradient(ellipse 50% 35% at 0% 100%, rgba(107, 62, 36, 0.08), transparent 50%),
+    linear-gradient(180deg, #fffaf4 0%, #f4eadf 48%, #efe2d2 100%);
+}
+
 @media (min-width: 640px) {
   body {
     font-size: 1rem;

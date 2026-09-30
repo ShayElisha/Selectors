@@ -100,7 +100,7 @@ function AppToaster() {
   const { theme } = useTheme()
   return (
     <Toaster
-      theme={theme}
+      theme={theme === 'dark' ? 'dark' : 'light'}
       position="top-center"
       dir="rtl"
       richColors

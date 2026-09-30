@@ -9,19 +9,25 @@ import {
 
 const STORAGE_KEY = 'gate-out-theme'
 
-export type ThemeMode = 'light' | 'dark'
+export type ThemeMode = 'light' | 'dark' | 'warm'
+
+const THEME_MODES: ThemeMode[] = ['light', 'dark', 'warm']
 
 export function readStoredTheme(): ThemeMode {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'dark' ? 'dark' : 'light'
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored === 'dark' || stored === 'warm' || stored === 'light') return stored
+    return 'light'
   } catch {
     return 'light'
   }
 }
 
 export function applyTheme(mode: ThemeMode) {
-  document.documentElement.classList.toggle('dark', mode === 'dark')
-  document.documentElement.style.colorScheme = mode
+  const root = document.documentElement
+  root.classList.toggle('dark', mode === 'dark')
+  root.classList.toggle('warm', mode === 'warm')
+  root.style.colorScheme = mode === 'dark' ? 'dark' : 'light'
   try {
     localStorage.setItem(STORAGE_KEY, mode)
   } catch {
@@ -31,7 +37,7 @@ export function applyTheme(mode: ThemeMode) {
 
 type ThemeContextValue = {
   theme: ThemeMode
-  toggleTheme: () => void
+  setTheme: (mode: ThemeMode) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
@@ -43,15 +49,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return mode
   })
 
-  const toggleTheme = useCallback(() => {
-    setTheme((current) => {
-      const next: ThemeMode = current === 'dark' ? 'light' : 'dark'
-      applyTheme(next)
-      return next
-    })
+  const chooseTheme = useCallback((mode: ThemeMode) => {
+    if (!THEME_MODES.includes(mode)) return
+    applyTheme(mode)
+    setTheme(mode)
   }, [])
 
-  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme])
+  const value = useMemo(() => ({ theme, setTheme: chooseTheme }), [theme, chooseTheme])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }
