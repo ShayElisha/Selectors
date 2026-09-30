@@ -119,7 +119,7 @@ export function OrgSettingsPage() {
     <div className="space-y-4">
       <SectionCard
         title="פרטי הארגון"
-        subtitle="השם והלוגו מופיעים בכותרת למנהלי הארגון. הלוגו לא מחליף את סימן שיבוצון במסכי ההתחברות."
+        subtitle="השם והלוגו מופיעים ליד תיאור הארגון בכותרת. סימן שיבוצון נשאר במקומו."
       >
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex size-24 items-center justify-center overflow-hidden rounded-2xl border border-line/80 bg-surface">
