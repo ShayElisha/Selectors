@@ -65,13 +65,26 @@ export type AssignmentMode = 'rounds' | 'single'
  * One 2-hour route round on a selector shift.
  * Rows of the selector table; columns are lanes inside `assignments`.
  */
+/** Which staggered grid a selector round belongs to. */
+export type RoundCohort = 'hour' | 'half'
+
 export interface SelectorRound {
   /** Minutes from local midnight; night rounds may pass 24:00. */
   startMinutes: number
   endMinutes: number
   /** e.g. 06:00–08:00 */
   label: string
+  /** Set when the shift staggers rotations by half an hour. */
+  cohort?: RoundCohort
   assignments: LaneAssignment[]
+}
+
+/** A small trim of a person's saved hours. Does not rewrite the placement. */
+export interface WindowAdjustment {
+  /** Arrived this many minutes later than the saved window. */
+  lateMinutes?: number
+  /** Left this many minutes earlier than the saved window. */
+  earlyMinutes?: number
 }
 
 export interface ShiftSchedule {
@@ -109,6 +122,13 @@ export interface ShiftSchedule {
    * Missing means the person covers the whole main shift.
    */
   workerWindows?: Record<string, string>
+  /**
+   * Late arrival or early leave, in minutes, without moving the saved placement.
+   * The next automatic assignment uses the trimmed window.
+   */
+  windowAdjustments?: Record<string, WindowAdjustment>
+  /** When true, selector rounds alternate between the hour and the half-hour. */
+  staggerRounds?: boolean
   /**
    * Why each person was placed, saved with the shift.
    * Older shifts may omit this; the history screen can rebuild it.

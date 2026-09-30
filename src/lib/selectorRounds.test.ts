@@ -7,6 +7,7 @@ import {
   buildRoundWindows,
   setSelectorCell,
 } from './selectorRounds'
+import { windowCoversRound } from './shiftCatalog'
 
 function lane(id: string, name: string, certs: string[] = []): Lane {
   return {
@@ -90,10 +91,16 @@ describe('assignSelectorRounds', () => {
       activeLaneIds: ['a', 'b'],
       workers: people,
     })
-    for (const round of rounds) {
+    rounds.forEach((round, index) => {
       const customs = round.assignments.find((a) => a.laneId === 'a')
-      expect(customs?.workerIds[0]).toBe('w1')
-    }
+      const previous = rounds[index - 1]?.assignments.find((a) => a.laneId === 'a')
+      if (previous?.workerIds[0] === 'w1') {
+        expect(customs?.workerIds[0] ?? '').not.toBe('w1')
+      } else {
+        expect(customs?.workerIds[0]).toBe('w1')
+      }
+      expect(customs?.workerIds ?? []).not.toContain('w2')
+    })
   })
 })
 
@@ -185,5 +192,76 @@ describe('personal windows', () => {
     expect(applied.warnings.some((warning) => warning.startsWith('נותרו'))).toBe(
       false,
     )
+  })
+})
+
+describe('hard assignment rules', () => {
+  it('does not put a selector on the same lane for two consecutive rounds', () => {
+    const { rounds, warnings } = assignSelectorRounds({
+      shiftType: 'morning',
+      lanes: [lane('a', 'נתיב 1')],
+      activeLaneIds: ['a'],
+      workers: [worker('w1', 'אביב')],
+    })
+    expect(rounds[0]!.assignments[0]!.workerIds[0]).toBe('w1')
+    expect(rounds[1]!.assignments[0]!.workerIds[0]).toBe('')
+    expect(warnings.some((warning) => warning.includes('רצף'))).toBe(true)
+  })
+
+  it('refuses a manual repeat of the same lane', () => {
+    const { rounds } = assignSelectorRounds({
+      shiftType: 'morning',
+      lanes: [lane('a', 'נתיב 1'), lane('b', 'נתיב 2')],
+      activeLaneIds: ['a', 'b'],
+      workers: [worker('w1', 'אביב'), worker('w2', 'בני')],
+    })
+    const firstLane = rounds[0]!.assignments.find((row) =>
+      row.workerIds.includes('w1'),
+    )!.laneId
+    const next = setSelectorCell(rounds, 1, firstLane, 0, 'w1')
+    expect(next).toBe(rounds)
+  })
+
+  it('staggers half the selectors onto rounds that start 30 minutes later', () => {
+    const workers = [
+      worker('w1', 'אביב'),
+      worker('w2', 'בני'),
+      worker('w3', 'גל'),
+      worker('w4', 'דנה'),
+    ]
+    const { rounds } = assignSelectorRounds({
+      shiftType: 'morning',
+      lanes: [lane('a', 'נתיב 1'), lane('b', 'נתיב 2')],
+      activeLaneIds: ['a', 'b'],
+      workers,
+      stagger: true,
+    })
+    const half = rounds.filter((round) => round.cohort === 'half')
+    const hour = rounds.filter((round) => round.cohort === 'hour')
+    expect(half.length).toBeGreaterThan(0)
+    expect(half[0]!.startMinutes).toBe(hour[0]!.startMinutes + 30)
+    const placed = (cohort: 'hour' | 'half') =>
+      new Set(
+        rounds
+          .filter((round) => round.cohort === cohort)
+          .flatMap((round) => round.assignments.flatMap((row) => row.workerIds))
+          .filter(Boolean),
+      )
+    const onHour = placed('hour')
+    const onHalf = placed('half')
+    expect([...onHour].some((id) => onHalf.has(id))).toBe(false)
+  })
+
+  it('keeps a late arrival mark from covering the opening round', () => {
+    expect(
+      windowCoversRound('0600-1500', 'morning', 6 * 60, 8 * 60, {
+        lateMinutes: 30,
+      }),
+    ).toBe(false)
+    expect(
+      windowCoversRound('0600-1500', 'morning', 8 * 60, 10 * 60, {
+        lateMinutes: 30,
+      }),
+    ).toBe(true)
   })
 })

@@ -92,9 +92,14 @@ export function SelectorRoundTable({
           </thead>
           <tbody className="divide-y divide-line/60">
             {rounds.map((round, roundIndex) => (
-              <tr key={round.label} className="bg-card">
+              <tr key={`${round.cohort ?? ''}-${round.label}`} className="bg-card">
                 <th className="sticky right-0 z-10 whitespace-nowrap bg-card px-3 py-2 text-start font-semibold text-ink">
                   <Ltr>{round.label}</Ltr>
+                  {round.cohort ? (
+                    <span className="mt-0.5 block text-[10px] font-normal text-ink-soft">
+                      {round.cohort === 'half' ? 'חצי שעה' : 'שעה עגולה'}
+                    </span>
+                  ) : null}
                 </th>
                 {lanes.map((lane) => {
                   const open = laneOpenDuring(

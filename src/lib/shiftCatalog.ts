@@ -112,21 +112,32 @@ export function windowInterval(
   return { start, end }
 }
 
+const WINDOW_STEPS = [0, 15, 30, 45, 60]
+
+/** Late arrival or early leave, snapped to a quarter hour, at most one hour. */
+export function clampWindowStep(value: unknown): number {
+  const n = Number(value)
+  return WINDOW_STEPS.includes(n) ? n : 0
+}
+
 /** A round is assignable only when it sits fully inside the person's hours. */
 export function windowCoversRound(
   windowId: string | undefined,
   shiftType: ShiftType,
   roundStart: number,
   roundEnd: number,
+  adjustment?: { lateMinutes?: number; earlyMinutes?: number },
 ): boolean {
   const preset = workerWindowById(windowId)
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  const late = clampWindowStep(adjustment?.lateMinutes)
+  const early = clampWindowStep(adjustment?.earlyMinutes)
   if (!shift) return Boolean(windowId)
   if (!preset) {
-    return roundStart >= shift.start && roundEnd <= shift.end
+    return roundStart >= shift.start + late && roundEnd <= shift.end - early
   }
   const span = windowInterval(preset, shiftType)
-  return roundStart >= span.start && roundEnd <= span.end
+  return roundStart >= span.start + late && roundEnd <= span.end - early
 }
 
 export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPreset[] {

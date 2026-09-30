@@ -57,8 +57,10 @@ export function OrgSettingsPage() {
     user,
     assignmentModes,
     roundMinutes,
+    staggerRounds,
     saveAssignmentModes,
     saveRoundMinutes,
+    saveStaggerRounds,
     orgProfile,
     saveOrgProfile,
   } = useApp()
@@ -251,6 +253,31 @@ export function OrgSettingsPage() {
                       <option value={120}>שעתיים</option>
                       <option value={180}>שלוש שעות</option>
                     </select>
+                  </label>
+                ) : null}
+                {section.id === 'selectors' && draft[section.id] === 'rounds' ? (
+                  <label className="mt-3 flex items-start gap-2 text-[13px] text-ink">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 accent-[var(--color-brand)]"
+                      checked={staggerRounds.selectors}
+                      onChange={(e) =>
+                        void saveStaggerRounds({
+                          ...staggerRounds,
+                          selectors: e.target.checked,
+                        }).catch((err: unknown) =>
+                          notify.error(
+                            err instanceof Error ? err.message : 'שמירת הסבבים המדורגים נכשלה',
+                          ),
+                        )
+                      }
+                    />
+                    <span>
+                      <span className="font-semibold">סבבים מדורגים</span>
+                      <span className="mt-0.5 block text-ink-soft">
+                        חלק מהסלקטורים מתחלפים בשעה עגולה וחלק בחצי שעה, כדי שהשער לא יישאר ריק באמצע ההחלפה. חל על משמרות חדשות.
+                      </span>
+                    </span>
                   </label>
                 ) : null}
               </fieldset>

@@ -243,6 +243,9 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
       </tr>
     </table>
 
+    <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:${BRAND.soft};">
+      הסיסמה הזמנית תקפה ל־24 שעות בלבד.
+    </p>
     <p style="margin:0;padding:12px 14px;background:${BRAND.okSoft};border-radius:10px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:${BRAND.ok};">
       אם לא ביקשתם פעולה זו — התעלמו מהמייל ופנו למנהל המערכת.
     </p>
@@ -254,6 +257,7 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
     intro,
     '',
     `סיסמה זמנית: ${tempPassword}`,
+    'הסיסמה הזמנית תקפה ל־24 שעות בלבד.',
     '',
     'מה הלאה?',
     '1. היכנסו לאתר עם הטלפון והסיסמה הזמנית',

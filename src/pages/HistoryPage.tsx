@@ -523,6 +523,7 @@ export function HistoryPage() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<ShiftType | 'all'>('all')
   const [visibleDays, setVisibleDays] = useState(PAGE_SIZE)
+  const [matrixPage, setMatrixPage] = useState(0)
   const [hideNights, setHideNights] = useState(false)
   const [highlightRepeats, setHighlightRepeats] = useState(true)
   const [deleteTarget, setDeleteTarget] = useState<ShiftSchedule | null>(null)
@@ -607,6 +608,13 @@ export function HistoryPage() {
   )
 
   const shownDays = filteredDays.slice(0, visibleDays)
+  const MATRIX_PAGE = 20
+  const matrixPages = Math.max(1, Math.ceil(matrixView.rows.length / MATRIX_PAGE))
+  const safeMatrixPage = Math.min(matrixPage, matrixPages - 1)
+  const matrixRows = matrixView.rows.slice(
+    safeMatrixPage * MATRIX_PAGE,
+    safeMatrixPage * MATRIX_PAGE + MATRIX_PAGE,
+  )
 
   const shiftsInRange = useMemo(() => {
     return data.history.filter((h) => {
@@ -893,7 +901,7 @@ export function HistoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matrixView.rows.map((row, i) => {
+                    {matrixRows.map((row, i) => {
                       const rowBg = i % 2 === 0 ? 'bg-card' : 'bg-surface'
                       return (
                         <tr key={row.workerId} className={rowBg}>
@@ -950,6 +958,32 @@ export function HistoryPage() {
                   </tbody>
                 </table>
               </div>
+              {matrixPages > 1 ? (
+                <div className="mt-3 flex items-center justify-between gap-2 text-[13px]">
+                  <button
+                    type="button"
+                    className="ui-btn ui-btn-secondary"
+                    disabled={safeMatrixPage === 0}
+                    onClick={() => setMatrixPage((page) => Math.max(0, page - 1))}
+                  >
+                    הקודם
+                  </button>
+                  <span className="text-ink-soft">
+                    עמוד <Ltr>{String(safeMatrixPage + 1)}</Ltr> מתוך{' '}
+                    <Ltr>{String(matrixPages)}</Ltr>
+                  </span>
+                  <button
+                    type="button"
+                    className="ui-btn ui-btn-secondary"
+                    disabled={matrixPage + 1 >= matrixPages}
+                    onClick={() =>
+                      setMatrixPage((page) => Math.min(matrixPages - 1, page + 1))
+                    }
+                  >
+                    הבא
+                  </button>
+                </div>
+              ) : null}
               <p className="mt-3 text-[13px] leading-relaxed text-ink-soft">
                 גלילה אופקית · עמודת השמות קבועה · לחיצה על כותרת פותחת משמרת
                 {highlightRepeats

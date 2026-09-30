@@ -12,6 +12,8 @@ import {
 import {
   generateTempPassword,
   hashPassword,
+  tempPasswordExpired,
+  tempPasswordExpiresAt,
   validatePasswordRules,
   verifyPassword,
 } from './password.js'
@@ -398,8 +400,7 @@ export async function restoreOrganization(id) {
   const org = await orgCol.findOne({ _id: String(id) })
   if (!org) throw httpError('הארגון לא נמצא', 404)
   if (!org.deletedAt) throw httpError('הארגון לא מסומן למחיקה', 400)
-  const age = Date.now() - new Date(org.deletedAt).getTime()
-  if (!Number.isFinite(age) || age > DELETE_RESTORE_MS) {
+  if (Date.now() > restoreDeadline(org)) {
     throw httpError('חלון השחזור נסגר', 400)
   }
   await orgCol.updateOne(
@@ -416,11 +417,51 @@ export async function restoreOrganization(id) {
 
 async function purgeExpiredOrganizations() {
   const orgCol = await organizations()
-  const cutoff = new Date(Date.now() - DELETE_RESTORE_MS).toISOString()
-  const expired = await orgCol.find({ deletedAt: { $lt: cutoff } }).toArray()
-  for (const org of expired) {
-    await hardDeleteOrganization(String(org._id))
+  const marked = await orgCol.find({ deletedAt: { $exists: true, $nin: [null, ''] } }).toArray()
+  const now = Date.now()
+  for (const org of marked) {
+    if (restoreDeadline(org) < now) await hardDeleteOrganization(String(org._id))
   }
+}
+
+export async function extendOrganizationRestore(id) {
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: String(id) })
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+  if (!org.deletedAt) throw httpError('הארגון לא מסומן למחיקה', 400)
+  const deleted = new Date(org.deletedAt).getTime()
+  const cap = deleted + DELETE_RESTORE_MAX_MS
+  const current = restoreDeadline(org)
+  if (current >= cap) throw httpError('חלון השחזור כבר באורך המרבי', 400)
+  const next = Math.min(current + 7 * DAY_MS, cap)
+  const restoreUntil = new Date(next).toISOString()
+  await orgCol.updateOne(
+    { _id: org._id },
+    { $set: { restoreUntil, updatedAt: new Date().toISOString() } },
+  )
+  await appendAuditLog({
+    action: 'org_restore',
+    details: `חלון השחזור של ${org.name || org._id} הוארך`,
+  })
+  const rows = await listOrganizations()
+  return rows.find((row) => row.id === String(org._id)) || null
+}
+
+export async function purgeOrganization(id, body = {}) {
+  const orgCol = await organizations()
+  const org = await orgCol.findOne({ _id: String(id) })
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+  if (!org.deletedAt) throw httpError('קודם מסמנים את הארגון למחיקה', 400)
+  const confirmName = String(body.confirmName || '').trim()
+  if (confirmName !== String(org.name || '').trim()) {
+    throw httpError('שם הארגון אינו תואם', 400)
+  }
+  const expected = process.env.SUPER_ADMIN_PASSWORD || ''
+  if (!passwordsMatch(String(body.password || ''), expected)) {
+    throw httpError('סיסמת סופר אדמין שגויה', 401)
+  }
+  await hardDeleteOrganization(String(org._id))
+  return { ok: true }
 }
 
 export async function deleteOrganization(id) {
@@ -604,6 +645,9 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
   }
   const ok = await verifyPassword(password, storedHash)
   if (!ok) throw httpError('סיסמה שגויה', 401)
+  if (mustChangePassword && tempPasswordExpired(account.passwordExpiresAt)) {
+    throw httpError('הסיסמה הזמנית פגה אחרי 24 שעות. בקשו סיסמה חדשה.', 400)
+  }
 
   const blocked = orgGate(org, modulesForAccount(account, org))
   if (blocked) return { ...blocked, phone }
@@ -620,7 +664,10 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
     const col = await accounts()
     await col.updateOne(
       { _id: account._id },
-      { $set: { passwordHash, mustChangePassword: false } },
+      {
+        $set: { passwordHash, mustChangePassword: false },
+        $unset: { passwordExpiresAt: '' },
+      },
     )
     await appendAuditLog({
       action: 'login',
@@ -653,7 +700,17 @@ async function touchOrgLogin(orgId) {
   )
 }
 
-const DELETE_RESTORE_MS = 7 * 24 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+const DELETE_RESTORE_MS = 7 * DAY_MS
+const DELETE_RESTORE_MAX_MS = 28 * DAY_MS
+
+function restoreDeadline(org) {
+  const deleted = new Date(org?.deletedAt || '').getTime()
+  if (!Number.isFinite(deleted)) return 0
+  const base = deleted + DELETE_RESTORE_MS
+  const extra = org?.restoreUntil ? new Date(org.restoreUntil).getTime() : 0
+  return Math.max(base, Number.isFinite(extra) ? extra : 0)
+}
 
 function orgSummary(org, manager) {
   return {
@@ -667,6 +724,7 @@ function orgSummary(org, manager) {
     suspendedAt: org.suspendedAt || '',
     lastLoginAt: org.lastLoginAt || '',
     deletedAt: org.deletedAt || '',
+    restoreUntil: org.restoreUntil || '',
     manager: manager
       ? {
           fullName: manager.fullName || '',
@@ -713,7 +771,13 @@ export async function requestAccountPasswordReset(phoneRaw) {
   const col = await accounts()
   await col.updateOne(
     { _id: account._id },
-    { $set: { passwordHash, mustChangePassword: true } },
+    {
+      $set: {
+        passwordHash,
+        mustChangePassword: true,
+        passwordExpiresAt: tempPasswordExpiresAt(),
+      },
+    },
   )
   await appendAuditLog({
     action: 'password_reset',
@@ -756,6 +820,8 @@ export async function upsertManagerAccount({
   if (passwordHash) {
     fields.passwordHash = passwordHash
     fields.mustChangePassword = Boolean(mustChangePassword)
+    if (mustChangePassword) fields.passwordExpiresAt = tempPasswordExpiresAt()
+    else fields.passwordExpiresAt = ''
   }
   if (staffKind === 'inspector' || staffKind === 'selector') fields.staffKind = staffKind
   if (typeof isOrgManager === 'boolean') fields.isOrgManager = isOrgManager
@@ -872,6 +938,17 @@ export function publicRoundMinutes(org) {
   return { selectors: pick(raw.selectors), inspectors: pick(raw.inspectors) }
 }
 
+export function publicStaggerRounds(org) {
+  const raw =
+    org?.staggerRounds && typeof org.staggerRounds === 'object'
+      ? org.staggerRounds
+      : {}
+  return {
+    selectors: raw.selectors === true,
+    inspectors: raw.inspectors === true,
+  }
+}
+
 export async function readOrgAssignmentSettings(orgId) {
   const org = await getOrganization(orgId)
   if (!org) throw httpError('הארגון לא נמצא', 404)
@@ -879,6 +956,7 @@ export async function readOrgAssignmentSettings(orgId) {
     modules: publicModules(org.modules),
     assignmentModes: publicAssignmentModes(org),
     roundMinutes: publicRoundMinutes(org),
+    staggerRounds: publicStaggerRounds(org),
     organization: publicOrgProfile(org),
   }
 }
@@ -950,16 +1028,28 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
       }
     }
   }
+  const stagger = publicStaggerRounds(org)
+  const staggerPatch = patch?.staggerRounds
+  if (staggerPatch && typeof staggerPatch === 'object') {
+    for (const key of ['selectors', 'inspectors']) {
+      if (typeof staggerPatch[key] === 'boolean') stagger[key] = staggerPatch[key]
+    }
+  }
   const sameModes =
     next.selectors === current.selectors && next.inspectors === current.inspectors
   const sameMinutes =
     minutes.selectors === publicRoundMinutes(org).selectors &&
     minutes.inspectors === publicRoundMinutes(org).inspectors
-  if (sameModes && sameMinutes) {
+  const previousStagger = publicStaggerRounds(org)
+  const sameStagger =
+    stagger.selectors === previousStagger.selectors &&
+    stagger.inspectors === previousStagger.inspectors
+  if (sameModes && sameMinutes && sameStagger) {
     return {
       modules: publicModules(org.modules),
       assignmentModes: current,
       roundMinutes: minutes,
+      staggerRounds: stagger,
       organization: publicOrgProfile(org),
     }
   }
@@ -969,6 +1059,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
       $set: {
         assignmentModes: next,
         roundMinutes: minutes,
+        staggerRounds: stagger,
         updatedAt: new Date().toISOString(),
       },
     },
@@ -993,6 +1084,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     modules: publicModules(org.modules),
     assignmentModes: next,
     roundMinutes: minutes,
+    staggerRounds: stagger,
     organization: publicOrgProfile(org),
   }
 }
@@ -1024,7 +1116,10 @@ export async function changeOwnPassword(user, body) {
   const passwordHash = await hashPassword(newPassword)
   await col.updateOne(
     { _id: account._id },
-    { $set: { passwordHash, mustChangePassword: false } },
+    {
+      $set: { passwordHash, mustChangePassword: false },
+      $unset: { passwordExpiresAt: '' },
+    },
   )
   await appendAuditLog({
     action: 'password_change',

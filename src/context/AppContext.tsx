@@ -32,6 +32,7 @@ import {
   seedAppDataRemote,
   type LoginNextStep,
 } from '../api'
+import { notify } from '../lib/notify'
 import {
   clearAppDataCache,
   clearDraftStorage,
@@ -110,6 +111,7 @@ import type {
   ShiftSchedule,
   ShiftType,
   StaffingStandard,
+  WindowAdjustment,
   View,
   Worker,
   ShiftModel,
@@ -184,6 +186,8 @@ export interface ShiftDraft {
   explanations: PlacementExplanation[]
   /** Personal hours keyed by worker id. */
   workerWindows: Record<string, string>
+  windowAdjustments: Record<string, WindowAdjustment>
+  staggerRounds: boolean
   /** Per-shift תקן (1…5); falls back to lane catalog when absent */
   staffingOverrides: StaffingOverrides
 }
@@ -202,6 +206,8 @@ interface AppContextValue {
   saveAssignmentModes: (modes: AssignmentModes) => Promise<void>
   roundMinutes: { selectors: number; inspectors: number }
   saveRoundMinutes: (minutes: { selectors: number; inspectors: number }) => Promise<void>
+  staggerRounds: { selectors: boolean; inspectors: boolean }
+  saveStaggerRounds: (stagger: { selectors: boolean; inspectors: boolean }) => Promise<void>
   orgProfile: { name: string; logo: string }
   saveOrgProfile: (profile: { name: string; logo: string }) => Promise<void>
   login: (
@@ -251,6 +257,10 @@ interface AppContextValue {
   moveLane: (fromId: string, toId: string) => void
   toggleWorker: (workerId: string) => void
   setWorkerWindow: (workerId: string, windowId: string | null) => void
+  setWindowAdjustment: (
+    workerId: string,
+    patch: { lateMinutes?: number; earlyMinutes?: number },
+  ) => void
   /** Activate/deactivate מנהל שער for a manager (at most one per shift). */
   setGateManager: (workerId: string | null) => void
   setAllActiveLanes: (on: boolean) => void
@@ -425,6 +435,11 @@ function restoreDraft(): ShiftDraft | null {
         parsed.workerWindows && typeof parsed.workerWindows === 'object'
           ? parsed.workerWindows
           : {},
+      windowAdjustments:
+        parsed.windowAdjustments && typeof parsed.windowAdjustments === 'object'
+          ? parsed.windowAdjustments
+          : {},
+      staggerRounds: Boolean(parsed.staggerRounds),
       explanations: Array.isArray(parsed.explanations) ? parsed.explanations : [],
       staffingOverrides: normalizeStaffingOverrides(parsed.staffingOverrides),
       gateManagerWorkerId: parsed.gateManagerWorkerId?.trim() || undefined,
@@ -450,6 +465,8 @@ function snapshotDraft(d: ShiftDraft): string {
     assignmentMode: assignmentModeOf(d),
     rounds: d.rounds ?? [],
     workerWindows: d.workerWindows ?? {},
+    windowAdjustments: d.windowAdjustments ?? {},
+    staggerRounds: Boolean(d.staggerRounds),
     activeLaneIds: d.activeLaneIds,
     presentWorkerIds: d.presentWorkerIds,
     gateManagerWorkerId: d.gateManagerWorkerId ?? '',
@@ -482,9 +499,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     DEFAULT_ASSIGNMENT_MODES,
   )
   const [roundMinutes, setRoundMinutes] = useState({ selectors: 120, inspectors: 120 })
+  const [staggerRoundsSetting, setStaggerRoundsSetting] = useState({
+    selectors: false,
+    inspectors: false,
+  })
   const [orgProfile, setOrgProfile] = useState({ name: '', logo: '' })
   const roundMinutesRef = useRef(roundMinutes)
   roundMinutesRef.current = roundMinutes
+  const staggerRef = useRef(staggerRoundsSetting)
+  staggerRef.current = staggerRoundsSetting
   const view = viewFromPath(location.pathname)
   const [shiftStep, setShiftStepState] = useState<ShiftStep>(() => restoreStep())
   const [draft, setDraft] = useState<ShiftDraft | null>(() => restoreDraft())
@@ -834,6 +857,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
               inspectors: Number(settings.roundMinutes.inspectors) || 120,
             })
           }
+          if (settings.staggerRounds) {
+            setStaggerRoundsSetting({
+              selectors: settings.staggerRounds.selectors === true,
+              inspectors: settings.staggerRounds.inspectors === true,
+            })
+          }
           if (settings.organization) setOrgProfile(settings.organization)
         }
       })
@@ -859,6 +888,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     },
     [assignmentModes],
+  )
+
+  const saveStaggerRounds = useCallback(
+    async (stagger: { selectors: boolean; inspectors: boolean }) => {
+      const saved = await saveOrgSettings({
+        assignmentModes,
+        roundMinutes,
+        staggerRounds: stagger,
+      })
+      if (saved.staggerRounds) {
+        setStaggerRoundsSetting({
+          selectors: saved.staggerRounds.selectors === true,
+          inspectors: saved.staggerRounds.inspectors === true,
+        })
+      }
+    },
+    [assignmentModes, roundMinutes],
   )
 
   const saveOrgProfile = useCallback(
@@ -987,6 +1033,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           rounds:
             usesRounds(item) && Array.isArray(item.rounds) ? item.rounds : [],
           workerWindows: item.workerWindows ?? {},
+          windowAdjustments: item.windowAdjustments ?? {},
+          staggerRounds: Boolean(item.staggerRounds),
           warnings: [],
           unassignedWorkerIds: [],
           explanations: Array.isArray(item.explanations) ? item.explanations : [],
@@ -1028,6 +1076,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...(Object.keys(d.workerWindows ?? {}).length > 0
               ? { workerWindows: d.workerWindows }
               : {}),
+            ...(Object.keys(d.windowAdjustments ?? {}).length > 0
+              ? { windowAdjustments: d.windowAdjustments }
+              : {}),
+            ...(d.staggerRounds ? { staggerRounds: true } : {}),
           }
         : {}),
       ...(Object.keys(overrides).length > 0
@@ -1082,6 +1134,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       assignments: [],
       rounds: [],
       workerWindows: {},
+      windowAdjustments: {},
+      staggerRounds:
+        staggerRef.current[inspectors ? 'inspectors' : 'selectors'],
       warnings: [],
       unassignedWorkerIds: [],
       explanations: [],
@@ -1496,6 +1551,11 @@ function nightPartnersForMorning(
           roundMinutesRef.current[
             user?.module === 'inspectors' ? 'inspectors' : 'selectors'
           ],
+        stagger:
+          staggerRef.current[
+            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+          ],
+        windowAdjustments: d.windowAdjustments,
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
         workers: present,
@@ -1549,6 +1609,11 @@ function nightPartnersForMorning(
             roundMinutesRef.current[
               user?.module === 'inspectors' ? 'inspectors' : 'selectors'
             ],
+          stagger:
+            staggerRef.current[
+              user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+            ],
+          windowAdjustments: d.windowAdjustments,
           lanes: data.lanes,
           activeLaneIds: d.activeLaneIds,
           workers: present,
@@ -1575,6 +1640,25 @@ function nightPartnersForMorning(
       })
     },
     [data.history, data.lanes, data.shiftModels, data.workers, user?.module],
+  )
+
+  const setWindowAdjustment = useCallback(
+    (
+      workerId: string,
+      patch: { lateMinutes?: number; earlyMinutes?: number },
+    ) => {
+      setDraft((d) => {
+        if (!d) return d
+        const current = d.windowAdjustments?.[workerId] ?? {}
+        const lateMinutes = patch.lateMinutes ?? current.lateMinutes ?? 0
+        const earlyMinutes = patch.earlyMinutes ?? current.earlyMinutes ?? 0
+        const windowAdjustments = { ...(d.windowAdjustments ?? {}) }
+        if (!lateMinutes && !earlyMinutes) delete windowAdjustments[workerId]
+        else windowAdjustments[workerId] = { lateMinutes, earlyMinutes }
+        return { ...d, windowAdjustments }
+      })
+    },
+    [],
   )
 
   const runAutoAssign = useCallback(() => {
@@ -1646,6 +1730,11 @@ function nightPartnersForMorning(
           roundMinutesRef.current[
             user?.module === 'inspectors' ? 'inspectors' : 'selectors'
           ],
+        stagger:
+          staggerRef.current[
+            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+          ],
+        windowAdjustments: d.windowAdjustments,
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
         workers: present,
@@ -1845,6 +1934,10 @@ function nightPartnersForMorning(
           slotIndex,
           workerId,
         )
+        if (rounds === (d.rounds ?? []) && workerId) {
+          notify.error('אי אפשר לשבת באותו נתיב בשני סבבים רצופים')
+          return d
+        }
         return withGateManagerSync(
           {
             ...d,
@@ -2665,6 +2758,8 @@ function nightPartnersForMorning(
       saveAssignmentModes,
       roundMinutes,
       saveRoundMinutes,
+      staggerRounds: staggerRoundsSetting,
+      saveStaggerRounds,
       orgProfile,
       saveOrgProfile,
       login,
@@ -2687,6 +2782,7 @@ function nightPartnersForMorning(
       setLaneStaffingStandard,
       toggleWorker,
       setWorkerWindow,
+      setWindowAdjustment,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,
@@ -2738,6 +2834,8 @@ function nightPartnersForMorning(
       saveAssignmentModes,
       roundMinutes,
       saveRoundMinutes,
+      staggerRoundsSetting,
+      saveStaggerRounds,
       orgProfile,
       saveOrgProfile,
       setModule,
@@ -2761,6 +2859,7 @@ function nightPartnersForMorning(
       setLaneStaffingStandard,
       toggleWorker,
       setWorkerWindow,
+      setWindowAdjustment,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,

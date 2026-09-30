@@ -21,6 +21,23 @@ const PAGE_SIZE = 20
 
 const ACTION_LABELS = AUDIT_ACTION_LABELS
 
+function AuditChangeList({ details }: { details: string }) {
+  const parts = details
+    .split(' · ')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length <= 1 && !details.includes('→') && !details.includes('שונה')) {
+    return <span>{details}</span>
+  }
+  return (
+    <ul className="space-y-0.5">
+      {parts.map((part) => (
+        <li key={part}>{part}</li>
+      ))}
+    </ul>
+  )
+}
+
 function formatWhen(iso: string): string {
   try {
     return new Date(iso).toLocaleString('he-IL', {
@@ -411,9 +428,9 @@ export function AuditPage() {
                     ) : null}
                   </p>
                   {row.details && (
-                    <p className="mt-0.5 text-xs leading-relaxed text-ink-soft">
-                      {row.details}
-                    </p>
+                    <div className="mt-0.5 text-xs leading-relaxed text-ink-soft">
+                      <AuditChangeList details={row.details} />
+                    </div>
                   )}
                 </li>
               ))}
@@ -462,7 +479,11 @@ export function AuditPage() {
                           </span>
                         </td>
                         <td className="max-w-md px-3 py-2.5 text-ink-soft sm:px-4">
-                          {row.details || '—'}
+                          {row.details ? (
+                            <AuditChangeList details={row.details} />
+                          ) : (
+                            '—'
+                          )}
                         </td>
                       </tr>
                     ))}
