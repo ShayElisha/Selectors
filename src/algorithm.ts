@@ -57,8 +57,15 @@ export interface WorkerLaneStats {
   dayEasyCount: number
   /** Easy placements on night (not treated as rest) */
   nightEasyCount: number
-  /** Weighted load (night × multiplier; night-easy ≈ medium) */
+  /**
+   * Balance over the last 14 days in the range.
+   * Medium day = 0, hard day = +2, day off = −2, hard night = +4. Floor −2.
+   */
   effectiveLoad: number
+  /** Points the balance actually rose in that window */
+  loadRose: number
+  /** Points the balance actually fell in that window */
+  loadFell: number
   hardByShift: Record<ShiftType, number>
   totalAssignments: number
 }
@@ -162,20 +169,19 @@ const DEFAULT_LOOKBACK_DAYS = 14
 /** Rotation scoring window in calendar days (Maximum Distance Strategy). */
 export const ROTATION_LOOKBACK_DAYS = 14
 /**
- * Multiplier applied to cumulative effective load after each calendar rest day
- * (no presence / assignment). ~0.75 ≈ one hard day fades after ~4 rest days.
+ * How many calendar days the workload balance looks back.
+ * Older days leave the window, so the number cannot grow forever.
  */
-export const REST_DAY_LOAD_DECAY = 0.75
+export const LOAD_BALANCE_DAYS = 14
+/** A fully rested person sits here; extra days off do not add more credit. */
+export const LOAD_BALANCE_FLOOR = -2
+/** Change on a calendar day with no presence and no assignment. */
+const LOAD_OFF_DAY = -2
 /**
  * Subtracted from each day-easy placement score so easy morning/afternoon
  * adds less than a full point (net ≈ +0.5 instead of +1).
  */
 export const DAY_EASY_LOAD_CREDIT = 0.5
-/**
- * Extra mild decay when every counted placement that calendar day is day-easy
- * (light work day still recovers a bit from prior load).
- */
-export const EASY_ONLY_DAY_LOAD_DECAY = 0.9
 /** Soft floor: candidates below this score are filtered when alternatives exist. */
 const ROTATION_SOFT_THRESHOLD = 40
 /** Bucket width for rotation ranking — lets load/hard compete inside a band. */
@@ -575,11 +581,94 @@ export function placementLoadOnDay(
 }
 
 /**
- * Chronological effective load with recovery toward lower load:
- * - Rest day (not on duty) → × REST_DAY_LOAD_DECAY
- * - Work day → add placement points (day-easy gets DAY_EASY_LOAD_CREDIT)
- * - Easy-only work day → also × EASY_ONLY_DAY_LOAD_DECAY
+ * Change versus a medium day shift.
+ * Easy morning/afternoon eases the balance. A hard morning and a hard afternoon
+ * are equal. A hard night is about two hard days. Selector rounds of one shift
+ * share one shift: weight is the round's fraction of that shift.
  */
+export function shiftBalanceDelta(
+  intensity: Lane['intensity'],
+  shiftType: ShiftType,
+): number {
+  if (shiftType === 'night') {
+    if (intensity === 'hard') return 4
+    if (intensity === 'medium') return 2
+    return 1
+  }
+  if (intensity === 'hard') return 2
+  if (intensity === 'medium') return 0
+  return -1
+}
+
+export type LoadBalance = {
+  net: number
+  rose: number
+  fell: number
+}
+
+function applyBalanceStep(state: LoadBalance, delta: number) {
+  const next = state.net + delta
+  const clamped = next < LOAD_BALANCE_FLOOR ? LOAD_BALANCE_FLOOR : next
+  const applied = clamped - state.net
+  if (applied > 0) state.rose += applied
+  else if (applied < 0) state.fell += -applied
+  state.net = clamped
+}
+
+function roundLoad(n: number): number {
+  return Math.round(n * 10) / 10
+}
+
+/**
+ * Balance over calendar days in the range, capped at the last LOAD_BALANCE_DAYS.
+ * A day off is −2. A placed shift adds its delta (rounds add their share).
+ * The number never goes below LOAD_BALANCE_FLOOR, and days that cannot move
+ * it are not counted as extra rise or fall.
+ */
+export function accumulateLoadBalance(
+  workerId: string,
+  shiftsByDate: Map<string, ShiftSchedule[]>,
+  laneMap: Map<string, Lane>,
+  fromDate: string,
+  toDate: string,
+  filter?: DayLoadFilter,
+): LoadBalance {
+  const state: LoadBalance = { net: 0, rose: 0, fell: 0 }
+  if (!fromDate || !toDate || fromDate > toDate) return state
+  const capStart = addLocalDaysISO(toDate, -(LOAD_BALANCE_DAYS - 1))
+  const start = fromDate > capStart ? fromDate : capStart
+  for (const date of eachLocalDateInclusive(start, toDate)) {
+    const dayShifts = shiftsByDate.get(date) ?? []
+    if (!workerOnDutyThatDay(workerId, dayShifts)) {
+      applyBalanceStep(state, LOAD_OFF_DAY)
+      continue
+    }
+    let dayDelta = 0
+    for (const shift of dayShifts) {
+      if (filter?.includeNight === false && shift.shiftType === 'night') {
+        continue
+      }
+      if (filter?.onlyShiftType && shift.shiftType !== filter.onlyShiftType) {
+        continue
+      }
+      for (const placement of shiftPlacements(shift)) {
+        if (placement.workerId !== workerId) continue
+        const lane = laneMap.get(placement.laneId)
+        if (!lane) continue
+        dayDelta +=
+          shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
+      }
+    }
+    applyBalanceStep(state, dayDelta)
+  }
+  return {
+    net: roundLoad(state.net),
+    rose: roundLoad(state.rose),
+    fell: roundLoad(state.fell),
+  }
+}
+
+/** Net workload balance. Same rules as {@link accumulateLoadBalance}. */
 export function accumulateLoadWithRestDecay(
   workerId: string,
   shiftsByDate: Map<string, ShiftSchedule[]>,
@@ -587,29 +676,15 @@ export function accumulateLoadWithRestDecay(
   fromDate: string,
   toDate: string,
   filter?: DayLoadFilter,
-  decay: number = REST_DAY_LOAD_DECAY,
 ): number {
-  let load = 0
-  for (const date of eachLocalDateInclusive(fromDate, toDate)) {
-    const dayShifts = shiftsByDate.get(date) ?? []
-    if (!workerOnDutyThatDay(workerId, dayShifts)) {
-      load *= decay
-      if (load < 0.05) load = 0
-      continue
-    }
-    const summary = dayPlacementLoadSummary(
-      workerId,
-      dayShifts,
-      laneMap,
-      filter,
-    )
-    load += summary.points
-    if (summary.easyOnly) {
-      load *= EASY_ONLY_DAY_LOAD_DECAY
-      if (load < 0.05) load = 0
-    }
-  }
-  return Math.round(load * 10) / 10
+  return accumulateLoadBalance(
+    workerId,
+    shiftsByDate,
+    laneMap,
+    fromDate,
+    toDate,
+    filter,
+  ).net
 }
 
 /**
@@ -888,18 +963,17 @@ export function buildWorkerProfile(
   )
 
   let sameDayLastCaptured = false
+  let sameDayDelta = 0
   for (const shift of sameDayEarlier) {
     const placements: Lane[] = []
-    for (const assignment of shift.assignments ?? []) {
-      if (!assignment.workerIds.includes(workerId)) continue
-      const lane = laneMap.get(assignment.laneId)
+    for (const placement of shiftPlacements(shift)) {
+      if (placement.workerId !== workerId) continue
+      const lane = laneMap.get(placement.laneId)
       if (!lane) continue
       placements.push(lane)
       recordLaneVisit(lane, shift.shiftType, 0.5, -1)
-
-      const points = placementScoreForLoad(lane.intensity, shift.shiftType)
-      profile.load += points
-      // Same-day earlier is a different shift type than current — still counts as load
+      sameDayDelta +=
+        shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
       if (lane.intensity === 'hard') {
         profile.hardCount += 1
       }
@@ -909,16 +983,6 @@ export function buildWorkerProfile(
     }
 
     if (placements.length === 0) continue
-
-    // Same-day morning that was entirely day-easy also gets mild recovery.
-    if (
-      placements.length > 0 &&
-      placements.every((l) =>
-        countsAsDayEasy(l.intensity, shift.shiftType),
-      )
-    ) {
-      profile.load *= EASY_ONLY_DAY_LOAD_DECAY
-    }
 
     profile.shiftsSeen += 1
     // Same-day earlier is more recent than prior-day history — override "last"
@@ -932,6 +996,7 @@ export function buildWorkerProfile(
     }
   }
 
+  profile.load = Math.max(LOAD_BALANCE_FLOOR, profile.load + sameDayDelta)
   profile.load = Math.round(profile.load * 10) / 10
   profile.loadInSameShiftType =
     Math.round(profile.loadInSameShiftType * 10) / 10
@@ -1377,9 +1442,11 @@ export function evaluateBoard(
     rotSum += rot.rawScore
     if (isShortReturnToLane(profile, lane.id)) shortReturnCount += 1
 
-    const projectedLoad =
+    const projectedLoad = Math.max(
+      LOAD_BALANCE_FLOOR,
       profile.load +
-      placementScoreForLoad(lane.intensity, ctx.currentShiftType)
+        shiftBalanceDelta(lane.intensity, ctx.currentShiftType),
+    )
     loads.push(projectedLoad)
     hardCounts.push(
       profile.hardCount + (lane.intensity === 'hard' ? 1 : 0),
@@ -2672,16 +2739,16 @@ export function computeWorkerLaneStats(
     const dates = filtered.map((h) => h.date).sort()
     const from = options?.fromDate ?? dates[0]
     const to = options?.toDate ?? dates[dates.length - 1]
-    const effectiveLoad =
+    const balance =
       from && to
-        ? accumulateLoadWithRestDecay(
+        ? accumulateLoadBalance(
             w.id,
             groupShiftsByDate(dedupeShiftsByDateAndType(filtered)),
             laneMap,
             from,
             to,
           )
-        : 0
+        : { net: 0, rose: 0, fell: 0 }
 
     return {
       workerId: w.id,
@@ -2691,7 +2758,9 @@ export function computeWorkerLaneStats(
       easyCount,
       dayEasyCount,
       nightEasyCount,
-      effectiveLoad,
+      effectiveLoad: balance.net,
+      loadRose: balance.rose,
+      loadFell: balance.fell,
       hardByShift,
       totalAssignments,
     }

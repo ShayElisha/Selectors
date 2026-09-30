@@ -16,13 +16,13 @@ import {
 
 describe('fairnessGapStatus', () => {
   it('uses assumed thresholds', () => {
-    expect(FAIRNESS_GAP_ATTENTION).toBe(3)
-    expect(FAIRNESS_GAP_HIGH).toBe(6)
+    expect(FAIRNESS_GAP_ATTENTION).toBe(2)
+    expect(FAIRNESS_GAP_HIGH).toBe(4)
     expect(fairnessGapStatus(0)).toBe('good')
-    expect(fairnessGapStatus(2.9)).toBe('good')
-    expect(fairnessGapStatus(3)).toBe('attention')
-    expect(fairnessGapStatus(5.9)).toBe('attention')
-    expect(fairnessGapStatus(6)).toBe('high')
+    expect(fairnessGapStatus(1.9)).toBe('good')
+    expect(fairnessGapStatus(2)).toBe('attention')
+    expect(fairnessGapStatus(3.9)).toBe('attention')
+    expect(fairnessGapStatus(4)).toBe('high')
   })
 })
 

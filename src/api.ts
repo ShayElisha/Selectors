@@ -171,6 +171,7 @@ export interface OrganizationSummary {
   suspendedAt?: string
   lastLoginAt?: string
   deletedAt?: string
+  restoreUntil?: string
   manager: { fullName: string; phone: string; email: string } | null
 }
 
@@ -183,6 +184,41 @@ export function deleteOrganizationRemote(id: string): Promise<{ ok: boolean }> {
     method: 'DELETE',
     body: JSON.stringify({ id }),
   })
+}
+
+export function extendOrganizationRestoreRemote(
+  id: string,
+): Promise<OrganizationSummary> {
+  return request('/api/organizations/extend-restore', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+}
+
+export function purgeOrganizationRemote(
+  id: string,
+  confirmName: string,
+  password: string,
+): Promise<{ ok: boolean }> {
+  return request('/api/organizations/purge', {
+    method: 'POST',
+    body: JSON.stringify({ id, confirmName, password }),
+  })
+}
+
+export function fetchHistoryPage(query: {
+  limit: number
+  offset: number
+  from?: string
+  to?: string
+}): Promise<{ total: number; offset: number; limit: number; items: ShiftSchedule[] }> {
+  const params = new URLSearchParams({
+    limit: String(query.limit),
+    offset: String(query.offset),
+  })
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
+  return request(`/api/history?${params.toString()}`)
 }
 
 export function restoreOrganizationRemote(id: string): Promise<OrganizationSummary> {
@@ -247,6 +283,7 @@ export interface OrgAssignmentSettings {
   modules: { selectors: boolean; inspectors: boolean }
   assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
   roundMinutes?: { selectors: number; inspectors: number }
+  staggerRounds?: { selectors: boolean; inspectors: boolean }
   organization?: OrgProfile
 }
 
@@ -268,6 +305,7 @@ export function fetchOrgSettings(): Promise<OrgAssignmentSettings> {
 export function saveOrgSettings(body: {
   assignmentModes?: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
   roundMinutes?: { selectors: number; inspectors: number }
+  staggerRounds?: { selectors: boolean; inspectors: boolean }
   profile?: OrgProfile
 }): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings', {

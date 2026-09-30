@@ -26,7 +26,19 @@ export function validatePasswordRules(password) {
   return null
 }
 
-/** First-login / reset code sent by email: exactly 6 digits. */
+/** First-login / reset code sent by email: exactly 6 digits. Valid for 24 hours. */
+export const TEMP_PASSWORD_MS = 24 * 60 * 60 * 1000
+
+export function tempPasswordExpiresAt(now = Date.now()) {
+  return new Date(now + TEMP_PASSWORD_MS).toISOString()
+}
+
+export function tempPasswordExpired(value, now = Date.now()) {
+  if (!value) return false
+  const time = new Date(value).getTime()
+  return Number.isFinite(time) && time <= now
+}
+
 export function generateTempPassword() {
   return String(randomInt(0, 1_000_000)).padStart(6, '0')
 }

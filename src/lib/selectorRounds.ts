@@ -2,8 +2,10 @@ import { isQualified } from '../algorithm'
 import type {
   Lane,
   LaneAssignment,
+  RoundCohort,
   SelectorRound,
   ShiftType,
+  WindowAdjustment,
   Worker,
 } from '../types'
 import { isGateManagerLane } from './gateManager'
@@ -78,6 +80,48 @@ export function selectorLanes(lanes: Lane[], activeLaneIds: string[]): Lane[] {
   return out
 }
 
+function buildAssignmentWindows(args: {
+  shiftType: ShiftType
+  workers: Worker[]
+  workerWindows?: Record<string, string>
+  bounds?: { start: number; end: number }
+  roundMinutes?: number
+  stagger?: boolean
+}): Array<Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label' | 'cohort'>> {
+  const windowIds = args.workers.map((worker) => args.workerWindows?.[worker.id])
+  const cuts = roundCutsForWindows(args.shiftType, windowIds)
+  const hour = buildRoundWindows(
+    args.shiftType,
+    cuts,
+    windowIds,
+    args.bounds,
+    args.roundMinutes,
+  )
+  if (!args.stagger || hour.length === 0) return hour
+  const first = hour[0]
+  const last = hour[hour.length - 1]
+  if (!first || !last) return hour
+  const halfStart = first.startMinutes + 30
+  if (halfStart >= last.endMinutes) {
+    return hour.map((window) => ({ ...window, cohort: 'hour' as const }))
+  }
+  const half = buildRoundWindows(
+    args.shiftType,
+    cuts,
+    windowIds,
+    { start: halfStart, end: last.endMinutes },
+    args.roundMinutes,
+  ).map((window) => ({ ...window, cohort: 'half' as const }))
+  return [
+    ...hour.map((window) => ({ ...window, cohort: 'hour' as const })),
+    ...half,
+  ].sort(
+    (a, b) =>
+      a.startMinutes - b.startMinutes ||
+      (a.cohort === 'half' ? 1 : 0) - (b.cohort === 'half' ? 1 : 0),
+  )
+}
+
 function emptyAssignments(
   lanes: Lane[],
   overrides?: StaffingOverrides | null,
@@ -128,6 +172,9 @@ export function setSelectorCell(
   const next = cloneRounds(rounds)
   const round = next[roundIndex]
   if (!round) return next
+  if (workerId && repeatsPreviousLane(rounds, roundIndex, laneId, workerId)) {
+    return rounds
+  }
   if (workerId) {
     for (const a of round.assignments) {
       a.workerIds = a.workerIds.map((id) => (id === workerId ? '' : id))
@@ -151,6 +198,40 @@ export function clearWorkerFromRounds(
       workerIds: a.workerIds.map((id) => (id === workerId ? '' : id)),
     })),
   }))
+}
+
+/**
+ * Lane from the previous round in the same sequence.
+ * Without stagger that is the round just before. With stagger it is the
+ * previous round of the same hour or half-hour group.
+ */
+export function previousRoundLane(
+  rounds: SelectorRound[],
+  roundIndex: number,
+  workerId: string,
+): string | null {
+  const current = rounds[roundIndex]
+  const stagger = Boolean(current?.cohort)
+  for (let index = roundIndex - 1; index >= 0; index -= 1) {
+    const round = rounds[index]
+    if (!round) continue
+    if (stagger && round.cohort !== current?.cohort) continue
+    for (const assignment of round.assignments) {
+      if (assignment.workerIds.includes(workerId)) return assignment.laneId
+    }
+    if (!stagger) return null
+  }
+  return null
+}
+
+/** Hard rule: the same lane cannot repeat on two consecutive rounds for one person. */
+export function repeatsPreviousLane(
+  rounds: SelectorRound[],
+  roundIndex: number,
+  laneId: string,
+  workerId: string,
+): boolean {
+  return previousRoundLane(rounds, roundIndex, workerId) === laneId
 }
 
 export function selectorRoundsHavePlacements(rounds: SelectorRound[]): boolean {
@@ -198,7 +279,10 @@ function pickWorker(
   roundIndex: number,
 ): Worker | null {
   const qualified = workers.filter(
-    (w) => !used.has(w.id) && isQualified(w, lane),
+    (w) =>
+      !used.has(w.id) &&
+      isQualified(w, lane) &&
+      prevLane.get(w.id) !== lane.id,
   )
   if (qualified.length === 0) return null
   const rotated = (worker: Worker) => {
@@ -235,19 +319,16 @@ export function assignSelectorRounds(args: {
   bounds?: { start: number; end: number }
   /** Length of one round, in minutes. Default is two hours. */
   roundMinutes?: number
+  /** Half the people rotate on the hour, half on the half-hour. */
+  stagger?: boolean
+  /** Late arrival / early leave. Existing placements are left in place. */
+  windowAdjustments?: Record<string, WindowAdjustment>
 }): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
     a.fullName.localeCompare(b.fullName, 'he'),
   )
-  const windowIds = args.workers.map((w) => args.workerWindows?.[w.id])
-  const windows = buildRoundWindows(
-    args.shiftType,
-    roundCutsForWindows(args.shiftType, windowIds),
-    windowIds,
-    args.bounds,
-    args.roundMinutes,
-  )
+  const windows = buildAssignmentWindows(args)
   const warnings: string[] = []
 
   if (active.length === 0) {
@@ -260,11 +341,15 @@ export function assignSelectorRounds(args: {
   const visits = new Map<string, Map<string, number>>()
   const prevLane = new Map<string, string>()
   let emptySeats = 0
+  let repeatBlocks = 0
 
   const earlyCutoff = onShiftClock(6 * 60, args.shiftType)
   const partners = (args.nightPartners ?? []).filter(
     (partner) => !workers.some((worker) => worker.id === partner.id),
   )
+  const orderedIds = [...workers, ...partners].map((worker) => worker.id)
+  const cohortOf = (workerId: string): RoundCohort =>
+    orderedIds.indexOf(workerId) % 2 === 0 ? 'hour' : 'half'
 
   const rounds: SelectorRound[] = windows.map((w, roundIndex) => {
     const used = new Set<string>()
@@ -280,15 +365,20 @@ export function assignSelectorRounds(args: {
       const std = open ? effectiveStaffingStandard(lane, args.overrides) : 0
       const workerIds: string[] = []
       for (let slot = 0; slot < std; slot++) {
-        const eligible = pool.filter((worker) =>
-          windowCoversRound(
-            args.workerWindows?.[worker.id],
-            args.shiftType,
-            w.startMinutes,
-            w.endMinutes,
-          ) ||
-          partners.some((partner) => partner.id === worker.id),
-        )
+        const eligible = pool.filter((worker) => {
+          if (args.stagger && w.cohort && cohortOf(worker.id) !== w.cohort) {
+            return false
+          }
+          return (
+            windowCoversRound(
+              args.workerWindows?.[worker.id],
+              args.shiftType,
+              w.startMinutes,
+              w.endMinutes,
+              args.windowAdjustments?.[worker.id],
+            ) || partners.some((partner) => partner.id === worker.id)
+          )
+        })
         const pick = pickWorker(
           lane,
           eligible,
@@ -300,6 +390,13 @@ export function assignSelectorRounds(args: {
         if (!pick) {
           workerIds.push('')
           emptySeats += 1
+          const blocked = eligible.some(
+            (worker) =>
+              !used.has(worker.id) &&
+              isQualified(worker, lane) &&
+              prevLane.get(worker.id) === lane.id,
+          )
+          if (blocked) repeatBlocks += 1
           continue
         }
         used.add(pick.id)
@@ -309,9 +406,14 @@ export function assignSelectorRounds(args: {
       }
       return { laneId: lane.id, workerIds }
     })
+    if (!args.stagger) prevLane.clear()
     for (const [id, laneId] of nextPrev) prevLane.set(id, laneId)
     return { ...w, assignments }
   })
+
+  if (repeatBlocks > 0) {
+    warnings.push('נחסם רצף של אותו נתיב בשני סבבים צמודים')
+  }
 
   if (emptySeats > 0 && workers.length > 0 && active.length > 0) {
     warnings.push(

@@ -1026,6 +1026,22 @@ export async function importUnscopedInspectorModels(scope) {
   return imported
 }
 
+const stateCache = new Map()
+const STATE_CACHE_MS = 20_000
+
+function stateCacheKey(scope) {
+  return `${scope.orgId}:${scope.module}`
+}
+
+/** Drop the assembled snapshot so the next read hits Mongo again. */
+export function invalidateStateCache(scope) {
+  if (!scope?.orgId) {
+    stateCache.clear()
+    return
+  }
+  stateCache.delete(stateCacheKey(scope))
+}
+
 export async function readState(scope) {
   if (!scope?.orgId || !scope?.module) {
     const err = new Error('חסר הקשר ארגון')
@@ -1042,9 +1058,49 @@ export async function readState(scope) {
   const metaCol = await getMetaCollection(target)
   const meta = await metaCol.findOne({ _id: metaIdFor(scope) })
   if (meta?.schema === 'collections') {
-    return assembleState(meta.revision, undefined, scope, target)
+    const key = stateCacheKey(scope)
+    const cached = stateCache.get(key)
+    const revision = Number(meta.revision ?? 0)
+    if (
+      cached &&
+      cached.revision === revision &&
+      Date.now() - cached.at < STATE_CACHE_MS
+    ) {
+      return cached.state
+    }
+    const state = await assembleState(meta.revision, undefined, scope, target)
+    stateCache.set(key, { at: Date.now(), revision, state })
+    return state
   }
   return emptyState()
+}
+
+/** One page of saved shifts, newest first, without loading the whole history. */
+export async function listHistoryPage(scope, query = {}) {
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error('חסר הקשר ארגון')
+    err.status = 400
+    throw err
+  }
+  const limit = Math.min(Math.max(Number(query.limit) || 30, 1), 60)
+  const offset = Math.max(Number(query.offset) || 0, 0)
+  const target = targetForScope(scope)
+  const db = await getDb(target)
+  const filter = { ...scopeFilter(scope) }
+  if (query.from || query.to) {
+    filter.date = {}
+    if (query.from) filter.date.$gte = String(query.from)
+    if (query.to) filter.date.$lte = String(query.to)
+  }
+  const col = db.collection(MODEL_COLLECTIONS.shifts)
+  const total = await col.countDocuments(filter)
+  const docs = await col
+    .find(filter)
+    .sort({ date: -1, updatedAt: -1 })
+    .skip(offset)
+    .limit(limit)
+    .toArray()
+  return { total, offset, limit, items: fromOrderedDocs(docs) }
 }
 
 export async function writeState(data, options = {}) {
@@ -1143,6 +1199,7 @@ export async function writeState(data, options = {}) {
     }
   }
 
+  invalidateStateCache(scope)
   return publicData(result)
 }
 

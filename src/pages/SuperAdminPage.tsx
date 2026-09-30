@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   deleteOrganizationRemote,
+  extendOrganizationRestoreRemote,
   fetchOrganizationsRemote,
+  purgeOrganizationRemote,
   restoreOrganizationRemote,
   reviewOrganizationRemote,
   type OrganizationSummary,
@@ -268,6 +270,9 @@ export function SuperAdminPage() {
   })
   const [deleteTarget, setDeleteTarget] = useState<OrganizationSummary | null>(null)
   const [deleteTyped, setDeleteTyped] = useState('')
+  const [purgeTarget, setPurgeTarget] = useState<OrganizationSummary | null>(null)
+  const [purgeName, setPurgeName] = useState('')
+  const [purgePassword, setPurgePassword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -409,6 +414,36 @@ export function SuperAdminPage() {
       notify.success('הארגון שוחזר')
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'השחזור נכשל')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const extend = async (org: OrganizationSummary) => {
+    setBusyId(org.id)
+    try {
+      const saved = await extendOrganizationRestoreRemote(org.id)
+      setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
+      notify.success('חלון השחזור הוארך בשבעה ימים')
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'הארכת החלון נכשלה')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const purge = async (org: OrganizationSummary) => {
+    if (purgeName.trim() !== org.name.trim() || !purgePassword) return
+    setBusyId(org.id)
+    try {
+      await purgeOrganizationRemote(org.id, purgeName.trim(), purgePassword)
+      setRows((current) => current.filter((row) => row.id !== org.id))
+      setPurgeTarget(null)
+      setPurgeName('')
+      setPurgePassword('')
+      notify.success('הארגון נמחק לצמיתות')
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'המחיקה הסופית נכשלה')
     } finally {
       setBusyId(null)
     }
@@ -624,17 +659,41 @@ export function SuperAdminPage() {
                     <div>
                       <p className="font-semibold text-ink">{org.name}</p>
                       <p className="text-[12px] text-ink-soft">
-                        אפשר לשחזר עד שבעה ימים מהמחיקה
+                        {org.restoreUntil
+                          ? `אפשר לשחזר עד ${org.restoreUntil.slice(0, 10)}`
+                          : 'אפשר לשחזר עד שבעה ימים מהמחיקה'}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className="ui-btn ui-btn-secondary"
-                      disabled={busyId === org.id}
-                      onClick={() => void restore(org)}
-                    >
-                      שחזור
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-secondary"
+                        disabled={busyId === org.id}
+                        onClick={() => void restore(org)}
+                      >
+                        שחזור
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-secondary"
+                        disabled={busyId === org.id}
+                        onClick={() => void extend(org)}
+                      >
+                        הארכת חלון
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-danger"
+                        disabled={busyId === org.id}
+                        onClick={() => {
+                          setPurgeName('')
+                          setPurgePassword('')
+                          setPurgeTarget(org)
+                        }}
+                      >
+                        מחיקה לצמיתות
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -671,6 +730,54 @@ export function SuperAdminPage() {
                 onClick={() => void remove(deleteTarget)}
               >
                 מחיקה
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {purgeTarget ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl border border-line bg-card p-4 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-ink">
+              מחיקה לצמיתות של {purgeTarget.name}
+            </h3>
+            <p className="mt-1 text-sm text-ink-soft">
+              הפעולה מוחקת את הארגון בלי אפשרות שחזור. הקלידו את שם הארגון ואת סיסמת סופר אדמין.
+            </p>
+            <input
+              className="ui-field mt-3"
+              value={purgeName}
+              onChange={(e) => setPurgeName(e.target.value)}
+              aria-label="שם הארגון לאישור מחיקה סופית"
+              placeholder="שם הארגון"
+            />
+            <input
+              className="ui-field mt-2"
+              type="password"
+              value={purgePassword}
+              onChange={(e) => setPurgePassword(e.target.value)}
+              aria-label="סיסמת סופר אדמין"
+              placeholder="סיסמת סופר אדמין"
+              autoComplete="current-password"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="ui-btn ui-btn-ghost"
+                onClick={() => setPurgeTarget(null)}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="ui-btn ui-btn-danger disabled:opacity-40"
+                disabled={
+                  purgeName.trim() !== purgeTarget.name.trim() || !purgePassword
+                }
+                onClick={() => void purge(purgeTarget)}
+              >
+                מחיקה לצמיתות
               </button>
             </div>
           </div>

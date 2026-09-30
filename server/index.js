@@ -13,6 +13,7 @@ import {
   migrateInspectorsDatabase,
   migrateLegacyTenancy,
   publicData,
+  listHistoryPage,
   readState,
   requestPasswordReset,
   resendManagerTempPassword,
@@ -21,7 +22,7 @@ import {
 } from './data.js'
 import { getDb } from './db.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, listOrganizations, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -230,6 +231,36 @@ app.delete('/api/organizations', async (req, res) => {
   }
 })
 
+app.post('/api/organizations/extend-restore', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    const id = String(req.body?.id || '')
+    if (!id) {
+      const err = new Error('חסר מזהה ארגון')
+      err.status = 400
+      throw err
+    }
+    res.json(await extendOrganizationRestore(id))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/organizations/purge', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    const id = String(req.body?.id || '')
+    if (!id) {
+      const err = new Error('חסר מזהה ארגון')
+      err.status = 400
+      throw err
+    }
+    res.json(await purgeOrganization(id, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
 app.post('/api/organizations/restore', async (req, res) => {
   try {
     requireSuperAdmin(req)
@@ -296,6 +327,22 @@ app.patch('/api/org-settings', async (req, res) => {
       return
     }
     res.json(await updateOrgAssignmentSettings(user.orgId, body, user))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/history', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(
+      await listHistoryPage(scope, {
+        limit: req.query.limit,
+        offset: req.query.offset,
+        from: req.query.from,
+        to: req.query.to,
+      }),
+    )
   } catch (err) {
     sendError(res, err)
   }

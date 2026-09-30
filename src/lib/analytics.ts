@@ -1,4 +1,7 @@
-import { computeWorkerLaneStats } from '../algorithm'
+import {
+  LOAD_BALANCE_FLOOR,
+  computeWorkerLaneStats,
+} from '../algorithm'
 import { shiftPlacements } from './shiftPlacements'
 import type { Lane, ShiftSchedule, ShiftType, Worker } from '../types'
 
@@ -6,6 +9,8 @@ export interface WorkerAnalyticsRow {
   workerId: string
   fullName: string
   effectiveLoad: number
+  loadRose: number
+  loadFell: number
   hardCount: number
   dayEasyCount: number
   nightEasyCount: number
@@ -78,8 +83,8 @@ const EMPTY_SHIFT: Record<ShiftType, number> = {
  * ASSUMPTION — no fairness-gap thresholds existed in the product.
  * good: gap &lt; ATTENTION; attention: ATTENTION ≤ gap &lt; HIGH; high: gap ≥ HIGH.
  */
-export const FAIRNESS_GAP_ATTENTION = 3
-export const FAIRNESS_GAP_HIGH = 6
+export const FAIRNESS_GAP_ATTENTION = 2
+export const FAIRNESS_GAP_HIGH = 4
 
 export type FairnessGapStatus = 'good' | 'attention' | 'high'
 
@@ -127,6 +132,13 @@ export function filterLaneRepeats(
 
 export function formatLoadOneDecimal(n: number): string {
   return (Math.round(n * 10) / 10).toFixed(1)
+}
+
+/** Where a balance sits between the floor and the highest value on screen, 0–100. */
+export function loadScalePosition(value: number, max: number): number {
+  const span = Math.max(max - LOAD_BALANCE_FLOOR, 1)
+  const pct = ((value - LOAD_BALANCE_FLOOR) / span) * 100
+  return Math.min(100, Math.max(0, pct))
 }
 
 function filterHistory(
@@ -295,6 +307,8 @@ export function computeTeamAnalytics(
       workerId: s.workerId,
       fullName,
       effectiveLoad: s.effectiveLoad,
+      loadRose: s.loadRose,
+      loadFell: s.loadFell,
       hardCount: s.hardCount,
       dayEasyCount: s.dayEasyCount,
       nightEasyCount: s.nightEasyCount,

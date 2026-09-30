@@ -19,6 +19,7 @@ import {
   filterLaneRepeats,
   formatLoadOneDecimal,
   loadDeviationFromMean,
+  loadScalePosition,
   loadPerShift,
   type FairnessGapStatus,
   type HardAfterNightEvent,
@@ -32,6 +33,7 @@ import { notify } from '../lib/notify'
 import { IntensityBadge, Ltr, SectionCard, Skeleton } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
 import { LoadExplainer } from '../components/LoadExplainer'
+import { OrgHealthPanel } from '../components/OrgHealthPanel'
 import { useApp } from '../context/AppContext'
 import { formatShiftDate, pluralizeHe } from '../lib/hebrew'
 import { SHIFT_TYPE_LABELS } from '../constants'
@@ -75,15 +77,18 @@ function MeanLoadBar({
   max,
   mean,
   deviation,
+  rose,
+  fell,
 }: {
   value: number
   max: number
   mean: number
   deviation: LoadDeviation
+  rose: number
+  fell: number
 }) {
-  const span = Math.max(max, mean, 1)
-  const pct = Math.min(100, (value / span) * 100)
-  const meanPct = Math.min(100, (mean / span) * 100)
+  const pct = loadScalePosition(value, Math.max(max, mean))
+  const meanPct = loadScalePosition(mean, Math.max(max, mean))
   const fill =
     deviation === 'above'
       ? 'bg-hard/70'
@@ -100,9 +105,16 @@ function MeanLoadBar({
         : 'קרוב לממוצע'
   return (
     <div className="flex items-center gap-2">
-      <Ltr className="w-9 shrink-0 text-start text-[13px] font-bold tabular-nums text-ink">
-        {formatLoadOneDecimal(value)}
-      </Ltr>
+      <span className="w-24 shrink-0 text-start leading-tight">
+        <Ltr className="text-[13px] font-bold tabular-nums text-ink">
+          {formatLoadOneDecimal(value)}
+        </Ltr>
+        <span className="block text-[10px] text-ink-soft">
+          עלה <Ltr>{formatLoadOneDecimal(rose)}</Ltr>
+          {' · '}
+          ירד <Ltr>{formatLoadOneDecimal(fell)}</Ltr>
+        </span>
+      </span>
       <div
         className="relative h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-surface ring-1 ring-line/70"
         role="img"
@@ -172,7 +184,7 @@ function LoadOverview({
   avgLoad: number
 }) {
   const [focusId, setFocusId] = useState<string | null>(null)
-  const max = Math.max(...workers.map((w) => w.effectiveLoad), avgLoad, 1)
+  const max = Math.max(...workers.map((w) => w.effectiveLoad), avgLoad, 0)
   const sorted = useMemo(
     () => [...workers].sort((a, b) => b.effectiveLoad - a.effectiveLoad),
     [workers],
@@ -222,25 +234,25 @@ function LoadOverview({
         dir="ltr"
         className="relative h-16 overflow-hidden rounded-xl bg-surface/80 px-3 ring-1 ring-line/70"
         role="img"
-        aria-label={`התפלגות עומס מ־0 עד ${formatLoadOneDecimal(max)}, ממוצע ${formatLoadOneDecimal(avgLoad)}`}
+        aria-label={`התפלגות עומס מ־2− עד ${formatLoadOneDecimal(max)}, ממוצע ${formatLoadOneDecimal(avgLoad)}`}
       >
         {/* mean band */}
         <div
           className="pointer-events-none absolute inset-y-3 rounded bg-brand/10"
           style={{
-            left: `calc(${(avgLoad / max) * 100}% - 6%)`,
+            left: `calc(${loadScalePosition(avgLoad, max)}% - 6%)`,
             width: '12%',
           }}
         />
         <div
           className="pointer-events-none absolute inset-y-2 w-px bg-accent"
-          style={{ left: `${(avgLoad / max) * 100}%` }}
+          style={{ left: `${loadScalePosition(avgLoad, max)}%` }}
           title={`ממוצע ${formatLoadOneDecimal(avgLoad)}`}
         />
         {/* baseline */}
         <div className="pointer-events-none absolute inset-x-3 top-1/2 h-px -translate-y-1/2 bg-line" />
         {sorted.map((w, i) => {
-          const left = (w.effectiveLoad / max) * 100
+          const left = loadScalePosition(w.effectiveLoad, max)
           const lane = laneOf(i)
           const active = focusId === w.workerId
           return (
@@ -517,7 +529,7 @@ export function AnalyticsPage() {
     <div className="analytics-print-root min-w-0 max-w-full space-y-4 overflow-x-clip">
       <SectionCard
         title="סטטיסטיקות ואנליזה"
-        subtitle="מי עבד קשה יותר בטווח שנבחר. המספר עולה מנתיב קשה ומלילה, ויורד ממנוחה ומנתיב קל ביום."
+        subtitle="מאזן 14 הימים האחרונים בטווח. נתיב קשה מעלה, יום חופש ונתיב קל ביום מורידים."
         actions={
           <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 no-print">
             <button
@@ -561,6 +573,12 @@ export function AnalyticsPage() {
       >
         <div className="mb-4 space-y-3">
           <LoadExplainer />
+          <OrgHealthPanel
+            history={data.history}
+            lanes={data.lanes}
+            fromDate={fromDate}
+            toDate={toDate}
+          />
           <RangeBar
             value={range}
             onChange={selectPreset}
@@ -612,8 +630,8 @@ export function AnalyticsPage() {
               <div className="mb-1 flex items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">עומס ממוצע</span>
                 <InfoTip label="הסבר עומס ממוצע">
-                  הממוצע של מי שעבד לפחות פעם אחת בטווח. מי שלא שובץ בטווח לא נכנס
-                  לחישוב. פירוט הנקודות נמצא ב«איך מחושב העומס».
+                  הממוצע של מי שעבד לפחות פעם אחת בטווח, לפי 14 הימים האחרונים שבו.
+                  פירוט הנקודות נמצא ב«איך מחושב העומס».
                 </InfoTip>
               </div>
               <p className="font-display text-xl font-bold tabular-nums text-brand-deep sm:text-2xl">
@@ -627,7 +645,7 @@ export function AnalyticsPage() {
                 <span className="text-[13px] font-medium">פער הוגנות</span>
                 <InfoTip label="הסבר פער הוגנות">
                   ההפרש בין מי שהכי עמוס למי שהכי פחות עמוס, מבין מי שעבד בטווח.
-                  מתחת ל־3 הנקודות המצב נחשב מאוזן. מ־3 כדאי לשים לב. מ־6 הפער גבוה.
+                  מתחת ל־2 הנקודות המצב נחשב מאוזן. מ־2 כדאי לשים לב. מ־4 הפער גבוה.
                 </InfoTip>
               </div>
               <p className="font-display text-xl font-bold tabular-nums text-brand-deep sm:text-2xl">
@@ -875,6 +893,8 @@ export function AnalyticsPage() {
                               max={analytics.maxLoad}
                               mean={analytics.avgLoad}
                               deviation={dev}
+                              rose={w.loadRose}
+                              fell={w.loadFell}
                             />
                           </td>
                           <td className="border-b border-line px-2 py-2 text-center tabular-nums">
@@ -992,6 +1012,8 @@ function WorkerRankList({
               max={maxLoad}
               mean={avgLoad}
               deviation={dev}
+              rose={w.loadRose}
+              fell={w.loadFell}
             />
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-soft">
               <span>

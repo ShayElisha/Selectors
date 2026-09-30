@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { computeWorkerLaneStats } from '../algorithm'
+import { loadScalePosition } from '../lib/analytics'
 import type { WorkerLaneStats } from '../algorithm'
 import { Ltr, SectionCard } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
@@ -140,14 +141,18 @@ function LoadBar({
   value,
   max,
   average,
+  rose,
+  fell,
 }: {
   value: number
   max: number
   average: number
+  rose: number
+  fell: number
 }) {
-  const span = Math.max(max, average, 1)
-  const pct = Math.min(100, (value / span) * 100)
-  const avgPct = Math.min(100, (average / span) * 100)
+  const spanMax = Math.max(max, average, 0)
+  const pct = loadScalePosition(value, spanMax)
+  const avgPct = loadScalePosition(average, spanMax)
   return (
     <div className="inline-flex items-center justify-center gap-1">
       <div
@@ -165,9 +170,16 @@ function LoadBar({
           title="ממוצע צוות"
         />
       </div>
-      <Ltr className="text-[10px] font-medium text-ink">
-        {formatLoadOneDecimal(value)}
-      </Ltr>
+      <span className="text-start leading-tight">
+        <Ltr className="text-[10px] font-medium text-ink">
+          {formatLoadOneDecimal(value)}
+        </Ltr>
+        <span className="block text-[10px] text-ink-soft">
+          עלה <Ltr>{formatLoadOneDecimal(rose)}</Ltr>
+          {' · '}
+          ירד <Ltr>{formatLoadOneDecimal(fell)}</Ltr>
+        </span>
+      </span>
     </div>
   )
 }
@@ -246,8 +258,8 @@ function DayEasyTip() {
         role="tooltip"
         className="pointer-events-none absolute end-0 top-full z-[70] mt-1.5 hidden w-56 rounded-lg border border-line bg-card px-2.5 py-2 text-start text-[11px] font-normal leading-relaxed text-ink shadow-[var(--shadow-panel-hover)] group-focus-within:block group-hover:block"
       >
-        כמה פעמים האדם ישב בנתיב קל בבוקר או בצהריים. זה נחשב מנוחה, ולכן
-        מוסיף רק חצי נקודה לעומס. נתיב קל בלילה לא נספר כאן.
+        כמה פעמים האדם ישב בנתיב קל בבוקר או בצהריים. כל משמרת כזאת מורידה
+        נקודה אחת מהמאזן. נתיב קל בלילה לא נספר כאן.
       </span>
     </span>
   )
@@ -350,6 +362,7 @@ export function TrackingPage() {
   const [customFrom, setCustomFrom] = useState(() => daysAgoISO(30))
   const [customTo, setCustomTo] = useState(() => todayISO())
   const [search, setSearch] = useState('')
+  const [workerPage, setWorkerPage] = useState(0)
   const [intensityFilter, setIntensityFilter] =
     useState<IntensityFilter>('all')
   const [sortKey, setSortKey] = useState<TrackingSortKey>('name')
@@ -492,6 +505,14 @@ export function TrackingPage() {
     return sortDir === 'asc' ? 'ascending' : 'descending'
   }
 
+  const TRACKING_PAGE = 15
+  const workerPages = Math.max(1, Math.ceil(filteredWorkers.length / TRACKING_PAGE))
+  const safeWorkerPage = Math.min(workerPage, workerPages - 1)
+  const pageWorkers = filteredWorkers.slice(
+    safeWorkerPage * TRACKING_PAGE,
+    safeWorkerPage * TRACKING_PAGE + TRACKING_PAGE,
+  )
+
   const cellHeat = (n: number) =>
     heatCellClass(heatLevel(n, { maxInData: maxCell, rangeDays }))
 
@@ -594,7 +615,7 @@ export function TrackingPage() {
             </div>
 
             <ul className="space-y-2 lg:hidden">
-              {filteredWorkers.map((w) => {
+              {pageWorkers.map((w) => {
                 const s = statsByWorker.get(w.id)!
                 const topLanes = visibleLanes
                   .map((lane) => ({
@@ -633,6 +654,10 @@ export function TrackingPage() {
                       </span>
                       <span className="rounded-md bg-card px-1.5 py-0.5 font-semibold text-ink ring-1 ring-line">
                         עומס <Ltr>{formatLoadOneDecimal(s.effectiveLoad)}</Ltr>
+                        {' · '}
+                        עלה <Ltr>{formatLoadOneDecimal(s.loadRose)}</Ltr>
+                        {' · '}
+                        ירד <Ltr>{formatLoadOneDecimal(s.loadFell)}</Ltr>
                       </span>
                     </div>
                     {topLanes.length > 0 ? (
@@ -798,7 +823,7 @@ export function TrackingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredWorkers.map((w) => {
+                  {pageWorkers.map((w) => {
                     const s = statsByWorker.get(w.id)!
                     const rowHot = hoverRow === w.id
                     return (
@@ -906,6 +931,8 @@ export function TrackingPage() {
                             value={s.effectiveLoad}
                             max={maxLoad}
                             average={avgLoad}
+                            rose={s.loadRose}
+                            fell={s.loadFell}
                           />
                         </td>
                         <td
@@ -933,6 +960,32 @@ export function TrackingPage() {
             </p>
           </>
         )}
+        {workerPages > 1 ? (
+          <div className="mt-3 flex items-center justify-between gap-2 text-[13px]">
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary"
+              disabled={safeWorkerPage === 0}
+              onClick={() => setWorkerPage((page) => Math.max(0, page - 1))}
+            >
+              הקודם
+            </button>
+            <span className="text-ink-soft">
+              עמוד <Ltr>{String(safeWorkerPage + 1)}</Ltr> מתוך{' '}
+              <Ltr>{String(workerPages)}</Ltr>
+            </span>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary"
+              disabled={safeWorkerPage + 1 >= workerPages}
+              onClick={() =>
+                setWorkerPage((page) => Math.min(workerPages - 1, page + 1))
+              }
+            >
+              הבא
+            </button>
+          </div>
+        ) : null}
       </SectionCard>
     </div>
   )

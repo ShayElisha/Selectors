@@ -115,6 +115,7 @@ export function ShiftPage() {
     updateSelectorCell,
     removeLaneFromShift,
     setWorkerWindow,
+    setWindowAdjustment,
     addExtraWorkerToLane,
     saveCurrentShift,
     startShift,
@@ -1227,6 +1228,46 @@ export function ShiftPage() {
                                 </option>
                               ))}
                             </select>
+                            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                              <label className="text-[11px] text-ink-soft">
+                                איחור
+                                <select
+                                  className="ui-field mt-0.5 w-full py-1 text-[12px]"
+                                  aria-label={`איחור של ${w.fullName}`}
+                                  value={draft.windowAdjustments?.[w.id]?.lateMinutes ?? 0}
+                                  onChange={(e) =>
+                                    setWindowAdjustment(w.id, {
+                                      lateMinutes: Number(e.target.value),
+                                    })
+                                  }
+                                >
+                                  <option value={0}>בזמן</option>
+                                  <option value={15}>15 דק׳</option>
+                                  <option value={30}>30 דק׳</option>
+                                  <option value={45}>45 דק׳</option>
+                                  <option value={60}>שעה</option>
+                                </select>
+                              </label>
+                              <label className="text-[11px] text-ink-soft">
+                                יציאה מוקדמת
+                                <select
+                                  className="ui-field mt-0.5 w-full py-1 text-[12px]"
+                                  aria-label={`יציאה מוקדמת של ${w.fullName}`}
+                                  value={draft.windowAdjustments?.[w.id]?.earlyMinutes ?? 0}
+                                  onChange={(e) =>
+                                    setWindowAdjustment(w.id, {
+                                      earlyMinutes: Number(e.target.value),
+                                    })
+                                  }
+                                >
+                                  <option value={0}>עד הסוף</option>
+                                  <option value={15}>15 דק׳</option>
+                                  <option value={30}>30 דק׳</option>
+                                  <option value={45}>45 דק׳</option>
+                                  <option value={60}>שעה</option>
+                                </select>
+                              </label>
+                            </div>
                           </div>
                         ) : null}
                       </div>

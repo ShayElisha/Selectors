@@ -30,6 +30,8 @@ const emptyAnalytics = (): TeamAnalytics => ({
       workerId: 'w1',
       fullName: 'אבי',
       effectiveLoad: 5,
+      loadRose: 6,
+      loadFell: 1,
       hardCount: 2,
       dayEasyCount: 1,
       nightEasyCount: 0,

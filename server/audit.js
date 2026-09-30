@@ -354,14 +354,25 @@ function summarizeAppDataChangeResidual(prev, next) {
   for (const lane of nl) {
     const o = pl.find((x) => x.id === lane.id)
     if (!o) continue
+    const intensityHe = { easy: 'קל', medium: 'בינוני', hard: 'קשה' }
+    if (o.intensity !== lane.intensity) {
+      const before = intensityHe[o.intensity] || o.intensity || '?'
+      const after = intensityHe[lane.intensity] || lane.intensity || '?'
+      parts.push(`${lane.name || lane.id} שונה מ${before} ל${after}`)
+    }
+    if (o.name !== lane.name) {
+      parts.push(`${o.name || o.id} שונה ל${lane.name || lane.id}`)
+    }
+    if (o.staffingStandard !== lane.staffingStandard) {
+      parts.push(
+        `${lane.name || lane.id}: תקן ${o.staffingStandard} → ${lane.staffingStandard}`,
+      )
+    }
     const reqSame =
       JSON.stringify([...(o.requiredCertifications || [])].sort()) ===
       JSON.stringify([...(lane.requiredCertifications || [])].sort())
-    if (!reqSame) continue
     if (
-      o.name !== lane.name ||
-      o.staffingStandard !== lane.staffingStandard ||
-      o.intensity !== lane.intensity ||
+      reqSame &&
       Boolean(o.afternoonHandoff) !== Boolean(lane.afternoonHandoff)
     ) {
       metaLaneChanges += 1
