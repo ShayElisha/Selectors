@@ -235,14 +235,17 @@ export function CertsPage() {
   const inputId = useId()
   const errId = useId()
 
-  const ordered = useMemo(
-    () =>
-      orderedCertifications(
-        data.certificationsCatalog,
-        data.certificationsCatalog,
-      ),
-    [data.certificationsCatalog],
-  )
+  const ordered = useMemo(() => {
+    const seen = new Set<string>()
+    const unique: string[] = []
+    for (const raw of data.certificationsCatalog) {
+      const label = raw.trim()
+      if (!label || seen.has(label)) continue
+      seen.add(label)
+      unique.push(label)
+    }
+    return orderedCertifications(unique, unique)
+  }, [data.certificationsCatalog])
 
   const thinNote = useMemo(
     () => thinDependentLanesCount(data.lanes, data.workers),
