@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { AppProvider, useApp } from './context/AppContext'
 import { ThemeProvider, useTheme } from './lib/theme'
@@ -21,9 +21,28 @@ import { LoginPage } from './pages/LoginPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SuperAdminPage } from './pages/SuperAdminPage'
+import { WorkerProfilePage } from './pages/WorkerProfilePage'
+import { ChangePasswordPage } from './pages/ChangePasswordPage'
+import { AlgorithmPage } from './pages/AlgorithmPage'
+import { HelpPage } from './pages/HelpPage'
+import { ReportPage } from './pages/ReportPage'
+import { NotFoundPage } from './pages/NotFoundPage'
+import { isAppPath } from './routes'
 
 function ProtectedShell() {
   const { user, loading, data } = useApp()
+  const location = useLocation()
+  const path = location.pathname.replace(/\/+$/, '') || '/'
+  if (!isAppPath(path)) {
+    if (user?.role === 'org_manager') {
+      return (
+        <Shell>
+          <NotFoundPage />
+        </Shell>
+      )
+    }
+    return <NotFoundPage standalone />
+  }
   if (!user) return <Navigate to="/login" replace />
   if (user.role === 'super_admin') return <Navigate to="/admin" replace />
   const hasData = data.workers.length > 0 || data.lanes.length > 0
@@ -36,6 +55,7 @@ function ProtectedShell() {
         <Route index element={<HomePage />} />
         <Route path="shift" element={<ShiftPage />} />
         <Route path="shift/:shiftId" element={<ShiftPage />} />
+        <Route path="workers/:workerId" element={<WorkerProfilePage />} />
         <Route path="workers" element={<WorkersPage />} />
         <Route path="lanes" element={<LanesPage />} />
         <Route path="certs" element={<CertsPage />} />
@@ -43,13 +63,14 @@ function ProtectedShell() {
         <Route path="shift-models" element={<ShiftModelsPage />} />
         <Route path="customs-brokers" element={<CustomsBrokersPage />} />
         <Route path="settings" element={<OrgSettingsPage />} />
+        <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="tracking" element={<TrackingPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="history" element={<HistoryPage />} />
         <Route path="history/:shiftId" element={<HistoryPage />} />
         <Route path="history-matrix" element={<Navigate to="/history" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Shell>
   )
@@ -65,6 +86,9 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/admin" element={<SuperAdminPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/help" element={<HelpPage />} />
+          <Route path="/report" element={<ReportPage />} />
+          <Route path="/algorithm" element={<AlgorithmPage />} />
           <Route path="/*" element={<ProtectedShell />} />
         </Routes>
       </AppProvider>

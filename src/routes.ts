@@ -16,11 +16,25 @@ export const VIEW_PATH: Record<View, string> = {
   settings: '/settings',
 }
 
+export function isAppPath(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '') || '/'
+  if (path === '/history-matrix') return true
+  if (path === '/algorithm' || path === '/account/password') return true
+  if (
+    path.startsWith('/shift/') ||
+    path.startsWith('/history/') ||
+    path.startsWith('/workers/')
+  ) {
+    return true
+  }
+  return (Object.values(VIEW_PATH) as string[]).includes(path)
+}
+
 export function viewFromPath(pathname: string): View {
   const path = pathname.replace(/\/+$/, '') || '/'
   if (path === '/') return 'home'
   if (path === '/shift' || path.startsWith('/shift/')) return 'shift'
-  if (path === '/workers') return 'workers'
+  if (path === '/workers' || path.startsWith('/workers/')) return 'workers'
   if (path === '/lanes') return 'lanes'
   if (path === '/certs') return 'certs'
   if (path === '/tracking') return 'tracking'

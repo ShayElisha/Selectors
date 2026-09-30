@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import { SectionCard } from '../components/ui'
@@ -148,6 +148,14 @@ export function OrgSettingsPage() {
           </div>
         )}
       </SectionCard>
+      <p className="text-sm text-ink-soft">
+        <Link
+          to="/algorithm"
+          className="font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand"
+        >
+          כללי השיבוץ בשפה פשוטה
+        </Link>
+      </p>
     </div>
   )
 }

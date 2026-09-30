@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Ban,
   Check,
@@ -1412,9 +1413,12 @@ export function WorkersPage() {
                                 <WorkerAvatar name={w.fullName} />
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="truncate font-semibold text-ink">
+                                    <Link
+                                      to={`/workers/${encodeURIComponent(w.id)}`}
+                                      className="truncate font-semibold text-ink underline-offset-2 hover:text-brand hover:underline"
+                                    >
                                       {w.fullName}
-                                    </span>
+                                    </Link>
                                     {inactive ? <InactiveBadge /> : null}
                                   </div>
                                 </div>
@@ -1499,9 +1503,12 @@ export function WorkersPage() {
                             <WorkerAvatar name={w.fullName} />
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-semibold text-ink">
+                                <Link
+                                  to={`/workers/${encodeURIComponent(w.id)}`}
+                                  className="font-semibold text-ink underline-offset-2 hover:text-brand hover:underline"
+                                >
                                   {w.fullName}
-                                </span>
+                                </Link>
                                 <RoleBadges worker={w} />
                                 {inactive ? <InactiveBadge /> : null}
                               </div>
