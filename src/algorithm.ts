@@ -581,10 +581,10 @@ export function placementLoadOnDay(
 }
 
 /**
- * Change versus a medium day shift.
- * Easy morning/afternoon eases the balance. A hard morning and a hard afternoon
- * are equal. A hard night is about two hard days. Selector rounds of one shift
- * share one shift: weight is the round's fraction of that shift.
+ * Load points for one placement.
+ * Morning is heavier than the same lane in the afternoon.
+ * Night stays on its own scale. Selector rounds of one shift share one shift:
+ * weight is the round's fraction of that shift.
  */
 export function shiftBalanceDelta(
   intensity: Lane['intensity'],
@@ -595,9 +595,18 @@ export function shiftBalanceDelta(
     if (intensity === 'medium') return 2
     return 1
   }
-  if (intensity === 'hard') return 2
-  if (intensity === 'medium') return 0
-  return -1
+  const afternoon =
+    shiftType === 'afternoon' ||
+    shiftType === 'afternoonA' ||
+    shiftType === 'afternoonB'
+  if (afternoon) {
+    if (intensity === 'hard') return 2
+    if (intensity === 'medium') return 1
+    return 0.5
+  }
+  if (intensity === 'hard') return 3.5
+  if (intensity === 'medium') return 2
+  return 1
 }
 
 export type LoadBalance = {
