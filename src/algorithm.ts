@@ -373,8 +373,10 @@ export function dedupeShiftsByDateAndType(
 
 /** Worker must hold every required certification for the lane */
 export function isQualified(worker: Worker, lane: Lane): boolean {
-  if (lane.requiredCertifications.length === 0) return true
-  return lane.requiredCertifications.every((c) => worker.certifications.includes(c))
+  const required = lane.requiredCertifications ?? []
+  if (required.length === 0) return true
+  const held = worker.certifications ?? []
+  return required.every((c) => held.includes(c))
 }
 
 /**
@@ -981,8 +983,8 @@ export function buildWorkerProfile(
     const placements: Lane[] = []
     const daysSince = daysBetweenLocal(shift.date, currentDate)
 
-    for (const assignment of shift.assignments) {
-      if (!assignment.workerIds.includes(workerId)) continue
+    for (const assignment of shift.assignments ?? []) {
+      if (!assignment?.workerIds?.includes(workerId)) continue
       const lane = laneMap.get(assignment.laneId)
       if (!lane) continue
       placements.push(lane)
