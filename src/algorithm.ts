@@ -66,6 +66,12 @@ export interface WorkerLaneStats {
   loadRose: number
   /** Points the balance actually fell in that window */
   loadFell: number
+  /** Morning balance over the last 14 days. Not mixed with afternoon. */
+  morningLoad: number
+  /** Afternoon balance, including צהריים א and צהריים ב. */
+  afternoonLoad: number
+  /** Night balance, kept apart from the day shifts. */
+  nightLoad: number
   hardByShift: Record<ShiftType, number>
   totalAssignments: number
 }
@@ -500,6 +506,19 @@ export type DayLoadFilter = {
   includeNight?: boolean
   /** Only count placements of this shift type. */
   onlyShiftType?: ShiftType
+  /**
+   * Morning, afternoon (including א/ב), and night each keep their own balance.
+   * A day without that shift is a rest day for that balance only.
+   */
+  family?: LoadShiftFamily
+}
+
+export type LoadShiftFamily = 'morning' | 'afternoon' | 'night'
+
+export function shiftLoadFamily(shiftType: ShiftType): LoadShiftFamily {
+  if (shiftType === 'night') return 'night'
+  if (shiftType === 'morning') return 'morning'
+  return 'afternoon'
 }
 
 export function groupShiftsByDate(
@@ -648,12 +667,15 @@ export function accumulateLoadBalance(
   const start = fromDate > capStart ? fromDate : capStart
   for (const date of eachLocalDateInclusive(start, toDate)) {
     const dayShifts = shiftsByDate.get(date) ?? []
-    if (!workerOnDutyThatDay(workerId, dayShifts)) {
+    const counted = filter?.family
+      ? dayShifts.filter((shift) => shiftLoadFamily(shift.shiftType) === filter.family)
+      : dayShifts
+    if (!workerOnDutyThatDay(workerId, counted)) {
       applyBalanceStep(state, LOAD_OFF_DAY)
       continue
     }
     let dayDelta = 0
-    for (const shift of dayShifts) {
+    for (const shift of counted) {
       if (filter?.includeNight === false && shift.shiftType === 'night') {
         continue
       }
@@ -949,25 +971,21 @@ export function buildWorkerProfile(
     }
   })
 
-  // Effective load with rest-day decay over the lookback calendar window.
+  // Each shift family keeps its own 14-day balance.
   const windowStart = addLocalDaysISO(currentDate, -windowDays)
+  const family = shiftLoadFamily(currentShiftType)
   if (prevDate && windowStart <= prevDate) {
     const byDate = groupShiftsByDate(lookback)
-    profile.load = accumulateLoadWithRestDecay(
+    const familyLoad = accumulateLoadBalance(
       workerId,
       byDate,
       laneMap,
       windowStart,
       prevDate,
-    )
-    profile.loadInSameShiftType = accumulateLoadWithRestDecay(
-      workerId,
-      byDate,
-      laneMap,
-      windowStart,
-      prevDate,
-      { onlyShiftType: currentShiftType },
-    )
+      { family },
+    ).net
+    profile.load = familyLoad
+    profile.loadInSameShiftType = familyLoad
   }
 
   // Same-day earlier shifts → D = 0.5 + load / hard / lastWasHard (not rotation-only).
@@ -991,8 +1009,10 @@ export function buildWorkerProfile(
       if (!lane) continue
       placements.push(lane)
       recordLaneVisit(lane, shift.shiftType, 0.5, -1)
-      sameDayDelta +=
-        shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
+      if (shiftLoadFamily(shift.shiftType) === family) {
+        sameDayDelta +=
+          shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
+      }
       if (lane.intensity === 'hard') {
         profile.hardCount += 1
       }
@@ -2765,16 +2785,14 @@ export function computeWorkerLaneStats(
     const dates = filtered.map((h) => h.date).sort()
     const from = options?.fromDate ?? dates[0]
     const to = options?.toDate ?? dates[dates.length - 1]
-    const balance =
+    const shiftsByDate = groupShiftsByDate(dedupeShiftsByDateAndType(filtered))
+    const balanceOf = (family: LoadShiftFamily) =>
       from && to
-        ? accumulateLoadBalance(
-            w.id,
-            groupShiftsByDate(dedupeShiftsByDateAndType(filtered)),
-            laneMap,
-            from,
-            to,
-          )
+        ? accumulateLoadBalance(w.id, shiftsByDate, laneMap, from, to, { family })
         : { net: 0, rose: 0, fell: 0 }
+    const morning = balanceOf('morning')
+    const afternoon = balanceOf('afternoon')
+    const night = balanceOf('night')
 
     return {
       workerId: w.id,
@@ -2784,9 +2802,12 @@ export function computeWorkerLaneStats(
       easyCount,
       dayEasyCount,
       nightEasyCount,
-      effectiveLoad: balance.net,
-      loadRose: balance.rose,
-      loadFell: balance.fell,
+      effectiveLoad: roundLoad(morning.net + afternoon.net + night.net),
+      loadRose: roundLoad(morning.rose + afternoon.rose + night.rose),
+      loadFell: roundLoad(morning.fell + afternoon.fell + night.fell),
+      morningLoad: morning.net,
+      afternoonLoad: afternoon.net,
+      nightLoad: night.net,
       hardByShift,
       totalAssignments,
     }

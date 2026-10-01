@@ -11,7 +11,6 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import {
-  previousLocalDate,
   runAssignmentAlgorithm,
   type PlacementExplanation,
 } from '../algorithm'
@@ -346,11 +345,6 @@ const emptyData: AppData = {
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
-
-function todayISO(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 function selectorRoundBounds(shiftType: string, models: ShiftModel[] | undefined, inspectors: boolean) {
   const model = shiftModelById(
@@ -1113,20 +1107,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       data.shiftModels,
       inspectors ? 'inspectors' : 'selectors',
     )
-    const date = todayISO()
     const catalog = models.map((model) => model.id as ShiftType)
-    let shiftType = currentShiftModel(models).model.id as ShiftType
-    if (!catalog.includes(shiftType)) shiftType = catalog[0] ?? shiftType
-    if (findShiftForSlot(data.history, date, shiftType, undefined, lockedAudience)) {
-      const freeType = catalog.find(
-        (t) => !findShiftForSlot(data.history, date, t, undefined, lockedAudience),
-      )
-      if (freeType) shiftType = freeType
-    }
+    const clock = currentShiftModel(models)
+    const shiftType = catalog.includes(clock.model.id as ShiftType)
+      ? (clock.model.id as ShiftType)
+      : (catalog[0] ?? 'morning')
 
     adoptCleanDraft({
       id: uuid(),
-      date,
+      date: clock.date,
       shiftType,
       audience: lockedAudience,
       assignmentMode,
@@ -1145,7 +1134,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
     setShiftStep('lanes')
     setView('shift')
-  }, [adoptCleanDraft, assignmentModes, data.history, data.shiftModels, setShiftStep, setView, user?.module])
+  }, [adoptCleanDraft, assignmentModes, data.shiftModels, setShiftStep, setView, user?.module])
 
   const discardDraft = useCallback(() => {
     draftBaselineRef.current = null
@@ -1160,9 +1149,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (patch: Partial<Pick<ShiftDraft, 'date' | 'shiftType'>>) => {
       setDraft((d) => {
         if (!d) return d
-        // Allow selecting a conflicting slot so the UI can show an inline notice
-        // with a link to the existing shift; save/create still block duplicates.
-        return { ...d, ...patch }
+        const typeChanged =
+          patch.shiftType != null && patch.shiftType !== d.shiftType
+        const dateChanged = patch.date != null && patch.date !== d.date
+        if (!typeChanged && !dateChanged) return { ...d, ...patch }
+        return {
+          ...d,
+          ...patch,
+          id: uuid(),
+          assignments: [],
+          rounds: [],
+          explanations: [],
+          warnings: [],
+          unassignedWorkerIds: [],
+          presentWorkerIds: [],
+          workerWindows: {},
+          windowAdjustments: {},
+          gateManagerWorkerId: undefined,
+        }
       })
     },
     [],
@@ -1509,30 +1513,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [data.lanes, data.workers],
   )
 
-function nightPartnersForMorning(
-  date: string,
-  shiftType: ShiftType,
-  history: ShiftSchedule[],
-  workers: Worker[],
-  presentIds: string[],
-): Worker[] {
-  if (shiftType !== 'morning') return []
-  const nightDate = previousLocalDate(date)
-  if (!nightDate) return []
-  const night = history
-    .filter((item) => item.date === nightDate && item.shiftType === 'night')
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-  if (!night) return []
-  const present = new Set(presentIds)
-  return workers.filter(
-    (worker) =>
-      worker.status === 'active' &&
-      worker.isInspector &&
-      night.presentWorkerIds.includes(worker.id) &&
-      !present.has(worker.id),
-  )
-}
-
   const commitSelectorBoard = useCallback(() => {
     setDraft((d) => {
       if (!d || !usesRounds(d) || (d.rounds?.length ?? 0) > 0) return d
@@ -1562,13 +1542,6 @@ function nightPartnersForMorning(
         workers: present,
         overrides: d.staffingOverrides,
         workerWindows: d.workerWindows,
-        nightPartners: nightPartnersForMorning(
-          d.date,
-          d.shiftType,
-          data.history,
-          data.workers,
-          d.presentWorkerIds,
-        ),
       })
       return withGateManagerSync(
         {
@@ -1620,13 +1593,6 @@ function nightPartnersForMorning(
           workers: present,
           overrides: d.staffingOverrides,
           workerWindows,
-          nightPartners: nightPartnersForMorning(
-            d.date,
-            d.shiftType,
-            data.history,
-            data.workers,
-            d.presentWorkerIds,
-          ),
         })
         return withGateManagerSync(
           {
@@ -1741,13 +1707,6 @@ function nightPartnersForMorning(
         workers: present,
         overrides: d.staffingOverrides,
         workerWindows: d.workerWindows,
-        nightPartners: nightPartnersForMorning(
-          d.date,
-          d.shiftType,
-          data.history,
-          data.workers,
-          d.presentWorkerIds,
-        ),
       })
       const filled = result.rounds.reduce(
         (n, r) =>

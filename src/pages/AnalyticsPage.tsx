@@ -77,18 +77,21 @@ function MeanLoadBar({
   max,
   mean,
   deviation,
-  rose,
-  fell,
+  morning,
+  afternoon,
+  night,
 }: {
   value: number
   max: number
   mean: number
   deviation: LoadDeviation
-  rose: number
-  fell: number
+  morning: number
+  afternoon: number
+  night: number
 }) {
-  const pct = loadScalePosition(value, Math.max(max, mean))
-  const meanPct = loadScalePosition(mean, Math.max(max, mean))
+  const spanMax = Math.max(max, mean)
+  const pct = loadScalePosition(value, spanMax, -6)
+  const meanPct = loadScalePosition(mean, spanMax, -6)
   const fill =
     deviation === 'above'
       ? 'bg-hard/70'
@@ -105,14 +108,15 @@ function MeanLoadBar({
         : 'קרוב לממוצע'
   return (
     <div className="flex items-center gap-2">
-      <span className="w-24 shrink-0 text-start leading-tight">
-        <Ltr className="text-[13px] font-bold tabular-nums text-ink">
-          {formatLoadOneDecimal(value)}
-        </Ltr>
-        <span className="block text-[10px] text-ink-soft">
-          עלה <Ltr>{formatLoadOneDecimal(rose)}</Ltr>
-          {' · '}
-          ירד <Ltr>{formatLoadOneDecimal(fell)}</Ltr>
+      <span className="w-28 shrink-0 text-start leading-tight text-[10px] text-ink-soft">
+        <span className="block">
+          בוקר <Ltr className="font-bold text-ink">{formatLoadOneDecimal(morning)}</Ltr>
+        </span>
+        <span className="block">
+          צהריים <Ltr className="font-bold text-ink">{formatLoadOneDecimal(afternoon)}</Ltr>
+        </span>
+        <span className="block">
+          לילה <Ltr className="font-bold text-ink">{formatLoadOneDecimal(night)}</Ltr>
         </span>
       </span>
       <div
@@ -240,19 +244,19 @@ function LoadOverview({
         <div
           className="pointer-events-none absolute inset-y-3 rounded bg-brand/10"
           style={{
-            left: `calc(${loadScalePosition(avgLoad, max)}% - 6%)`,
+            left: `calc(${loadScalePosition(avgLoad, max, -6)}% - 6%)`,
             width: '12%',
           }}
         />
         <div
           className="pointer-events-none absolute inset-y-2 w-px bg-accent"
-          style={{ left: `${loadScalePosition(avgLoad, max)}%` }}
+          style={{ left: `${loadScalePosition(avgLoad, max, -6)}%` }}
           title={`ממוצע ${formatLoadOneDecimal(avgLoad)}`}
         />
         {/* baseline */}
         <div className="pointer-events-none absolute inset-x-3 top-1/2 h-px -translate-y-1/2 bg-line" />
         {sorted.map((w, i) => {
-          const left = loadScalePosition(w.effectiveLoad, max)
+          const left = loadScalePosition(w.effectiveLoad, max, -6)
           const lane = laneOf(i)
           const active = focusId === w.workerId
           return (
@@ -529,7 +533,7 @@ export function AnalyticsPage() {
     <div className="analytics-print-root min-w-0 max-w-full space-y-4 overflow-x-clip">
       <SectionCard
         title="סטטיסטיקות ואנליזה"
-        subtitle="מאזן 14 הימים האחרונים בטווח. נתיב קשה מעלה, יום חופש ונתיב קל ביום מורידים."
+        subtitle="בוקר, צהריים ולילה מחושבים בנפרד. כל אחד הוא מאזן של 14 הימים שלו."
         actions={
           <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 no-print">
             <button
@@ -893,8 +897,9 @@ export function AnalyticsPage() {
                               max={analytics.maxLoad}
                               mean={analytics.avgLoad}
                               deviation={dev}
-                              rose={w.loadRose}
-                              fell={w.loadFell}
+                              morning={w.morningLoad}
+                              afternoon={w.afternoonLoad}
+                              night={w.nightLoad}
                             />
                           </td>
                           <td className="border-b border-line px-2 py-2 text-center tabular-nums">
@@ -1012,8 +1017,9 @@ function WorkerRankList({
               max={maxLoad}
               mean={avgLoad}
               deviation={dev}
-              rose={w.loadRose}
-              fell={w.loadFell}
+              morning={w.morningLoad}
+              afternoon={w.afternoonLoad}
+              night={w.nightLoad}
             />
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-soft">
               <span>

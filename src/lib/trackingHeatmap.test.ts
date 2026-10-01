@@ -219,6 +219,9 @@ function stubStats(
     effectiveLoad: partial.effectiveLoad ?? 0,
     loadRose: partial.loadRose ?? 0,
     loadFell: partial.loadFell ?? 0,
+    morningLoad: partial.morningLoad ?? 0,
+    afternoonLoad: partial.afternoonLoad ?? 0,
+    nightLoad: partial.nightLoad ?? 0,
     hardByShift: partial.hardByShift ?? {
       morning: 0,
       afternoon: 0,

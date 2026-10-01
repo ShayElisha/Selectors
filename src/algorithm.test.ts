@@ -823,8 +823,8 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     )
     expect(p.lastWasHard).toBe(true)
     expect(p.hardCount).toBe(1)
-    // Rest days sit on the floor (−2). A hard morning the same day adds 3.5.
-    expect(p.load).toBe(1.5)
+    // Morning load is its own balance. Afternoon stays on the floor.
+    expect(p.load).toBe(-2)
   })
 
   it('rest days decay cumulative load vs continuous work', () => {
@@ -1023,6 +1023,58 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
     )
     expect(one.net).toBe(3.5)
+    const morning = accumulateLoadBalance(
+      'a',
+      groupShiftsByDate([
+        shift(
+          'm',
+          '2026-03-08',
+          'morning',
+          [{ laneId: 'hard', workerIds: ['a'] }],
+          ['a'],
+          ['hard'],
+        ),
+        shift(
+          'a1',
+          '2026-03-08',
+          'afternoon',
+          [{ laneId: 'hard', workerIds: ['a'] }],
+          ['a'],
+          ['hard'],
+        ),
+      ]),
+      laneMap,
+      '2026-03-08',
+      '2026-03-08',
+      { family: 'morning' },
+    )
+    const afternoon = accumulateLoadBalance(
+      'a',
+      groupShiftsByDate([
+        shift(
+          'm',
+          '2026-03-08',
+          'morning',
+          [{ laneId: 'hard', workerIds: ['a'] }],
+          ['a'],
+          ['hard'],
+        ),
+        shift(
+          'a1',
+          '2026-03-08',
+          'afternoon',
+          [{ laneId: 'hard', workerIds: ['a'] }],
+          ['a'],
+          ['hard'],
+        ),
+      ]),
+      laneMap,
+      '2026-03-08',
+      '2026-03-08',
+      { family: 'afternoon' },
+    )
+    expect(morning.net).toBe(3.5)
+    expect(afternoon.net).toBe(2)
     expect(both.net).toBe(5.5)
   })
 
