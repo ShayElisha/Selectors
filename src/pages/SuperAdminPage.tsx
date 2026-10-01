@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   deleteOrganizationRemote,
   extendOrganizationRestoreRemote,
+  fetchBugReportsRemote,
   fetchOrganizationsRemote,
   purgeOrganizationRemote,
   restoreOrganizationRemote,
   reviewOrganizationRemote,
+  setBugReportHandledRemote,
+  type BugReportSummary,
   type OrganizationSummary,
 } from '../api'
 import { AppFooter } from '../components/AppFooter'
@@ -273,6 +276,10 @@ export function SuperAdminPage() {
   const [purgeTarget, setPurgeTarget] = useState<OrganizationSummary | null>(null)
   const [purgeName, setPurgeName] = useState('')
   const [purgePassword, setPurgePassword] = useState('')
+  const [reports, setReports] = useState<BugReportSummary[]>([])
+  const [reportFilter, setReportFilter] = useState<'open' | 'handled' | 'all'>('open')
+  const [openReportId, setOpenReportId] = useState<string | null>(null)
+  const [reportBusyId, setReportBusyId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -290,6 +297,21 @@ export function SuperAdminPage() {
     if (user?.role !== 'super_admin') return
     void load()
   }, [load, user?.role])
+
+  useEffect(() => {
+    if (user?.role !== 'super_admin') return
+    let stop = false
+    void fetchBugReportsRemote()
+      .then((list) => {
+        if (!stop) setReports(list)
+      })
+      .catch((err) => {
+        if (!stop) setError(err instanceof Error ? err.message : 'טעינת הדיווחים נכשלה')
+      })
+    return () => {
+      stop = true
+    }
+  }, [user?.role])
 
   const live = useMemo(() => rows.filter((org) => org.status !== 'deleted'), [rows])
   const counts = useMemo(() => {
@@ -516,6 +538,121 @@ export function SuperAdminPage() {
         <BarChart title="הצטרפויות לפי שבוע" series={joinSeries} />
         <BarChart title="אישורים מול דחיות" series={decisionSeries} />
       </div>
+
+      <section className="mb-4 overflow-hidden rounded-xl border border-line/70 bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/70 bg-surface/80 px-4 py-3">
+          <h2 className="font-display text-lg font-bold text-ink">
+            דיווחי תקלה ({reports.filter((report) => !report.handled).length} פתוחים)
+          </h2>
+          <div className="flex gap-1" role="group" aria-label="סינון דיווחים">
+            {(
+              [
+                ['open', 'פתוחים'],
+                ['handled', 'טופלו'],
+                ['all', 'הכל'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setReportFilter(id)}
+                className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold ${
+                  reportFilter === id ? 'bg-brand text-white' : 'text-ink-soft hover:bg-card'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {reports.filter((report) =>
+          reportFilter === 'all' ? true : reportFilter === 'handled' ? report.handled : !report.handled,
+        ).length === 0 ? (
+          <p className="px-4 py-6 text-sm text-ink-soft">אין דיווחים ברשימה הזו.</p>
+        ) : (
+          <ul className="divide-y divide-line/60">
+            {reports
+              .filter((report) =>
+                reportFilter === 'all'
+                  ? true
+                  : reportFilter === 'handled'
+                    ? report.handled
+                    : !report.handled,
+              )
+              .map((report) => {
+                const open = openReportId === report.id
+                const when = report.at
+                  ? new Date(report.at).toLocaleString('he-IL', {
+                      day: 'numeric',
+                      month: 'numeric',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : ''
+                return (
+                  <li key={report.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        className="min-w-0 text-right"
+                        onClick={() => setOpenReportId(open ? null : report.id)}
+                      >
+                        <p className="font-semibold text-ink">{report.title}</p>
+                        <p className="mt-1 text-[13px] text-ink-soft">
+                          {report.orgName || 'בלי ארגון'}
+                          {report.contactName ? ` · ${report.contactName}` : ''}
+                          {' · '}
+                          <Ltr>{report.contactPhone || '—'}</Ltr>
+                          {when ? ` · ${when}` : ''}
+                        </p>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-[12px] font-bold ${
+                            report.handled
+                              ? 'bg-ok-soft text-ok'
+                              : 'bg-warn-soft text-warn'
+                          }`}
+                        >
+                          {report.handled ? 'טופל' : 'פתוח'}
+                        </span>
+                        <button
+                          type="button"
+                          className="ui-btn ui-btn-secondary"
+                          disabled={reportBusyId === report.id}
+                          onClick={() => {
+                            setReportBusyId(report.id)
+                            void setBugReportHandledRemote(report.id, !report.handled)
+                              .then((next) => {
+                                setReports((current) =>
+                                  current.map((item) => (item.id === next.id ? next : item)),
+                                )
+                              })
+                              .catch((err) => {
+                                setError(err instanceof Error ? err.message : 'עדכון הדיווח נכשל')
+                              })
+                              .finally(() => setReportBusyId(null))
+                          }}
+                        >
+                          {report.handled ? 'החזר לטיפול' : 'סמן כטופל'}
+                        </button>
+                      </div>
+                    </div>
+                    {open ? (
+                      <div className="mt-3 rounded-xl bg-surface px-3 py-2 text-sm leading-relaxed text-ink">
+                        {report.where ? (
+                          <p className="mb-1 text-[13px] text-ink-soft">איפה: {report.where}</p>
+                        ) : null}
+                        <p className="whitespace-pre-wrap">{report.details}</p>
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+          </ul>
+        )}
+      </section>
 
       <div className="mb-4 flex flex-wrap gap-2">
         <input

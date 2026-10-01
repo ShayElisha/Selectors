@@ -59,6 +59,7 @@ export async function submitBugReport(input) {
     userId: user?.id || null,
     role: user?.role || null,
     emailed: false,
+    handled: false,
   }
   const db = await getDb()
   await db.collection('bug_reports').insertOne(doc)
@@ -94,4 +95,39 @@ export async function submitBugReport(input) {
   }
 
   return { ok: true, emailed }
+}
+
+function publicBugReport(doc) {
+  return {
+    id: String(doc._id),
+    at: String(doc.at || ''),
+    title: String(doc.title || ''),
+    details: String(doc.details || ''),
+    where: String(doc.where || ''),
+    contactName: String(doc.contactName || ''),
+    contactPhone: String(doc.contactPhone || ''),
+    orgName: doc.orgName ? String(doc.orgName) : '',
+    handled: doc.handled === true,
+    handledAt: doc.handledAt ? String(doc.handledAt) : '',
+  }
+}
+
+export async function listBugReports() {
+  const db = await getDb()
+  const rows = await db.collection('bug_reports').find({}).sort({ at: -1 }).limit(200).toArray()
+  return rows.map(publicBugReport)
+}
+
+export async function setBugReportHandled(id, handled) {
+  const db = await getDb()
+  const next = handled === true
+  const result = await db.collection('bug_reports').updateOne(
+    { _id: String(id) },
+    next
+      ? { $set: { handled: true, handledAt: new Date().toISOString() } }
+      : { $set: { handled: false }, $unset: { handledAt: '' } },
+  )
+  if (!result.matchedCount) throw httpError('הדיווח לא נמצא', 404)
+  const doc = await db.collection('bug_reports').findOne({ _id: String(id) })
+  return publicBugReport(doc)
 }

@@ -27,7 +27,7 @@ import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganiza
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
-import { submitBugReport } from './support.js'
+import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -115,6 +115,24 @@ app.post('/api/bug-reports', async (req, res) => {
     })
     const user = verifySessionToken(getBearerToken(req))
     res.status(201).json(await submitBugReport({ ...(req.body || {}), user }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/bug-reports', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    res.json(await listBugReports())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/bug-reports/:id', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    res.json(await setBugReportHandled(req.params.id, req.body?.handled === true))
   } catch (err) {
     sendError(res, err)
   }
