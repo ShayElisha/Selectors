@@ -104,6 +104,15 @@ export interface ShiftChangeEvent {
   moves: ShiftChangeMove[]
 }
 
+/** One person left early or their shift was cancelled. */
+export interface ShiftDrop {
+  workerId: string
+  kind: 'leave' | 'cancel'
+  /** Clock minutes. For a leave this is when they stepped down. */
+  minutes: number
+  reason: string
+}
+
 /** Formal close by the manager who is logged in. After this, the board is locked. */
 export interface ShiftSignOff {
   signedAt: string
@@ -185,6 +194,8 @@ export interface ShiftSchedule {
   shiftEvents?: ShiftChangeEvent[]
   /** Clock time someone left the shift, keyed by worker id. Load uses the hours until then. */
   earlyLeaveAt?: Record<string, number>
+  /** Early leaves and cancellations, with the reason the manager wrote. */
+  shiftDrops?: ShiftDrop[]
   createdAt: string
   updatedAt: string
 }

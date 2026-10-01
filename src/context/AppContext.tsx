@@ -119,6 +119,7 @@ import type {
   ShiftAudience,
   ShiftSchedule,
   ShiftChangeEvent,
+  ShiftDrop,
   ShiftSignOff,
   SeatSegment,
   ShiftType,
@@ -213,6 +214,7 @@ export interface ShiftDraft {
   healHighlights?: { laneId: string; tone: 'filled' | 'frozen' }[]
   /** Worker id → clock minutes they left the shift. */
   earlyLeaveAt?: Record<string, number>
+  shiftDrops?: ShiftDrop[]
 }
 
 interface AppContextValue {
@@ -284,6 +286,8 @@ interface AppContextValue {
   ) => void
   /** Mark that a person left the shift at a clock time. Null means they stayed to the end. */
   setEarlyLeave: (workerId: string, minutes: number | null) => void
+  recordShiftDrop: (drop: ShiftDrop) => void
+  undoShiftDrop: (workerId: string) => void
   /** Activate/deactivate מנהל שער for a manager (at most one per shift). */
   setGateManager: (workerId: string | null) => void
   setAllActiveLanes: (on: boolean) => void
@@ -1160,6 +1164,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           windowAdjustments: item.windowAdjustments ?? {},
           staggerRounds: Boolean(item.staggerRounds),
           earlyLeaveAt: item.earlyLeaveAt,
+          shiftDrops: item.shiftDrops,
           signOff: normalizeSignOff(item.signOff),
           frozenLaneIds: item.frozenLaneIds,
           seatSegments: item.seatSegments,
@@ -1232,6 +1237,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(d.earlyLeaveAt && Object.keys(d.earlyLeaveAt).length > 0
         ? { earlyLeaveAt: d.earlyLeaveAt }
         : {}),
+      ...(d.shiftDrops?.length ? { shiftDrops: d.shiftDrops } : {}),
       ...(d.signOff?.signedAt ? { signOff: d.signOff } : {}),
       ...(d.isSelfHealed ? { isSelfHealed: true } : {}),
       ...(d.seatSegments?.length
@@ -1806,6 +1812,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   },
             )
       return { ...d, earlyLeaveAt, rounds }
+    })
+  }, [])
+
+  const recordShiftDrop = useCallback((drop: ShiftDrop) => {
+    setDraft((d) => {
+      if (!d) return d
+      const reason = drop.reason.trim()
+      if (!reason) return d
+      const shiftDrops = [
+        ...(d.shiftDrops ?? []).filter((item) => item.workerId !== drop.workerId),
+        { ...drop, reason },
+      ]
+      const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
+      if (drop.kind === 'leave') {
+        earlyLeaveAt[drop.workerId] = drop.minutes
+      } else {
+        delete earlyLeaveAt[drop.workerId]
+      }
+      const cutoff =
+        drop.kind === 'leave' ? earlyLeaveCutoff(d.shiftType, drop.minutes) : null
+      const clearFromRounds = (rounds: typeof d.rounds, from: number | null) =>
+        (rounds ?? []).map((round) =>
+          from != null && round.startMinutes < from
+            ? round
+            : {
+                ...round,
+                assignments: round.assignments.map((row) => ({
+                  ...row,
+                  workerIds: row.workerIds.map((id) => (id === drop.workerId ? '' : id)),
+                })),
+              },
+        )
+      const rounds =
+        drop.kind === 'cancel'
+          ? clearFromRounds(d.rounds, null)
+          : cutoff == null || !usesRounds(d)
+            ? d.rounds
+            : clearFromRounds(d.rounds, cutoff)
+      const assignments =
+        drop.kind === 'cancel'
+          ? d.assignments.map((row) => ({
+              ...row,
+              workerIds: row.workerIds.map((id) => (id === drop.workerId ? '' : id)),
+            }))
+          : d.assignments
+      const presentWorkerIds =
+        drop.kind === 'cancel'
+          ? d.presentWorkerIds.filter((id) => id !== drop.workerId)
+          : d.presentWorkerIds
+      const gateManagerWorkerId =
+        drop.kind === 'cancel' && d.gateManagerWorkerId === drop.workerId
+          ? undefined
+          : d.gateManagerWorkerId
+      return {
+        ...d,
+        shiftDrops,
+        earlyLeaveAt,
+        rounds,
+        assignments,
+        presentWorkerIds,
+        gateManagerWorkerId,
+      }
+    })
+  }, [])
+
+  const undoShiftDrop = useCallback((workerId: string) => {
+    setDraft((d) => {
+      if (!d) return d
+      const existing = d.shiftDrops?.find((item) => item.workerId === workerId)
+      if (!existing) return d
+      const shiftDrops = (d.shiftDrops ?? []).filter((item) => item.workerId !== workerId)
+      const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
+      delete earlyLeaveAt[workerId]
+      const presentWorkerIds =
+        existing.kind === 'cancel' && !d.presentWorkerIds.includes(workerId)
+          ? [...d.presentWorkerIds, workerId]
+          : d.presentWorkerIds
+      return { ...d, shiftDrops, earlyLeaveAt, presentWorkerIds }
     })
   }, [])
 
@@ -3224,6 +3308,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setWorkerWindow,
       setWindowAdjustment,
       setEarlyLeave,
+      recordShiftDrop,
+      undoShiftDrop,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,
@@ -3311,6 +3397,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setWorkerWindow,
       setWindowAdjustment,
       setEarlyLeave,
+      recordShiftDrop,
+      undoShiftDrop,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,

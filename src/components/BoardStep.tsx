@@ -61,7 +61,7 @@ import {
   type ExportLaneLine,
 } from '../lib/export'
 import { pluralizeHe } from '../lib/hebrew'
-import { earlyLeaveOptions } from '../lib/earlyLeave'
+import { ShiftDropDialog, ShiftDropSummary } from './ShiftDropDialog'
 import { isGateManagerLane } from '../lib/gateManager'
 import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
@@ -148,7 +148,8 @@ export function BoardStep({
     updateAssignment,
     swapAssignments,
     beginRemoval,
-    setEarlyLeave,
+    recordShiftDrop,
+    undoShiftDrop,
     replaceLeavingWorker,
     removeLaneFromShift,
     addSlotToLane,
@@ -163,6 +164,7 @@ export function BoardStep({
   const [explainModalOpen, setExplainModalOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [shareBusy, setShareBusy] = useState(false)
+  const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set())
   const [swapTarget, setSwapTarget] = useState<{
@@ -609,24 +611,13 @@ export function BoardStep({
         </div>
         )}
         {!locked && workerId ? (
-          <label className="mt-1 block text-[11px] font-medium text-ink-soft">
-            ירידה מהמשמרת
-            <select
-              className="mt-0.5 w-full rounded-lg border border-line bg-card px-2 py-1 text-[12px] text-ink"
-              value={draft.earlyLeaveAt?.[workerId] ?? ''}
-              onChange={(event) => {
-                const raw = event.target.value
-                setEarlyLeave(workerId, raw === '' ? null : Number(raw))
-              }}
-            >
-              <option value="">עד סוף המשמרת</option>
-              {earlyLeaveOptions(draft.shiftType).map((option) => (
-                <option key={option.minutes} value={option.minutes}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <button
+            type="button"
+            className="ui-btn ui-btn-secondary mt-1 !py-1 text-[12px]"
+            onClick={() => setDropWorkerId(workerId)}
+          >
+            הורדה ממשמרת
+          </button>
         ) : null}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
@@ -1132,6 +1123,12 @@ export function BoardStep({
       </button>
       ) : null}
 
+      <ShiftDropSummary
+        drops={draft.shiftDrops ?? []}
+        workers={data.workers}
+        onUndo={undoShiftDrop}
+      />
+
       {/* Sticky actions */}
       <div className="fixed inset-x-3 bottom-20 z-40 rounded-2xl border border-line/70 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-panel-hover)] backdrop-blur-md no-print sm:inset-x-4 lg:bottom-4 lg:left-1/2 lg:right-auto lg:w-[min(72rem,calc(100%-2rem))] lg:-translate-x-1/2">
         <div className="mx-auto flex flex-col gap-2">
@@ -1496,6 +1493,24 @@ export function BoardStep({
         groups={explanationGroups}
         returnFocusRef={explainTriggerRef}
       />
+      {dropWorkerId
+        ? (() => {
+            const worker = data.workers.find((item) => item.id === dropWorkerId)
+            if (!worker) return null
+            return (
+              <ShiftDropDialog
+                worker={worker}
+                shiftType={draft.shiftType}
+                initial={(draft.shiftDrops ?? []).find((item) => item.workerId === worker.id)}
+                onClose={() => setDropWorkerId(null)}
+                onConfirm={(drop) => {
+                  recordShiftDrop(drop)
+                  setDropWorkerId(null)
+                }}
+              />
+            )
+          })()
+        : null}
     </section>
   )
 }

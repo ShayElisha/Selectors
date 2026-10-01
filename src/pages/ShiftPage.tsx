@@ -28,7 +28,7 @@ import {
 } from '../algorithm'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
-import { earlyLeaveOptions } from '../lib/earlyLeave'
+import { ShiftDropDialog, ShiftDropSummary } from '../components/ShiftDropDialog'
 import { ShiftClosedBanner, ShiftSignOffDialog } from '../components/ShiftSignOffDialog'
 import { BoardCompareDialog } from '../components/BoardCompareDialog'
 import type { AssignmentResult } from '../algorithm'
@@ -119,7 +119,8 @@ export function ShiftPage() {
     removeLaneFromShift,
     setWorkerWindow,
     setWindowAdjustment,
-    setEarlyLeave,
+    recordShiftDrop,
+    undoShiftDrop,
     addExtraWorkerToLane,
     saveCurrentShift,
     signCurrentShift,
@@ -152,6 +153,7 @@ export function ShiftPage() {
   const [discardOpen, setDiscardOpen] = useState(false)
   const [signOpen, setSignOpen] = useState(false)
   const [signBusy, setSignBusy] = useState(false)
+  const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
   const [compareOptions, setCompareOptions] = useState<{
     loadFair: AssignmentResult
     hardExperience: AssignmentResult
@@ -1769,38 +1771,31 @@ export function ShiftPage() {
           />
           {!draft.signOff?.signedAt ? (
             <div className="rounded-2xl border border-line/70 bg-card px-4 py-3">
-              <p className="text-sm font-semibold text-ink">ירידה מהמשמרת</p>
-              <p className="mt-1 text-[13px] text-ink-soft">
-                מי שיוצא באמצע לא נשאר בסבבים מהשעה הזו, והעומס מחושב רק עד אז.
-              </p>
-              <ul className="mt-2 space-y-2">
+              <p className="text-sm font-semibold text-ink">הורדה ממשמרת</p>
+              <ul className="mt-2 flex flex-wrap gap-2">
                 {selectorStaff(
                   data.workers,
                   draft.presentWorkerIds,
                   draft.gateManagerWorkerId,
                 ).map((worker) => (
-                  <li key={worker.id} className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm text-ink">{worker.fullName}</span>
-                    <select
-                      className="ui-field w-auto"
-                      value={draft.earlyLeaveAt?.[worker.id] ?? ''}
-                      onChange={(event) => {
-                        const raw = event.target.value
-                        setEarlyLeave(worker.id, raw === '' ? null : Number(raw))
-                      }}
+                  <li key={worker.id}>
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn-secondary"
+                      onClick={() => setDropWorkerId(worker.id)}
                     >
-                      <option value="">עד סוף המשמרת</option>
-                      {earlyLeaveOptions(draft.shiftType).map((option) => (
-                        <option key={option.minutes} value={option.minutes}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      {worker.fullName}
+                    </button>
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
+          <ShiftDropSummary
+            drops={draft.shiftDrops ?? []}
+            workers={data.workers}
+            onUndo={undoShiftDrop}
+          />
         </div>
       ) : null}
 
@@ -2058,6 +2053,24 @@ export function ShiftPage() {
           מחשב שיבוץ חליפי אופטימלי...
         </p>
       ) : null}
+      {dropWorkerId && draft
+        ? (() => {
+            const worker = data.workers.find((item) => item.id === dropWorkerId)
+            if (!worker) return null
+            return (
+              <ShiftDropDialog
+                worker={worker}
+                shiftType={draft.shiftType}
+                initial={(draft.shiftDrops ?? []).find((item) => item.workerId === worker.id)}
+                onClose={() => setDropWorkerId(null)}
+                onConfirm={(drop) => {
+                  recordShiftDrop(drop)
+                  setDropWorkerId(null)
+                }}
+              />
+            )
+          })()
+        : null}
       {compareOptions && draft ? (
         <BoardCompareDialog
           loadFair={compareOptions.loadFair}
