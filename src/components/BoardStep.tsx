@@ -9,7 +9,6 @@ import {
 import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
-  GripVertical,
   ArrowLeftRight,
   Check,
   CheckCircle2,
@@ -66,7 +65,6 @@ import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { postAuditEvent } from '../api'
-import { startLanePointerDrag } from '../lib/laneDrag'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
 import type { AppData, LaneAssignment, ShiftType, Worker } from '../types'
@@ -142,7 +140,6 @@ export function BoardStep({
 }: BoardStepProps) {
   const {
     updateAssignment,
-    moveLane,
     swapAssignments,
     removeWorkerFromShift,
     removeLaneFromShift,
@@ -813,7 +810,6 @@ export function BoardStep({
               <div
                 key={laneId}
                 id={`board-lane-${laneId}`}
-                data-lane-row={isGateLane ? undefined : laneId}
                 className={`scroll-mt-24 rounded-2xl border border-line/70 border-s-4 bg-card px-3 py-3 shadow-[var(--shadow-panel)] sm:px-4 ${
                   isGateLane
                     ? 'border-s-brand'
@@ -825,18 +821,6 @@ export function BoardStep({
                 }`}
               >
                 <div className="flex items-start gap-2">
-                  {!isGateLane ? (
-                    <button
-                      type="button"
-                      aria-label={`גרור לשינוי סדר ${lane.name}`}
-                      title="גרור לשינוי סדר"
-                      style={{ touchAction: 'none' }}
-                      onPointerDown={(e) => startLanePointerDrag(e, laneId, moveLane)}
-                      className="mt-0.5 inline-flex size-8 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink active:cursor-grabbing"
-                    >
-                      <GripVertical className="size-4" aria-hidden />
-                    </button>
-                  ) : null}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <h4 className="font-display text-base font-bold tracking-tight text-ink">
