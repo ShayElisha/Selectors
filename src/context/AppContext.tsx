@@ -288,6 +288,8 @@ interface AppContextValue {
   setEarlyLeave: (workerId: string, minutes: number | null) => void
   recordShiftDrop: (drop: ShiftDrop) => void
   undoShiftDrop: (workerId: string) => void
+  /** Add a catalog lane onto the open board without leaving it. */
+  addBoardLane: (laneId: string) => void
   /** Activate/deactivate מנהל שער for a manager (at most one per shift). */
   setGateManager: (workerId: string | null) => void
   setAllActiveLanes: (on: boolean) => void
@@ -1830,6 +1832,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } else {
         delete earlyLeaveAt[drop.workerId]
       }
+      const removed = drop.kind === 'cancel' || drop.kind === 'noshow'
       const cutoff =
         drop.kind === 'leave' ? earlyLeaveCutoff(d.shiftType, drop.minutes) : null
       const clearFromRounds = (rounds: typeof d.rounds, from: number | null) =>
@@ -1844,25 +1847,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 })),
               },
         )
-      const rounds =
-        drop.kind === 'cancel'
-          ? clearFromRounds(d.rounds, null)
-          : cutoff == null || !usesRounds(d)
-            ? d.rounds
-            : clearFromRounds(d.rounds, cutoff)
-      const assignments =
-        drop.kind === 'cancel'
-          ? d.assignments.map((row) => ({
-              ...row,
-              workerIds: row.workerIds.map((id) => (id === drop.workerId ? '' : id)),
-            }))
-          : d.assignments
-      const presentWorkerIds =
-        drop.kind === 'cancel'
-          ? d.presentWorkerIds.filter((id) => id !== drop.workerId)
-          : d.presentWorkerIds
+      const rounds = removed
+        ? clearFromRounds(d.rounds, null)
+        : cutoff == null || !usesRounds(d)
+          ? d.rounds
+          : clearFromRounds(d.rounds, cutoff)
+      const assignments = removed
+        ? d.assignments.map((row) => ({
+            ...row,
+            workerIds: row.workerIds.map((id) => (id === drop.workerId ? '' : id)),
+          }))
+        : d.assignments
+      const presentWorkerIds = removed
+        ? d.presentWorkerIds.filter((id) => id !== drop.workerId)
+        : d.presentWorkerIds
       const gateManagerWorkerId =
-        drop.kind === 'cancel' && d.gateManagerWorkerId === drop.workerId
+        removed && d.gateManagerWorkerId === drop.workerId
           ? undefined
           : d.gateManagerWorkerId
       return {
@@ -1886,12 +1886,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
       delete earlyLeaveAt[workerId]
       const presentWorkerIds =
-        existing.kind === 'cancel' && !d.presentWorkerIds.includes(workerId)
+        (existing.kind === 'cancel' || existing.kind === 'noshow') &&
+        !d.presentWorkerIds.includes(workerId)
           ? [...d.presentWorkerIds, workerId]
           : d.presentWorkerIds
       return { ...d, shiftDrops, earlyLeaveAt, presentWorkerIds }
     })
   }, [])
+
+  const addBoardLane = useCallback((laneId: string) => {
+    setDraft((d) => {
+      if (!d || d.activeLaneIds.includes(laneId)) return d
+      const lane = data.lanes.find((item) => item.id === laneId)
+      if (!lane || isGateManagerLane(lane)) return d
+      const activeLaneIds = [...d.activeLaneIds, laneId]
+      const staffing = effectiveStaffingStandard(lane, d.staffingOverrides)
+      const empty = Array.from({ length: staffing }, () => '')
+      const rounds = usesRounds(d)
+        ? (d.rounds ?? []).map((round) => ({
+            ...round,
+            assignments: [
+              ...round.assignments.filter((row) => row.laneId !== laneId),
+              { laneId, workerIds: [...empty] },
+            ],
+          }))
+        : d.rounds
+      return withGateManagerSync(
+        {
+          ...d,
+          activeLaneIds,
+          assignments: padAssignments(
+            d.assignments,
+            data.lanes,
+            activeLaneIds,
+            d.staffingOverrides,
+          ),
+          rounds,
+        },
+        data.lanes,
+      )
+    })
+  }, [data.lanes])
 
   const runAutoAssign = useCallback(() => {
     setDraft((d) => {
@@ -3310,6 +3345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEarlyLeave,
       recordShiftDrop,
       undoShiftDrop,
+      addBoardLane,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,
@@ -3399,6 +3435,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEarlyLeave,
       recordShiftDrop,
       undoShiftDrop,
+      addBoardLane,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,

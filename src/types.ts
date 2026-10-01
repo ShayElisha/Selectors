@@ -107,7 +107,7 @@ export interface ShiftChangeEvent {
 /** One person left early or their shift was cancelled. */
 export interface ShiftDrop {
   workerId: string
-  kind: 'leave' | 'cancel'
+  kind: 'leave' | 'cancel' | 'noshow'
   /** Clock minutes. For a leave this is when they stepped down. */
   minutes: number
   reason: string

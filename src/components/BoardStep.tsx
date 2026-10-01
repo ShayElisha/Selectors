@@ -62,7 +62,7 @@ import {
 } from '../lib/export'
 import { pluralizeHe } from '../lib/hebrew'
 import { ShiftDropDialog, ShiftDropSummary } from './ShiftDropDialog'
-import { isGateManagerLane } from '../lib/gateManager'
+import { activeAttendanceWorkers, isGateManagerLane, managedLanes } from '../lib/gateManager'
 import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
@@ -138,7 +138,7 @@ export function BoardStep({
   onSignOff,
   onCompare,
   onReassign,
-  onEditSettings,
+  onEditSettings: _onEditSettings,
   onRequestDiscard,
   onOpenExtraPick,
   onBackToAttendance,
@@ -150,6 +150,8 @@ export function BoardStep({
     beginRemoval,
     recordShiftDrop,
     undoShiftDrop,
+    addBoardLane,
+    toggleWorker,
     replaceLeavingWorker,
     removeLaneFromShift,
     addSlotToLane,
@@ -165,6 +167,7 @@ export function BoardStep({
   const [shareOpen, setShareOpen] = useState(false)
   const [shareBusy, setShareBusy] = useState(false)
   const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
+  const [addPicker, setAddPicker] = useState<'lane' | 'worker' | null>(null)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set())
   const [swapTarget, setSwapTarget] = useState<{
@@ -666,13 +669,22 @@ export function BoardStep({
           ) : null}
         </div>
         {!locked ? (
-        <button
-          type="button"
-          onClick={onEditSettings}
-          className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        >
-          עריכת שיבוץ
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setAddPicker('lane')}
+            className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand"
+          >
+            הוספת נתיב
+          </button>
+          <button
+            type="button"
+            onClick={() => setAddPicker('worker')}
+            className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand"
+          >
+            הוספת בודק
+          </button>
+        </div>
         ) : null}
         {!locked ? (
         <div className="relative" ref={summaryMenuRef}>
@@ -1511,6 +1523,40 @@ export function BoardStep({
             )
           })()
         : null}
+      {addPicker ? (
+        <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center">
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-line bg-card p-4 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-ink">
+              {addPicker === 'lane' ? 'הוספת נתיב' : 'הוספת בודק'}
+            </h3>
+            <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
+              {(addPicker === 'lane'
+                ? managedLanes(data.lanes).filter((lane) => !draft.activeLaneIds.includes(lane.id))
+                : activeAttendanceWorkers(data.workers).filter(
+                    (worker) => !draft.presentWorkerIds.includes(worker.id),
+                  )
+              ).map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-3 py-2 text-right text-sm font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      if (addPicker === 'lane') addBoardLane(item.id)
+                      else toggleWorker(item.id)
+                      setAddPicker(null)
+                    }}
+                  >
+                    {'fullName' in item ? item.fullName : item.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="ui-btn ui-btn-secondary mt-3" onClick={() => setAddPicker(null)}>
+              סגירה
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
