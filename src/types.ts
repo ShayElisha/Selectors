@@ -79,6 +79,31 @@ export interface SelectorRound {
   assignments: LaneAssignment[]
 }
 
+/** Time actually spent on one lane. Load uses this instead of a whole shift. */
+export interface SeatSegment {
+  workerId: string
+  laneId: string
+  fromMinutes: number
+  toMinutes: number
+}
+
+export interface ShiftChangeMove {
+  workerId: string
+  fromLaneId: string | null
+  toLaneId: string | null
+}
+
+/** One real-time refill recorded on the shift document. */
+export interface ShiftChangeEvent {
+  id: string
+  at: string
+  atMinutes: number
+  removedWorkerId: string
+  summary: string
+  lines: string[]
+  moves: ShiftChangeMove[]
+}
+
 /** Formal close by the manager who is logged in. After this, the board is locked. */
 export interface ShiftSignOff {
   signedAt: string
@@ -148,6 +173,16 @@ export interface ShiftSchedule {
    * The board cannot be edited or deleted once this is stored.
    */
   signOff?: ShiftSignOff
+  /** True after a manager accepted an automatic refill. */
+  isSelfHealed?: boolean
+  /** Minutes actually sat, when someone left or joined mid-shift. */
+  seatSegments?: SeatSegment[]
+  /** The full shift clock the segments are measured against. */
+  seatSpan?: { startMinutes: number; endMinutes: number }
+  /** Easy lanes left empty because nobody could cover a harder lane. */
+  frozenLaneIds?: string[]
+  /** Real-time board changes, newest last. */
+  shiftEvents?: ShiftChangeEvent[]
   createdAt: string
   updatedAt: string
 }

@@ -323,6 +323,12 @@ export function assignSelectorRounds(args: {
   stagger?: boolean
   /** Late arrival / early leave. Existing placements are left in place. */
   windowAdjustments?: Record<string, WindowAdjustment>
+  /**
+   * Keep rounds that already finished. `existingRounds` supplies those cells.
+   * The cutoff is in the same minute space as `round.endMinutes`.
+   */
+  existingRounds?: SelectorRound[]
+  freezeBeforeMinutes?: number
 }): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
@@ -352,6 +358,33 @@ export function assignSelectorRounds(args: {
     orderedIds.indexOf(workerId) % 2 === 0 ? 'hour' : 'half'
 
   const rounds: SelectorRound[] = windows.map((w, roundIndex) => {
+    const existing = (args.existingRounds ?? []).find(
+      (round) => round.startMinutes === w.startMinutes,
+    )
+    const frozen =
+      args.freezeBeforeMinutes != null &&
+      existing != null &&
+      w.endMinutes <= args.freezeBeforeMinutes
+    if (frozen) {
+      const nextPrev = new Map<string, string>()
+      for (const assignment of existing.assignments) {
+        for (const workerId of assignment.workerIds) {
+          if (!workerId) continue
+          bumpVisit(visits, workerId, assignment.laneId)
+          nextPrev.set(workerId, assignment.laneId)
+        }
+      }
+      if (!args.stagger) prevLane.clear()
+      for (const [id, laneId] of nextPrev) prevLane.set(id, laneId)
+      return {
+        ...w,
+        cohort: existing.cohort,
+        assignments: existing.assignments.map((assignment) => ({
+          ...assignment,
+          workerIds: [...assignment.workerIds],
+        })),
+      }
+    }
     const used = new Set<string>()
     const nextPrev = new Map<string, string>()
     const pool =

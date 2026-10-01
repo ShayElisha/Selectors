@@ -146,7 +146,7 @@ export function BoardStep({
   const {
     updateAssignment,
     swapAssignments,
-    removeWorkerFromShift,
+    beginRemoval,
     replaceLeavingWorker,
     removeLaneFromShift,
     addSlotToLane,
@@ -828,11 +828,20 @@ export function BoardStep({
             const chipKind = staffingChipKind(filled, std)
             const notesOpen = expandedNotes.has(laneId)
 
+            const emptyLane = !(assignment?.workerIds.some(Boolean))
+            const healedTone = draft.healHighlights?.find((item) => item.laneId === laneId)?.tone
+            const frozen = emptyLane && draft.frozenLaneIds?.includes(laneId)
             return (
               <div
                 key={laneId}
                 id={`board-lane-${laneId}`}
                 className={`scroll-mt-24 rounded-2xl border border-line/70 border-s-4 bg-card px-3 py-3 shadow-[var(--shadow-panel)] sm:px-4 ${
+                  healedTone === 'filled'
+                    ? 'ring-2 ring-ok'
+                    : frozen || healedTone === 'frozen'
+                      ? 'ring-2 ring-warn'
+                      : ''
+                } ${
                   isGateLane
                     ? 'border-s-brand'
                     : lane.intensity === 'hard'
@@ -855,6 +864,11 @@ export function BoardStep({
                           lane.name
                         )}
                       </h4>
+                      {frozen ? (
+                        <span className="rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-bold text-warn ring-1 ring-warn/30">
+                          בחור תקן / מוקפא
+                        </span>
+                      ) : null}
                       {isGateLane ? (
                         <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand">
                           שובץ אוטומטית
@@ -968,7 +982,7 @@ export function BoardStep({
                             </button>
                             <button
                               type="button"
-                              onClick={() => removeWorkerFromShift(workerId)}
+                              onClick={() => beginRemoval(workerId)}
                               className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                               title="הסר מהשיבוץ ומהנוכחות"
                               aria-label="הסר מהשיבוץ"
@@ -1060,7 +1074,7 @@ export function BoardStep({
                     </button>
                     <button
                       type="button"
-                      onClick={() => removeWorkerFromShift(id)}
+                      onClick={() => beginRemoval(id)}
                       className="inline-flex size-5 items-center justify-center rounded-md text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                       title={`הסר את ${name}`}
                       aria-label={`הסר את ${name}`}

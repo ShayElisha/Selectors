@@ -99,6 +99,17 @@ export function deleteShiftRemote(
   return request<AppData>(`/api/shifts/${id}${q}`, { method: 'DELETE' })
 }
 
+export function selfHealShiftRemote(
+  id: string,
+  body: Record<string, unknown>,
+  expectedRevision?: number,
+): Promise<AppData> {
+  return request<AppData>(`/api/shifts/${id}/self-heal`, {
+    method: 'POST',
+    body: JSON.stringify({ ...body, expectedRevision }),
+  })
+}
+
 export type LoginNextStep =
   | 'login'
   | 'change_password'

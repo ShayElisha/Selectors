@@ -120,6 +120,11 @@ export function ShiftPage() {
     addExtraWorkerToLane,
     saveCurrentShift,
     signCurrentShift,
+    confirmSelfHeal,
+    editRemovalManually,
+    dismissSelfHeal,
+    healing,
+    healPlan,
     previewBoardOptions,
     applyBoardOption,
     startShift,
@@ -1943,6 +1948,68 @@ export function ShiftPage() {
           }}
           onConfirm={(signature) => void confirmSignOff(signature)}
         />
+      ) : null}
+      {healPlan ? (
+        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="self-heal-title"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
+          >
+            <h3 id="self-heal-title" className="font-display text-lg font-bold text-ink">
+              שיקום לוח
+            </h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
+              {healPlan.healed.summary}
+            </p>
+            {healPlan.healed.lines.length > 0 ? (
+              <ul className="mt-3 space-y-1.5">
+                {healPlan.healed.lines.map((line) => (
+                  <li
+                    key={line}
+                    className="rounded-xl bg-ok-soft/80 px-3 py-2 text-[13px] text-ink ring-1 ring-ok/30"
+                  >
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {healPlan.healed.frozenLaneIds.length > 0 ? (
+              <p className="mt-3 rounded-xl bg-warn-soft px-3 py-2 text-[13px] font-medium text-warn">
+                נתיב קל נשאר בלי אדם וסומן כבחור תקן / מוקפא.
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={dismissSelfHeal}
+                className="ui-btn ui-btn-secondary min-h-10"
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                onClick={editRemovalManually}
+                className="ui-btn ui-btn-secondary min-h-10"
+              >
+                ערוך ידנית
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmSelfHeal()}
+                className="ui-btn ui-btn-primary min-h-10"
+              >
+                אשר שיקום אוטומטי
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {healing ? (
+        <p className="fixed bottom-24 start-1/2 z-[210] -translate-x-1/2 rounded-full bg-ink px-3 py-1.5 text-[13px] font-semibold text-white shadow-lg">
+          מחשב שיבוץ חליפי אופטימלי...
+        </p>
       ) : null}
       {compareOptions && draft ? (
         <BoardCompareDialog

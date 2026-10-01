@@ -7,6 +7,7 @@ import {
   withDbTransaction,
 } from './db.js'
 import { appendAuditLog, diffAppDataAuditEvents, shiftAuditHeader, summarizeAssignmentChanges } from './audit.js'
+import { validateSelfHeal } from './selfHeal.js'
 import { sendTempPasswordEmail } from './mail.js'
 import {
   generateTempPassword,
@@ -1487,6 +1488,59 @@ export async function upsertShift(id, body, actor, options = {}) {
     module: scope?.module,
   })
 
+  return saved
+}
+
+export async function recordSelfHeal(id, body, actor, options = {}) {
+  const scope = options.scope
+  const state = await readState(scope)
+  const existing = (state.history || []).find((shift) => shift.id === id)
+  if (!existing) {
+    const err = new Error('השיבוץ עדיין לא נשמר. אחרי האישור צריך לשמור את המשמרת.')
+    err.status = 404
+    throw err
+  }
+  if (isShiftSignedOff(existing)) signedShiftError('לשקם')
+  const problem = validateSelfHeal(body, state.workers, state.lanes)
+  if (problem) {
+    const err = new Error(problem)
+    err.status = 400
+    throw err
+  }
+  const event = {
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    atMinutes: Number(body?.atMinutes) || 0,
+    removedWorkerId: String(body?.removedWorkerId || ''),
+    summary: String(body?.summary || ''),
+    lines: Array.isArray(body?.lines) ? body.lines.map((line) => String(line)) : [],
+    moves: Array.isArray(body?.moves) ? body.moves : [],
+  }
+  const schedule = {
+    ...existing,
+    assignments: body?.assignments ?? existing.assignments,
+    rounds: body?.rounds ?? existing.rounds,
+    presentWorkerIds: body?.presentWorkerIds ?? existing.presentWorkerIds,
+    gateManagerWorkerId:
+      body?.gateManagerWorkerId === undefined
+        ? existing.gateManagerWorkerId
+        : body.gateManagerWorkerId,
+    seatSegments: body?.seatSegments ?? existing.seatSegments,
+    seatSpan: body?.seatSpan ?? existing.seatSpan,
+    frozenLaneIds: body?.frozenLaneIds ?? existing.frozenLaneIds,
+    explanations: body?.explanations ?? existing.explanations,
+    isSelfHealed: true,
+    shiftEvents: [...(existing.shiftEvents || []), event],
+    id,
+  }
+  const saved = await upsertShift(id, schedule, actor, options)
+  await appendAuditLog({
+    action: 'shift_self_heal',
+    actor,
+    details: event.summary || `שיקום לוח ${existing.date} · ${existing.shiftType}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  })
   return saved
 }
 
