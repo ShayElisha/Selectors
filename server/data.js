@@ -1033,7 +1033,46 @@ function stateCacheKey(scope) {
   return `${scope.orgId}:${scope.module}`
 }
 
-/** Drop the assembled snapshot so the next read hits Mongo again. */
+function rememberState(scope, state) {
+  if (!scope?.orgId) return
+  stateCache.set(stateCacheKey(scope), {
+    at: Date.now(),
+    revision: Number(state.revision ?? 0),
+    state,
+  })
+}
+
+function conflictError(state) {
+  const err = new Error(
+    'הנתונים עודכנו ע״י מנהל אחר. רעננו את המסך וחזרו על השינוי.',
+  )
+  err.status = 409
+  err.current = publicData(state)
+  return err
+}
+
+/** Bump the revision only if it is still `current`. One document, not the whole database. */
+async function claimRevision(scope, current) {
+  const target = targetForScope(scope)
+  const meta = await getMetaCollection(target)
+  const nextRevision = Number(current) + 1
+  const bumped = await meta.updateOne(
+    { _id: metaIdFor(scope), revision: Number(current) },
+    {
+      $set: {
+        schema: 'collections',
+        revision: nextRevision,
+        updatedAt: new Date(),
+      },
+    },
+  )
+  if (bumped.modifiedCount !== 1) return null
+  return nextRevision
+}
+
+function shiftDocId(scope, id) {
+  return `${scope.orgId}:${scope.module}:${id}`
+}
 export function invalidateStateCache(scope) {
   if (!scope?.orgId) {
     stateCache.clear()
@@ -1309,19 +1348,38 @@ export async function upsertShift(id, body, actor, options = {}) {
   const idx = state.history.findIndex((h) => h.id === schedule.id)
   const isNew = idx === -1
   const previous = isNew ? null : state.history[idx]
-  const history =
-    isNew
-      ? [schedule, ...state.history]
-      : state.history.map((h, i) => (i === idx ? { ...h, ...schedule } : h))
-  const saved = await writeState(
-    { ...state, history },
+  if (
+    options.expectedRevision != null &&
+    Number(options.expectedRevision) !== Number(state.revision ?? 0)
+  ) {
+    throw conflictError(state)
+  }
+  const history = isNew
+    ? [schedule, ...state.history]
+    : state.history.map((h, i) => (i === idx ? { ...h, ...schedule } : h))
+
+  const nextRevision = await claimRevision(scope, state.revision ?? 0)
+  if (nextRevision == null) {
+    invalidateStateCache(scope)
+    throw conflictError(await readState(scope))
+  }
+
+  const target = targetForScope(scope)
+  const db = await getDb(target)
+  const stored = stampScope({ ...schedule }, scope)
+  delete stored._id
+  await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
+    { _id: shiftDocId(scope, schedule.id) },
     {
-      skipAudit: true,
-      expectedRevision: options.expectedRevision,
-      scope,
-      actor,
+      $set: stored,
+      $setOnInsert: { listOrder: -Date.now() },
     },
+    { upsert: true },
   )
+
+  const savedState = { ...state, history, revision: nextRevision }
+  rememberState(scope, savedState)
+  const saved = publicData(savedState)
 
   const header = shiftAuditHeader(schedule)
   const movement = summarizeAssignmentChanges(previous, schedule, {
@@ -1345,24 +1403,38 @@ export async function deleteShift(id, actor, options = {}) {
   const scope = options.scope
   const state = await readState(scope)
   const existing = state.history.find((h) => h.id === id)
-  const saved = await writeState(
-    {
-      ...state,
-      history: state.history.filter((h) => h.id !== id),
-    },
-    {
-      skipAudit: true,
-      expectedRevision: options.expectedRevision,
-      scope,
-      actor,
-    },
-  )
+  if (!existing) return publicData(state)
+  if (
+    options.expectedRevision != null &&
+    Number(options.expectedRevision) !== Number(state.revision ?? 0)
+  ) {
+    throw conflictError(state)
+  }
+
+  const nextRevision = await claimRevision(scope, state.revision ?? 0)
+  if (nextRevision == null) {
+    invalidateStateCache(scope)
+    throw conflictError(await readState(scope))
+  }
+
+  const target = targetForScope(scope)
+  const db = await getDb(target)
+  await db.collection(MODEL_COLLECTIONS.shifts).deleteOne({
+    _id: shiftDocId(scope, id),
+  })
+
+  const savedState = {
+    ...state,
+    history: state.history.filter((h) => h.id !== id),
+    revision: nextRevision,
+  }
+  rememberState(scope, savedState)
+  const saved = publicData(savedState)
+
   await appendAuditLog({
     action: 'shift_delete',
     actor,
-    details: existing
-      ? `נמחק שיבוץ ${existing.date} · ${existing.shiftType}`
-      : `נמחק שיבוץ ${id}`,
+    details: `נמחק שיבוץ ${existing.date} · ${existing.shiftType}`,
     orgId: scope?.orgId,
     module: scope?.module,
   })
