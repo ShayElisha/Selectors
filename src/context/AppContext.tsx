@@ -6,7 +6,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
@@ -32,6 +34,7 @@ import {
   type LoginNextStep,
 } from '../api'
 import { notify } from '../lib/notify'
+import { normalizeSignOff } from '../lib/shiftSignOff'
 import {
   clearAppDataCache,
   clearDraftStorage,
@@ -109,6 +112,7 @@ import type {
   AssignmentMode,
   ShiftAudience,
   ShiftSchedule,
+  ShiftSignOff,
   ShiftType,
   StaffingStandard,
   WindowAdjustment,
@@ -190,6 +194,8 @@ export interface ShiftDraft {
   staggerRounds: boolean
   /** Per-shift תקן (1…5); falls back to lane catalog when absent */
   staffingOverrides: StaffingOverrides
+  /** Set after a formal close. The board is read-only. */
+  signOff?: ShiftSignOff
 }
 
 interface AppContextValue {
@@ -294,6 +300,8 @@ interface AppContextValue {
   addExtraWorkerToLane: (laneId: string, workerId: string) => void
   addSlotToLane: (laneId: string) => void
   saveCurrentShift: () => Promise<void>
+  /** Close the open shift with the manager's typed name and lock the board. */
+  signCurrentShift: (signature: string) => Promise<void>
   loadShiftFromHistory: (id: string) => void
   deleteHistoryItem: (id: string) => Promise<void>
   addWorker: (w: Omit<Worker, 'id'>) => void
@@ -435,6 +443,7 @@ function restoreDraft(): ShiftDraft | null {
           ? parsed.windowAdjustments
           : {},
       staggerRounds: Boolean(parsed.staggerRounds),
+      signOff: normalizeSignOff(parsed.signOff),
       explanations: Array.isArray(parsed.explanations) ? parsed.explanations : [],
       staffingOverrides: normalizeStaffingOverrides(parsed.staffingOverrides),
       gateManagerWorkerId: parsed.gateManagerWorkerId?.trim() || undefined,
@@ -471,6 +480,7 @@ function snapshotDraft(d: ShiftDraft): string {
       notes: a.notes?.trim() ?? '',
     })),
     warnings: d.warnings,
+    signOff: d.signOff ?? null,
     unassignedWorkerIds: d.unassignedWorkerIds,
     explanations: d.explanations ?? [],
     staffingOverrides: d.staffingOverrides ?? {},
@@ -505,7 +515,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   staggerRef.current = staggerRoundsSetting
   const view = viewFromPath(location.pathname)
   const [shiftStep, setShiftStepState] = useState<ShiftStep>(() => restoreStep())
-  const [draft, setDraft] = useState<ShiftDraft | null>(() => restoreDraft())
+  const [draft, setDraftState] = useState<ShiftDraft | null>(() => restoreDraft())
+  const setDraft = useCallback<Dispatch<SetStateAction<ShiftDraft | null>>>((action) => {
+    setDraftState((current) => {
+      const next = typeof action === 'function' ? action(current) : action
+      if (current?.signOff?.signedAt && next && next.id === current.id) {
+        if (
+          next.signOff?.signedAt &&
+          next.signOff.signedAt !== current.signOff.signedAt
+        ) {
+          return { ...current, signOff: next.signOff }
+        }
+        return current
+      }
+      return next
+    })
+  }, [])
   /** Restored drafts were already persisted → treat as dirty until discarded/saved clean. */
   const [draftDirty, setDraftDirty] = useState(() => restoreDraft() != null)
   const draftBaselineRef = useRef<string | null>(null)
@@ -1085,6 +1110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workerWindows: item.workerWindows ?? {},
           windowAdjustments: item.windowAdjustments ?? {},
           staggerRounds: Boolean(item.staggerRounds),
+          signOff: normalizeSignOff(item.signOff),
           warnings: [],
           unassignedWorkerIds: [],
           explanations: Array.isArray(item.explanations) ? item.explanations : [],
@@ -1148,6 +1174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workerId: item.workerId,
           reasons: item.reasons,
         })),
+      ...(d.signOff?.signedAt ? { signOff: d.signOff } : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -1212,6 +1239,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...d,
           ...patch,
           id: uuid(),
+          signOff: undefined,
           assignments: [],
           rounds: [],
           explanations: [],
@@ -2227,6 +2255,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const saveCurrentShift = useCallback(async () => {
     if (!draft) return
+    if (draft.signOff?.signedAt) {
+      const message = 'המשמרת נסגרה וננעלה. לא ניתן לערוך אותה.'
+      setError(message)
+      throw new Error(message)
+    }
     const synced = withGateManagerSync(draft, dataRef.current.lanes)
     if (
       synced.activeLaneIds !== draft.activeLaneIds ||
@@ -2276,6 +2309,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSyncing(false)
     }
   }, [draft, toSchedule, runWithFreshRevision])
+
+  const signCurrentShift = useCallback(
+    async (signature: string) => {
+      if (!draft || draft.signOff?.signedAt) return
+      const synced = withGateManagerSync(draft, dataRef.current.lanes)
+      const slotConflict = findShiftForSlot(
+        dataRef.current.history,
+        synced.date,
+        synced.shiftType,
+        synced.id,
+        synced.audience,
+      )
+      if (slotConflict) {
+        const message = shiftSlotConflictMessage(synced.date, synced.shiftType)
+        setError(message)
+        throw new Error(message)
+      }
+      if (!usesRounds(synced) && synced.unassignedWorkerIds.length > 0) {
+        const message = `לא ניתן לסגור — נשארו ${synced.unassignedWorkerIds.length} אנשים שלא שובצו לעמדה`
+        setError(message)
+        throw new Error(message)
+      }
+      const pending: ShiftDraft = {
+        ...synced,
+        signOff: {
+          signedAt: new Date().toISOString(),
+          signerName: user?.fullName?.trim() || signature.trim(),
+          signerId: user?.id ?? '',
+          signature: signature.trim(),
+        },
+      }
+      const schedule = toSchedule(pending)
+      setSyncing(true)
+      setError(null)
+      try {
+        const saved = await runWithFreshRevision((revision) =>
+          saveShiftRemote(schedule, revision),
+        )
+        const stored = saved.history.find((shift) => shift.id === pending.id)
+        const closed: ShiftDraft = {
+          ...pending,
+          signOff: normalizeSignOff(stored?.signOff) ?? pending.signOff,
+        }
+        skipNextSync.current = true
+        dataRef.current = saved
+        setData(saved)
+        saveAppDataCache(saved)
+        draftBaselineRef.current = snapshotDraft(closed)
+        setDraft(closed)
+        setDraftDirty(false)
+        clearDraftStorage()
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 401)) {
+          setError(e instanceof Error ? e.message : 'סגירת המשמרת נכשלה')
+        }
+        throw e
+      } finally {
+        setSyncing(false)
+      }
+    },
+    [draft, toSchedule, runWithFreshRevision, user?.fullName, user?.id],
+  )
 
   const loadShiftFromHistory = useCallback(
     (id: string) => {
@@ -2788,6 +2883,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addExtraWorkerToLane,
       addSlotToLane,
       saveCurrentShift,
+      signCurrentShift,
       loadShiftFromHistory,
       deleteHistoryItem,
       addWorker,
@@ -2865,6 +2961,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addExtraWorkerToLane,
       addSlotToLane,
       saveCurrentShift,
+      signCurrentShift,
       loadShiftFromHistory,
       deleteHistoryItem,
       addWorker,

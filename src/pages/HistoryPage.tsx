@@ -342,6 +342,11 @@ function ShiftAccordion({
                 {shiftName}
                 {shift.audience === 'selector' ? ' · סלקטורים' : ''}
               </span>
+              {shift.signOff?.signedAt ? (
+                <span className="rounded-md bg-ok-soft px-1.5 py-0.5 text-[11px] font-bold text-ok">
+                  נסגרה
+                </span>
+              ) : null}
               <Ltr className="text-[13px] text-ink-soft">
                 {windowLabel}
               </Ltr>
@@ -383,8 +388,9 @@ function ShiftAccordion({
                   onOpen()
                 }}
               >
-                פתיחה / עריכה
+                פתיחה{shift.signOff?.signedAt ? '' : ' / עריכה'}
               </button>
+              {shift.signOff?.signedAt ? null : (
               <button
                 type="button"
                 role="menuitem"
@@ -398,6 +404,7 @@ function ShiftAccordion({
                 <Trash2 className="size-3.5" aria-hidden />
                 מחיקה
               </button>
+              )}
             </div>
           ) : null}
         </div>
@@ -480,7 +487,7 @@ function ShiftAccordion({
             onClick={onOpen}
             className="mt-3 text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
           >
-            עריכה
+            {shift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
           </button>
         </div>
       ) : null}
@@ -889,7 +896,11 @@ export function HistoryPage() {
                             type="button"
                             onClick={() => loadShiftFromHistory(col.shiftId)}
                             className="flex w-full flex-col items-center gap-0.5 rounded-lg px-1 py-0.5 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                            title="פתיחה לעריכה"
+                            title={
+                              data.history.find((item) => item.id === col.shiftId)?.signOff
+                                ? 'צפייה'
+                                : 'פתיחה לעריכה'
+                            }
                           >
                             <Ltr className="leading-tight">{col.dateLabel}</Ltr>
                             <span className="text-[10px] font-normal text-white/75">

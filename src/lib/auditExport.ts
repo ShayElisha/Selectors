@@ -12,6 +12,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   shift_save: 'שמירת שיבוץ',
   shift_update: 'עדכון שיבוץ',
   shift_delete: 'מחיקת שיבוץ',
+  shift_signoff: 'סגירת משמרת',
   auto_assign: 'שיבוץ אוטומטי',
   manual_assign: 'שיבוץ ידני',
   manual_swap: 'החלפת עמדות',
