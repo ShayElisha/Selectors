@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_BOARD_WEIGHTS,
   accumulateLoadBalance,
+  shiftBalanceDelta,
   buildWorkerProfile,
   calculateShiftWeightedRotationScore,
   computeWorkerLaneStats,
@@ -822,8 +823,8 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     )
     expect(p.lastWasHard).toBe(true)
     expect(p.hardCount).toBe(1)
-    // Rest credit (−2) plus a hard morning (+2) lands on zero.
-    expect(p.load).toBe(0)
+    // Rest days sit on the floor (−2). A hard morning the same day adds 3.5.
+    expect(p.load).toBe(1.5)
   })
 
   it('rest days decay cumulative load vs continuous work', () => {
@@ -872,12 +873,12 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       '2026-03-10',
       14,
     )
-    // Days before the shifts count as rest and sit on the floor (−2).
-    // One hard morning brings that to 0; the following rest day returns to −2.
-    // Two hard mornings end at +2.
-    expect(pRest.load).toBe(-2)
+    // Days before the shifts sit on the floor (−2).
+    // One hard morning (+3.5) then a rest day (−2) ends at −0.5.
+    // Two hard mornings end at +5.
+    expect(pRest.load).toBe(-0.5)
     expect(pCont.load).toBeGreaterThan(pRest.load)
-    expect(pCont.load).toBe(2)
+    expect(pCont.load).toBe(5)
   })
   it('day-easy credit and easy-only day decay lower load vs hard day', () => {
     const easyLane = lane('easy', 'קל', { intensity: 'easy' })
@@ -918,14 +919,27 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       14,
     )
     // Rest days before the shift fill the floor (−2).
-    // Hard morning cancels that credit (0). Easy morning stays at the floor.
-    expect(pHard.load).toBe(0)
-    expect(pEasy.load).toBe(-2)
+    // Hard morning (+3.5) ends at 1.5. Easy morning (+1) ends at −1.
+    expect(pHard.load).toBe(1.5)
+    expect(pEasy.load).toBe(-1)
     expect(pEasy.load).toBeLessThan(pHard.load)
   })
 })
 
 describe('accumulateLoadBalance', () => {
+  it('scores morning heavier than afternoon and leaves night unchanged', () => {
+    expect(shiftBalanceDelta('easy', 'morning')).toBe(1)
+    expect(shiftBalanceDelta('easy', 'afternoon')).toBe(0.5)
+    expect(shiftBalanceDelta('medium', 'morning')).toBe(2)
+    expect(shiftBalanceDelta('medium', 'afternoon')).toBe(1)
+    expect(shiftBalanceDelta('hard', 'morning')).toBe(3.5)
+    expect(shiftBalanceDelta('hard', 'afternoon')).toBe(2)
+    expect(shiftBalanceDelta('hard', 'afternoonA')).toBe(2)
+    expect(shiftBalanceDelta('easy', 'night')).toBe(1)
+    expect(shiftBalanceDelta('medium', 'night')).toBe(2)
+    expect(shiftBalanceDelta('hard', 'night')).toBe(4)
+  })
+
   const hardLane = lane('hard', 'קשה', {
     intensity: 'hard',
     requiredCertifications: [],
@@ -951,22 +965,22 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
       '2026-03-09',
     )
-    // hard morning +2, next day off −2 → 0. A further day off stops at −2.
-    expect(balance.net).toBe(0)
-    expect(balance.rose).toBe(2)
+    // hard morning +3.5, next day off −2 → 1.5.
+    expect(balance.net).toBe(1.5)
+    expect(balance.rose).toBe(3.5)
     expect(balance.fell).toBe(2)
     const floored = accumulateLoadBalance(
       'a',
       byDate,
       laneMap,
       '2026-03-08',
-      '2026-03-10',
+      '2026-03-11',
     )
     expect(floored.net).toBe(-2)
-    expect(floored.fell).toBe(4)
+    expect(floored.fell).toBe(5.5)
   })
 
-  it('treats hard morning and hard afternoon as equal, and stacks them the same day', () => {
+  it('weighs a hard morning more than a hard afternoon, and stacks them the same day', () => {
     const laneMap = new Map([['hard', hardLane]])
     const one = accumulateLoadBalance(
       'a',
@@ -1008,8 +1022,8 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
       '2026-03-08',
     )
-    expect(one.net).toBe(2)
-    expect(both.net).toBe(4)
+    expect(one.net).toBe(3.5)
+    expect(both.net).toBe(5.5)
   })
 
   it('counts an easy day as a small drop and a hard night as two hard days', () => {
@@ -1049,7 +1063,7 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
       '2026-03-08',
     )
-    expect(easy.net).toBe(-1)
+    expect(easy.net).toBe(1)
     expect(night.net).toBe(4)
   })
 
