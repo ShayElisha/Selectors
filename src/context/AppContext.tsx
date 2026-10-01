@@ -72,6 +72,7 @@ import {
   selectorStaff,
   syncGateManagerPlacement,
 } from '../lib/gateManager'
+import { replaceLeavingWorkerSeat } from '../lib/boardHelpers'
 import {
   normalizeBriefingSections,
   normalizeQuestionBank,
@@ -286,6 +287,8 @@ interface AppContextValue {
    * and drops them from present attendance so save is not blocked.
    */
   removeWorkerFromShift: (workerId: string) => void
+  /** Replace one seated person. Other seats stay as they are. */
+  replaceLeavingWorker: (leavingId: string, replacementId: string) => void
   /** Drop a lane from the open shift. People who were on it stay present and become unassigned. */
   removeLaneFromShift: (laneId: string) => void
   updateLaneNotes: (laneId: string, notes: string) => void
@@ -2063,6 +2066,45 @@ function nightPartnersForMorning(
     [data.lanes],
   )
 
+  const replaceLeavingWorker = useCallback(
+    (leavingId: string, replacementId: string) => {
+      setDraft((d) => {
+        if (!d || usesRounds(d)) return d
+        const next = replaceLeavingWorkerSeat({
+          leavingId,
+          replacementId,
+          assignments: d.assignments,
+          presentWorkerIds: d.presentWorkerIds,
+          gateManagerWorkerId: d.gateManagerWorkerId,
+        })
+        if (!next) return d
+        const leavingName =
+          data.workers.find((worker) => worker.id === leavingId)?.fullName || leavingId
+        const nextName =
+          data.workers.find((worker) => worker.id === replacementId)?.fullName ||
+          replacementId
+        const laneId = d.assignments.find((row) =>
+          row.workerIds.includes(leavingId),
+        )?.laneId
+        const laneName = data.lanes.find((lane) => lane.id === laneId)?.name || laneId || ''
+        void postAuditEvent(
+          'manual_assign',
+          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · החלפה באמצע משמרת · ${laneName}: ${leavingName} → ${nextName}`,
+        )
+        return withGateManagerSync(
+          {
+            ...d,
+            assignments: next.assignments,
+            presentWorkerIds: next.presentWorkerIds,
+            gateManagerWorkerId: next.gateManagerWorkerId,
+          },
+          data.lanes,
+        )
+      })
+    },
+    [data.lanes, data.workers],
+  )
+
   const addExtraWorkerToLane = useCallback(
     (laneId: string, workerId: string) => {
       setDraft((d) => {
@@ -2761,6 +2803,7 @@ function nightPartnersForMorning(
       updateSelectorCell,
       swapAssignments,
       removeWorkerFromShift,
+      replaceLeavingWorker,
       removeLaneFromShift,
       updateLaneNotes,
       addExtraWorkerToLane,
@@ -2837,6 +2880,7 @@ function nightPartnersForMorning(
       updateSelectorCell,
       swapAssignments,
       removeWorkerFromShift,
+      replaceLeavingWorker,
       removeLaneFromShift,
       updateLaneNotes,
       addExtraWorkerToLane,

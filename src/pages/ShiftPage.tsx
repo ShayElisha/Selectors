@@ -488,6 +488,13 @@ export function ShiftPage() {
 
   const handleSave = async () => {
     if (!draft) return
+    if (!draft.gateManagerWorkerId?.trim()) {
+      notify.error(
+        'לא סומן מנהל שער',
+        'לפני השמירה צריך לסמן מנהל שער. השיבוץ לא נשמר.',
+      )
+      return
+    }
     if (slotConflict) {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return

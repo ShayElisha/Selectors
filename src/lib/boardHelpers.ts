@@ -307,3 +307,44 @@ export function partitionWarnings(warnings: string[]): {
   }
   return { errors, warnings: warns, info }
 }
+
+/**
+ * One person leaves a saved board. Only their seats become the replacement.
+ * Anyone already sitting elsewhere is refused, so the rest of the board stays.
+ */
+export function replaceLeavingWorkerSeat(args: {
+  leavingId: string
+  replacementId: string
+  assignments: LaneAssignment[]
+  presentWorkerIds: string[]
+  gateManagerWorkerId?: string
+}): {
+  assignments: LaneAssignment[]
+  presentWorkerIds: string[]
+  gateManagerWorkerId?: string
+} | null {
+  const leavingId = args.leavingId.trim()
+  const replacementId = args.replacementId.trim()
+  if (!leavingId || !replacementId || leavingId === replacementId) return null
+  const replacementSeated = args.assignments.some((row) =>
+    row.workerIds.includes(replacementId),
+  )
+  if (replacementSeated) return null
+  const leavingSeated = args.assignments.some((row) =>
+    row.workerIds.includes(leavingId),
+  )
+  if (!leavingSeated) return null
+  const assignments = args.assignments.map((row) => ({
+    ...row,
+    workerIds: row.workerIds.map((id) => (id === leavingId ? replacementId : id)),
+  }))
+  const presentWorkerIds = args.presentWorkerIds.filter((id) => id !== leavingId)
+  if (!presentWorkerIds.includes(replacementId)) presentWorkerIds.push(replacementId)
+  const gate =
+    args.gateManagerWorkerId === leavingId ? undefined : args.gateManagerWorkerId
+  return {
+    assignments,
+    presentWorkerIds,
+    ...(gate ? { gateManagerWorkerId: gate } : {}),
+  }
+}
