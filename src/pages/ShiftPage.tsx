@@ -365,16 +365,9 @@ export function ShiftPage() {
         }).length
       : 0,
   )
-  const baseAttendance = canAdvanceFromAttendance(
+  const attendanceAdvance = canAdvanceFromAttendance(
     draft?.presentWorkerIds.length ?? 0,
   )
-  const attendanceAdvance =
-    baseAttendance.ok && draft && !draft.gateManagerWorkerId?.trim()
-      ? {
-          ok: false,
-          reason: 'סמנו מנהל שער לפני יצירת הלוח',
-        }
-      : baseAttendance
 
   const morningShift = useMemo(() => {
     if (!draft || !shiftFollowsMorning(draft.shiftType)) return null
@@ -524,13 +517,6 @@ export function ShiftPage() {
 
   const handleSave = async () => {
     if (!draft) return
-    if (!draft.gateManagerWorkerId?.trim()) {
-      notify.error(
-        'לא סומן מנהל שער',
-        'לפני השמירה צריך לסמן מנהל שער. השיבוץ לא נשמר.',
-      )
-      return
-    }
     if (slotConflict) {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return
@@ -557,13 +543,6 @@ export function ShiftPage() {
 
   const openSignOff = () => {
     if (!draft || draft.signOff?.signedAt) return
-    if (!draft.gateManagerWorkerId?.trim()) {
-      notify.error(
-        'לא סומן מנהל שער',
-        'לפני הסגירה צריך לסמן מנהל שער. השיבוץ לא נסגר.',
-      )
-      return
-    }
     if (slotConflict) {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return
