@@ -37,6 +37,8 @@ import {
   type LoginNextStep,
 } from '../api'
 import { notify } from '../lib/notify'
+import { earlyLeaveCutoff } from '../lib/earlyLeave'
+import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { normalizeSignOff } from '../lib/shiftSignOff'
 import {
@@ -209,6 +211,8 @@ export interface ShiftDraft {
   shiftEvents?: ShiftChangeEvent[]
   /** Transient glow after an accepted refill. */
   healHighlights?: { laneId: string; tone: 'filled' | 'frozen' }[]
+  /** Worker id → clock minutes they left the shift. */
+  earlyLeaveAt?: Record<string, number>
 }
 
 interface AppContextValue {
@@ -278,6 +282,8 @@ interface AppContextValue {
     workerId: string,
     patch: { lateMinutes?: number; earlyMinutes?: number },
   ) => void
+  /** Mark that a person left the shift at a clock time. Null means they stayed to the end. */
+  setEarlyLeave: (workerId: string, minutes: number | null) => void
   /** Activate/deactivate מנהל שער for a manager (at most one per shift). */
   setGateManager: (workerId: string | null) => void
   setAllActiveLanes: (on: boolean) => void
@@ -1153,6 +1159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workerWindows: item.workerWindows ?? {},
           windowAdjustments: item.windowAdjustments ?? {},
           staggerRounds: Boolean(item.staggerRounds),
+          earlyLeaveAt: item.earlyLeaveAt,
           signOff: normalizeSignOff(item.signOff),
           frozenLaneIds: item.frozenLaneIds,
           seatSegments: item.seatSegments,
@@ -1222,6 +1229,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workerId: item.workerId,
           reasons: item.reasons,
         })),
+      ...(d.earlyLeaveAt && Object.keys(d.earlyLeaveAt).length > 0
+        ? { earlyLeaveAt: d.earlyLeaveAt }
+        : {}),
       ...(d.signOff?.signedAt ? { signOff: d.signOff } : {}),
       ...(d.isSelfHealed ? { isSelfHealed: true } : {}),
       ...(d.seatSegments?.length
@@ -1774,6 +1784,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const setEarlyLeave = useCallback((workerId: string, minutes: number | null) => {
+    setDraft((d) => {
+      if (!d) return d
+      const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
+      if (minutes == null) delete earlyLeaveAt[workerId]
+      else earlyLeaveAt[workerId] = minutes
+      const cutoff = minutes == null ? null : earlyLeaveCutoff(d.shiftType, minutes)
+      const rounds =
+        cutoff == null || !usesRounds(d)
+          ? d.rounds
+          : (d.rounds ?? []).map((round) =>
+              round.startMinutes < cutoff
+                ? round
+                : {
+                    ...round,
+                    assignments: round.assignments.map((row) => ({
+                      ...row,
+                      workerIds: row.workerIds.map((id) => (id === workerId ? '' : id)),
+                    })),
+                  },
+            )
+      return { ...d, earlyLeaveAt, rounds }
+    })
+  }, [])
+
   const runAutoAssign = useCallback(() => {
     setDraft((d) => {
       if (!d) return d
@@ -2070,6 +2105,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        if (prevId !== (workerId ?? '') && workerId && lane && !isGateManagerLane(lane)) {
+          const seated = new Set(
+            padded.flatMap((row) => row.workerIds.filter((id) => id && id !== workerId)),
+          )
+          const warning = rotationOverrideWarning({
+            lane,
+            worker: data.workers.find((item) => item.id === workerId) ?? {
+              id: workerId,
+              fullName: nextName,
+              phone: '',
+              certifications: [],
+              status: 'active',
+              isInspector: true,
+              isManager: false,
+            },
+            alternatives: data.workers.filter(
+              (item) => d.presentWorkerIds.includes(item.id) && !seated.has(item.id),
+            ),
+            history: data.history,
+            lanes: data.lanes,
+            shiftType: d.shiftType,
+            date: d.date,
+          })
+          if (warning) notify.warning('השינוי פוגע ברוטציה', warning)
+        }
+
         if (prevId !== (workerId ?? '')) {
           const bits = [`${laneLabel}: ${prevName} → ${nextName}`]
           if (fromLaneLabel && workerId) {
@@ -2093,7 +2154,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.lanes],
+    [data.history, data.lanes, data.workers],
   )
 
   const updateSelectorCell = useCallback(
@@ -3162,6 +3223,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleWorker,
       setWorkerWindow,
       setWindowAdjustment,
+      setEarlyLeave,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,
@@ -3248,6 +3310,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleWorker,
       setWorkerWindow,
       setWindowAdjustment,
+      setEarlyLeave,
       setGateManager,
       setAllActiveLanes,
       setAllActiveWorkers,

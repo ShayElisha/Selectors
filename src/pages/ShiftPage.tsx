@@ -28,6 +28,7 @@ import {
 } from '../algorithm'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
+import { earlyLeaveOptions } from '../lib/earlyLeave'
 import { ShiftClosedBanner, ShiftSignOffDialog } from '../components/ShiftSignOffDialog'
 import { BoardCompareDialog } from '../components/BoardCompareDialog'
 import type { AssignmentResult } from '../algorithm'
@@ -118,6 +119,7 @@ export function ShiftPage() {
     removeLaneFromShift,
     setWorkerWindow,
     setWindowAdjustment,
+    setEarlyLeave,
     addExtraWorkerToLane,
     saveCurrentShift,
     signCurrentShift,
@@ -359,9 +361,16 @@ export function ShiftPage() {
         }).length
       : 0,
   )
-  const attendanceAdvance = canAdvanceFromAttendance(
+  const baseAttendance = canAdvanceFromAttendance(
     draft?.presentWorkerIds.length ?? 0,
   )
+  const attendanceAdvance =
+    baseAttendance.ok && draft && !draft.gateManagerWorkerId?.trim()
+      ? {
+          ok: false,
+          reason: 'סמנו מנהל שער לפני יצירת הלוח',
+        }
+      : baseAttendance
 
   const morningShift = useMemo(() => {
     if (!draft || !shiftFollowsMorning(draft.shiftType)) return null
@@ -1758,6 +1767,40 @@ export function ShiftPage() {
               notify.success('הנתיב הוסר מהמשמרת')
             }}
           />
+          {!draft.signOff?.signedAt ? (
+            <div className="rounded-2xl border border-line/70 bg-card px-4 py-3">
+              <p className="text-sm font-semibold text-ink">ירידה מהמשמרת</p>
+              <p className="mt-1 text-[13px] text-ink-soft">
+                מי שיוצא באמצע לא נשאר בסבבים מהשעה הזו, והעומס מחושב רק עד אז.
+              </p>
+              <ul className="mt-2 space-y-2">
+                {selectorStaff(
+                  data.workers,
+                  draft.presentWorkerIds,
+                  draft.gateManagerWorkerId,
+                ).map((worker) => (
+                  <li key={worker.id} className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm text-ink">{worker.fullName}</span>
+                    <select
+                      className="ui-field w-auto"
+                      value={draft.earlyLeaveAt?.[worker.id] ?? ''}
+                      onChange={(event) => {
+                        const raw = event.target.value
+                        setEarlyLeave(worker.id, raw === '' ? null : Number(raw))
+                      }}
+                    >
+                      <option value="">עד סוף המשמרת</option>
+                      {earlyLeaveOptions(draft.shiftType).map((option) => (
+                        <option key={option.minutes} value={option.minutes}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
