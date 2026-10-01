@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_BOARD_WEIGHTS,
+  HARD_EXPERIENCE_BOARD_WEIGHTS,
+  LOAD_FAIR_BOARD_WEIGHTS,
   accumulateLoadBalance,
   shiftBalanceDelta,
   buildWorkerProfile,
@@ -705,9 +707,62 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(emptyL.unassignedWorkerIds).toEqual(['a'])
   })
 
+  it('load fairness and hard experience pick different people for a hard lane', () => {
+    const vet = worker('vet', 'ותיק', ['c'])
+    const rest = worker('rest', 'נח', ['c'])
+    const hard = lane('h', 'קשה', {
+      intensity: 'hard',
+      requiredCertifications: ['c'],
+    })
+    const other = lane('o', 'קשה אחר', {
+      intensity: 'hard',
+      requiredCertifications: ['c'],
+    })
+    const history = [
+      '2026-03-01',
+      '2026-03-02',
+      '2026-03-03',
+      '2026-03-04',
+      '2026-03-05',
+    ].map((date) =>
+      shift(
+        date,
+        date,
+        'morning',
+        [{ laneId: 'o', workerIds: ['vet'] }],
+        ['vet'],
+        ['o'],
+      ),
+    )
+    const shared = {
+      date: '2026-03-10',
+      shiftType: 'morning' as const,
+    }
+    const fair = runAssignmentAlgorithm([hard], [vet, rest], history, [hard, other], {
+      ...shared,
+      objective: 'loadFair',
+    })
+    const experienced = runAssignmentAlgorithm(
+      [hard],
+      [vet, rest],
+      history,
+      [hard, other],
+      { ...shared, objective: 'hardExperience' },
+    )
+    expect(fair.assignments[0]?.workerIds).toEqual(['rest'])
+    expect(experienced.assignments[0]?.workerIds).toEqual(['vet'])
+    expect(fair.loadSpread ?? 0).toBeLessThanOrEqual(experienced.loadSpread ?? 0)
+  })
+
   it('weights sum approximately to 1', () => {
     const sum = Object.values(DEFAULT_BOARD_WEIGHTS).reduce((a, b) => a + b, 0)
     expect(sum).toBeCloseTo(1, 5)
+    expect(
+      Object.values(LOAD_FAIR_BOARD_WEIGHTS).reduce((a, b) => a + b, 0),
+    ).toBeCloseTo(1, 5)
+    expect(
+      Object.values(HARD_EXPERIENCE_BOARD_WEIGHTS).reduce((a, b) => a + b, 0),
+    ).toBeCloseTo(1, 5)
   })
 
   it('prefers non-short-return worker when both are qualified', () => {

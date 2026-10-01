@@ -29,7 +29,16 @@ export interface AssignmentResult {
   warnings: string[]
   /** Per placement rationale (lane fill order + worker ranking) */
   explanations: PlacementExplanation[]
+  /** Max load minus min load among people placed on this board. */
+  loadSpread?: number
+  /** Filled seats on hard lanes. */
+  hardSeats?: number
+  /** Hard seats filled by someone at or above the group's median hard-lane count. */
+  experiencedHardSeats?: number
 }
+
+/** Soft goal for a generated board. Hard rules stay the same. */
+export type AssignmentObjective = 'standard' | 'loadFair' | 'hardExperience'
 
 export interface AssignmentContext {
   date: string
@@ -43,6 +52,11 @@ export interface AssignmentContext {
    * Default: `${date}|${shiftType}` — same inputs → same assignment.
    */
   rngSeed?: string | number
+  /**
+   * Which soft goal the board should chase, after the hard safety rules.
+   * Missing means the usual mix of rotation, load, and hard-lane balance.
+   */
+  objective?: AssignmentObjective
 }
 
 export interface WorkerLaneStats {
@@ -109,6 +123,7 @@ export interface SortCandidatesOptions {
    * Ranking comparator is unchanged; RNG only orders equal candidates before sort.
    */
   rng?: () => number
+  objective?: AssignmentObjective
 }
 
 /** Inputs for the multi-pass global swap optimizer. */
@@ -125,6 +140,8 @@ export interface MultiPassOptimizationInput {
   currentShiftType?: ShiftType
   /** Greedy board — used for stability component */
   baselineAssignments?: LaneAssignment[]
+  objective?: AssignmentObjective
+  weights?: Partial<Record<keyof typeof DEFAULT_BOARD_WEIGHTS, number>>
 }
 
 export interface MultiPassOptimizationResult {
@@ -154,6 +171,41 @@ export const DEFAULT_BOARD_WEIGHTS = {
   staffing: 0.14,
   stability: 0.03,
 } as const
+
+/** Same keys, with load balance outweighing rotation. */
+export const LOAD_FAIR_BOARD_WEIGHTS = {
+  rotation: 0.14,
+  workload: 0.4,
+  recovery: 0.12,
+  hardBalance: 0.08,
+  handoff: 0.08,
+  versatility: 0.02,
+  intensityDist: 0.02,
+  staffing: 0.12,
+  stability: 0.02,
+} as const
+
+/**
+ * Same keys. `hardBalance` is rewritten to "experienced people on hard lanes"
+ * when the objective is hardExperience.
+ */
+export const HARD_EXPERIENCE_BOARD_WEIGHTS = {
+  rotation: 0.12,
+  workload: 0.06,
+  recovery: 0.12,
+  hardBalance: 0.36,
+  handoff: 0.08,
+  versatility: 0.02,
+  intensityDist: 0.02,
+  staffing: 0.2,
+  stability: 0.02,
+} as const
+
+export function weightsForObjective(objective: AssignmentObjective = 'standard') {
+  if (objective === 'loadFair') return LOAD_FAIR_BOARD_WEIGHTS
+  if (objective === 'hardExperience') return HARD_EXPERIENCE_BOARD_WEIGHTS
+  return DEFAULT_BOARD_WEIGHTS
+}
 
 export type BoardWeightKey = keyof typeof DEFAULT_BOARD_WEIGHTS
 
@@ -1097,7 +1149,18 @@ function compareForLane(
     if (aShort !== bShort) return aShort - bShort
   }
 
-  if (lane.intensity === 'hard') {
+  const objective = opts.objective ?? 'standard'
+
+  if (objective === 'loadFair' && pa.load !== pb.load) {
+    return pa.load - pb.load
+  }
+
+  if (objective === 'hardExperience' && lane.intensity === 'hard') {
+    if (pa.hardCount !== pb.hardCount) return pb.hardCount - pa.hardCount
+    const aRate = pa.hardCount / Math.max(1, pa.shiftsSeen)
+    const bRate = pb.hardCount / Math.max(1, pb.shiftsSeen)
+    if (Math.abs(aRate - bRate) > 1e-9) return bRate - aRate
+  } else if (lane.intensity === 'hard') {
     const loadGap = pa.load - pb.load
     if (Math.abs(loadGap) >= IDLE_HARD_LOAD_GAP) return loadGap
   }
@@ -1410,7 +1473,23 @@ export interface EvaluateBoardContext {
   currentShiftType: ShiftType
   /** Optional greedy snapshot for stability */
   baselineAssignments?: LaneAssignment[]
-  weights?: Partial<typeof DEFAULT_BOARD_WEIGHTS>
+  weights?: Partial<Record<keyof typeof DEFAULT_BOARD_WEIGHTS, number>>
+  objective?: AssignmentObjective
+}
+
+/**
+ * 0–100. Higher when the people sitting on hard lanes already have more hard-lane history.
+ */
+function hardLaneExperienceScore(
+  placements: { lane: Lane; profile: WorkerHistoryProfile }[],
+  profiles: Map<string, WorkerHistoryProfile>,
+): number {
+  const hardOnes = placements.filter((item) => item.lane.intensity === 'hard')
+  if (hardOnes.length === 0) return 100
+  const maxHard = Math.max(1, ...[...profiles.values()].map((profile) => profile.hardCount))
+  const average =
+    hardOnes.reduce((sum, item) => sum + item.profile.hardCount, 0) / hardOnes.length
+  return clamp01to100((average / maxHard) * 100)
 }
 
 /**
@@ -1421,7 +1500,7 @@ export function evaluateBoard(
   assignments: LaneAssignment[],
   ctx: EvaluateBoardContext,
 ): BoardEvaluation {
-  const weights = { ...DEFAULT_BOARD_WEIGHTS, ...ctx.weights }
+  const weights = { ...weightsForObjective(ctx.objective), ...ctx.weights }
   const laneById = new Map(ctx.lanes.map((l) => [l.id, l]))
   const seenWorkers = new Set<string>()
 
@@ -1560,7 +1639,10 @@ export function evaluateBoard(
     rotation,
     workload,
     recovery,
-    hardBalance,
+    hardBalance:
+      ctx.objective === 'hardExperience'
+        ? hardLaneExperienceScore(placements, ctx.profiles)
+        : hardBalance,
     handoff,
     versatility: versatilityScore,
     intensityDist,
@@ -1574,7 +1656,9 @@ export function evaluateBoard(
   }
   // Extra hard pull for missing required slots (beyond staffing component)
   score -= understaffedSlots * 4
-  score += idleHardPlacementAdjust(placements, ctx)
+  if (ctx.objective !== 'hardExperience') {
+    score += idleHardPlacementAdjust(placements, ctx)
+  }
   score = clamp01to100(score)
 
   return {
@@ -1707,6 +1791,7 @@ export function runMultiPassOptimization(
   const currentShiftType = input.currentShiftType ?? 'morning'
   const baseline = input.baselineAssignments ?? input.assignments
 
+  const objective = input.objective ?? 'standard'
   const evalCtx: EvaluateBoardContext = {
     lanes: input.lanes,
     workersById: input.workersById,
@@ -1715,6 +1800,8 @@ export function runMultiPassOptimization(
     morning,
     currentShiftType,
     baselineAssignments: baseline,
+    objective,
+    weights: input.weights ?? weightsForObjective(objective),
   }
 
   let assignments = cloneAssignments(input.assignments)
@@ -2122,6 +2209,7 @@ function buildFinalBoardExplanations(
   morning: SameDayMorningContext | null,
   currentShiftType: ShiftType,
   greedyAssignments: LaneAssignment[],
+  objective: AssignmentObjective = 'standard',
 ): PlacementExplanation[] {
   const explanations: PlacementExplanation[] = []
   const remainingAfter = new Set(orderedLanes.map((l) => l.id))
@@ -2144,6 +2232,7 @@ function buildFinalBoardExplanations(
       currentShiftType,
       morning,
       recoveringIds,
+      objective,
     })
 
     const lanePriorityNote = explainLanePriority(
@@ -2203,6 +2292,7 @@ function greedyAssignPass(
   warnings: string[],
   /** Base seed string; each lane derives its own RNG (tie-break only). */
   tieBreakSeedBase: string,
+  objective: AssignmentObjective = 'standard',
 ): {
   assignments: LaneAssignment[]
   understaffedLaneIds: string[]
@@ -2325,6 +2415,7 @@ function greedyAssignPass(
       relaxRotation: false,
       relaxNightRecovery,
       rng: laneRng,
+      objective,
     }
 
     const ranked = sortCandidatesForLane(pool, sortOpts)
@@ -2547,8 +2638,12 @@ export function runAssignmentAlgorithm(
   const maxPasses =
     ctx?.maxOptimizationPasses ?? DEFAULT_MAX_OPTIMIZATION_PASSES
 
+  const objective = ctx?.objective ?? 'standard'
   const tieBreakSeedBase = String(
-    ctx?.rngSeed ?? `${currentDate}|${currentShiftType}`,
+    ctx?.rngSeed ??
+      (objective === 'standard'
+        ? `${currentDate}|${currentShiftType}`
+        : `${currentDate}|${currentShiftType}|${objective}`),
   )
 
   const morningCtx =
@@ -2641,6 +2736,7 @@ export function runAssignmentAlgorithm(
     currentShiftType,
     warnings,
     tieBreakSeedBase,
+    objective,
   )
 
   const greedyBaseline = cloneAssignments(pass1.assignments)
@@ -2657,6 +2753,8 @@ export function runAssignmentAlgorithm(
     morning: morningCtx,
     currentShiftType,
     baselineAssignments: greedyBaseline,
+    objective,
+    weights: weightsForObjective(objective),
   })
 
   if (optimized.swapsPerformed > 0) {
@@ -2682,6 +2780,7 @@ export function runAssignmentAlgorithm(
     morningCtx,
     currentShiftType,
     greedyBaseline,
+    objective,
   )
 
   const unassigned = presentWorkers
@@ -2714,13 +2813,64 @@ export function runAssignmentAlgorithm(
     }
   }
 
+  const boardStats = summarizePlacedBoard(
+    finalAssignments,
+    activeLanes,
+    profiles,
+    currentShiftType,
+  )
+
   return {
     assignments: finalAssignments,
     unassignedWorkerIds: unassigned,
     understaffedLaneIds,
     warnings: [...new Set(warnings)],
     explanations,
+    ...boardStats,
   }
+}
+
+function medianNumber(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 1) return sorted[mid] ?? 0
+  return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
+}
+
+function summarizePlacedBoard(
+  assignments: LaneAssignment[],
+  lanes: Lane[],
+  profiles: Map<string, WorkerHistoryProfile>,
+  shiftType: ShiftType,
+): { loadSpread: number; hardSeats: number; experiencedHardSeats: number } {
+  const laneById = new Map(lanes.map((lane) => [lane.id, lane]))
+  const loads: number[] = []
+  let hardSeats = 0
+  let experiencedHardSeats = 0
+  const medianHard = medianNumber(
+    [...profiles.values()].map((profile) => profile.hardCount),
+  )
+  for (const row of assignments) {
+    const lane = laneById.get(row.laneId)
+    if (!lane) continue
+    for (const workerId of row.workerIds) {
+      if (!workerId) continue
+      const profile = profiles.get(workerId)
+      if (!profile) continue
+      loads.push(profile.load + shiftBalanceDelta(lane.intensity, shiftType))
+      if (lane.intensity !== 'hard') continue
+      hardSeats += 1
+      if (profile.hardCount > 0 && profile.hardCount >= medianHard) {
+        experiencedHardSeats += 1
+      }
+    }
+  }
+  const loadSpread =
+    loads.length < 2
+      ? 0
+      : Math.round((Math.max(...loads) - Math.min(...loads)) * 10) / 10
+  return { loadSpread, hardSeats, experiencedHardSeats }
 }
 
 function addShare(current: number, share: number): number {
