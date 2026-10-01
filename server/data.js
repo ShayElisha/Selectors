@@ -1051,13 +1051,16 @@ function conflictError(state) {
   return err
 }
 
-/** Bump the revision only if it is still `current`. One document, not the whole database. */
+/** Bump the revision only if it is still `current`. Match the stored BSON value, not a re-typed number. */
 async function claimRevision(scope, current) {
   const target = targetForScope(scope)
   const meta = await getMetaCollection(target)
-  const nextRevision = Number(current) + 1
+  const doc = await meta.findOne({ _id: metaIdFor(scope) })
+  const live = Number(doc?.revision ?? 0)
+  if (!doc || live !== Number(current)) return null
+  const nextRevision = live + 1
   const bumped = await meta.updateOne(
-    { _id: metaIdFor(scope), revision: Number(current) },
+    { _id: doc._id, revision: doc.revision },
     {
       $set: {
         schema: 'collections',
@@ -1208,6 +1211,7 @@ export async function writeState(data, options = {}) {
         'הנתונים עודכנו ע״י מנהל אחר. רעננו את המסך וחזרו על השינוי.',
       )
       err.status = 409
+      err.current = publicData(prev)
       throw err
     }
     await replaceModels(toStore, nextRevision, session, scope, target)

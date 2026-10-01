@@ -723,7 +723,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [drainPersist],
   )
 
-  /** Flush debounced saves before shift save / delete / reset. */
   const flushPersist = useCallback(async () => {
     if (syncTimer.current) {
       window.clearTimeout(syncTimer.current)
@@ -731,6 +730,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     await drainPersist()
   }, [drainPersist])
+
+  const readServerRevision = useCallback(async () => {
+    const fresh = applyRemoteData(
+      await fetchAppData(userRef.current?.module ?? undefined),
+    )
+    return fresh.revision ?? 0
+  }, [applyRemoteData])
+
+  const runWithFreshRevision = useCallback(
+    async <T,>(action: (revision: number) => Promise<T>): Promise<T> => {
+      await flushPersist()
+      let revision = dataRef.current.revision ?? 0
+      let lastError: unknown = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          return await action(revision)
+        } catch (e) {
+          lastError = e
+          if (e instanceof ApiError && e.status === 401) {
+            handleAuthFailure()
+            throw e
+          }
+          if (!(e instanceof ApiError) || e.status !== 409) throw e
+          const remote = e.current
+            ? applyRemoteData(e.current)
+            : null
+          const next = remote
+            ? (remote.revision ?? 0)
+            : await readServerRevision()
+          if (next === revision && attempt > 0) break
+          revision = next
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error('הפעולה נכשלה')
+    },
+    [flushPersist, handleAuthFailure, applyRemoteData, readServerRevision],
+  )
 
   const patchData = useCallback(
     (updater: (prev: AppData) => AppData) => {
@@ -2220,11 +2256,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncing(true)
     setError(null)
     try {
-      // Finish any pending worker/lane saves so revision is current
-      await flushPersist()
-      const saved = await saveShiftRemote(
-        schedule,
-        dataRef.current.revision ?? 0,
+      const saved = await runWithFreshRevision((revision) =>
+        saveShiftRemote(schedule, revision),
       )
       skipNextSync.current = true
       dataRef.current = saved
@@ -2234,35 +2267,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDraftDirty(false)
       clearDraftStorage()
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) handleAuthFailure()
-      if (e instanceof ApiError && e.status === 409 && e.current) {
-        // One automatic retry with fresh revision (own race with background persist)
-        try {
-          const server = applyRemoteData(e.current)
-          const saved = await saveShiftRemote(schedule, server.revision ?? 0)
-          skipNextSync.current = true
-          dataRef.current = saved
-          setData(saved)
-          saveAppDataCache(saved)
-          draftBaselineRef.current = snapshotDraft(draft)
-          setDraftDirty(false)
-          clearDraftStorage()
-          setError(null)
-          return
-        } catch (e2) {
-          if (e2 instanceof ApiError && e2.status === 409 && e2.current) {
-            applyRemoteData(e2.current)
-          }
-          setError(e2 instanceof Error ? e2.message : 'שמירת השיבוץ נכשלה')
-          throw e2
-        }
+      if (!(e instanceof ApiError && e.status === 401)) {
+        setError(e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה')
       }
-      setError(e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה')
       throw e
     } finally {
       setSyncing(false)
     }
-  }, [draft, toSchedule, flushPersist, handleAuthFailure, applyRemoteData])
+  }, [draft, toSchedule, runWithFreshRevision])
 
   const loadShiftFromHistory = useCallback(
     (id: string) => {
@@ -2274,36 +2286,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteHistoryItem = useCallback(async (id: string) => {
     setSyncing(true)
     try {
-      await flushPersist()
-      let revision = dataRef.current.revision ?? 0
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const saved = await deleteShiftRemote(id, revision)
-          skipNextSync.current = true
-          dataRef.current = saved
-          setData(saved)
-          saveAppDataCache(saved)
-          setError(null)
-          return
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 401) handleAuthFailure()
-          if (e instanceof ApiError && e.status === 409) {
-            const remote = e.current
-              ? applyRemoteData(e.current)
-              : applyRemoteData(await fetchAppData())
-            revision = remote.revision ?? 0
-            if (!remote.history.some((shift) => shift.id === id)) return
-            continue
-          }
-          setError(e instanceof Error ? e.message : 'מחיקה נכשלה')
-          return
-        }
+      const saved = await runWithFreshRevision(async (revision) => {
+        const next = await deleteShiftRemote(id, revision)
+        if (!next.history.some((shift) => shift.id === id)) return next
+        return next
+      })
+      skipNextSync.current = true
+      dataRef.current = saved
+      setData(saved)
+      saveAppDataCache(saved)
+      setError(null)
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) {
+        setError(e instanceof Error ? e.message : 'מחיקה נכשלה')
       }
-      setError('מחיקה נכשלה. רעננו את המסך ונסו שוב.')
     } finally {
       setSyncing(false)
     }
-  }, [flushPersist, handleAuthFailure, applyRemoteData])
+  }, [runWithFreshRevision])
 
   const addWorker = useCallback(
     (w: Omit<Worker, 'id'>) => {
@@ -2706,8 +2706,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const resetToSeed = useCallback(async () => {
     setSyncing(true)
     try {
-      await flushPersist()
-      const seeded = await seedAppDataRemote(dataRef.current.revision ?? 0)
+      const seeded = await runWithFreshRevision((revision) =>
+        seedAppDataRemote(revision),
+      )
       skipNextSync.current = true
       dataRef.current = seeded
       setData(seeded)
@@ -2729,7 +2730,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false)
     }
-  }, [flushPersist, handleAuthFailure, applyRemoteData, setView])
+  }, [runWithFreshRevision, handleAuthFailure, applyRemoteData, setView])
 
   const value = useMemo<AppContextValue>(
     () => ({
