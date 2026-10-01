@@ -276,6 +276,33 @@ export function submitBugReportRemote(body: {
   })
 }
 
+export interface BugReportSummary {
+  id: string
+  at: string
+  title: string
+  details: string
+  where: string
+  contactName: string
+  contactPhone: string
+  orgName: string
+  handled: boolean
+  handledAt: string
+}
+
+export function fetchBugReportsRemote(): Promise<BugReportSummary[]> {
+  return request('/api/bug-reports')
+}
+
+export function setBugReportHandledRemote(
+  id: string,
+  handled: boolean,
+): Promise<BugReportSummary> {
+  return request(`/api/bug-reports/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ handled }),
+  })
+}
+
 export function requestPasswordResetRemote(
   phone: string,
 ): Promise<{ ok: boolean; message: string }> {
