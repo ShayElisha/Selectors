@@ -7,6 +7,7 @@ import {
   formatOptimizationInfo,
   optimizationInfoFromSwaps,
   partitionWarnings,
+  replaceLeavingWorkerSeat,
   snapshotBoard,
   staffingChipKind,
   validateBoard,
@@ -122,5 +123,35 @@ describe('validateBoard', () => {
     expect(staffingChipKind(1, 1)).toBe('ok')
     expect(staffingChipKind(2, 1)).toBe('over')
     expect(staffingChipKind(0, 1)).toBe('under')
+  })
+})
+
+describe('replaceLeavingWorkerSeat', () => {
+  it('replaces only the person who left', () => {
+    const next = replaceLeavingWorkerSeat({
+      leavingId: 'a',
+      replacementId: 'c',
+      assignments: [
+        { laneId: 'hard', workerIds: ['a'] },
+        { laneId: 'easy', workerIds: ['b'] },
+      ],
+      presentWorkerIds: ['a', 'b'],
+    })
+    expect(next?.assignments).toEqual([
+      { laneId: 'hard', workerIds: ['c'] },
+      { laneId: 'easy', workerIds: ['b'] },
+    ])
+    expect(next?.presentWorkerIds).toEqual(['b', 'c'])
+    expect(
+      replaceLeavingWorkerSeat({
+        leavingId: 'a',
+        replacementId: 'b',
+        assignments: [
+          { laneId: 'hard', workerIds: ['a'] },
+          { laneId: 'easy', workerIds: ['b'] },
+        ],
+        presentWorkerIds: ['a', 'b'],
+      }),
+    ).toBeNull()
   })
 })

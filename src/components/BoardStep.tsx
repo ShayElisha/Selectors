@@ -142,6 +142,7 @@ export function BoardStep({
     updateAssignment,
     swapAssignments,
     removeWorkerFromShift,
+    replaceLeavingWorker,
     removeLaneFromShift,
     addSlotToLane,
     updateLaneNotes,
@@ -160,6 +161,10 @@ export function BoardStep({
   const [swapTarget, setSwapTarget] = useState<{
     laneId: string
     slotIndex: number
+    workerId: string
+  } | null>(null)
+  const [leaveTarget, setLeaveTarget] = useState<{
+    laneId: string
     workerId: string
   } | null>(null)
 
@@ -926,6 +931,15 @@ export function BoardStep({
                           <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
                             <button
                               type="button"
+                              onClick={() => setLeaveTarget({ laneId, workerId })}
+                              className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-card hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              title="יציאה באמצע משמרת. רק האדם הזה מוחלף"
+                              aria-label="החלפה באמצע משמרת"
+                            >
+                              <UserMinus className="size-4" aria-hidden />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() =>
                                 setSwapTarget({ laneId, slotIndex, workerId })
                               }
@@ -1275,6 +1289,82 @@ export function BoardStep({
                               )}
                             </span>
                             <ArrowLeftRight className="size-3.5 shrink-0 text-brand" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>,
+              document.body,
+            )
+          })()
+        : null}
+
+      {leaveTarget
+        ? (() => {
+            const lane = data.lanes.find((item) => item.id === leaveTarget.laneId)
+            const current = data.workers.find((worker) => worker.id === leaveTarget.workerId)
+            const seated = new Set(
+              draft.assignments.flatMap((row) => row.workerIds.filter(Boolean)),
+            )
+            seated.delete(leaveTarget.workerId)
+            const options = data.workers
+              .filter(
+                (worker) =>
+                  worker.status === 'active' &&
+                  worker.isInspector &&
+                  worker.id !== leaveTarget.workerId &&
+                  worker.id !== draft.gateManagerWorkerId &&
+                  !seated.has(worker.id) &&
+                  lane != null &&
+                  isQualified(worker, lane),
+              )
+              .sort((a, b) => a.fullName.localeCompare(b.fullName, 'he'))
+            return createPortal(
+              <div className="fixed inset-0 z-[200] flex items-end justify-center bg-ink/40 p-3 no-print sm:items-center sm:p-4">
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="leave-replace-title"
+                  className="w-full max-w-md animate-fade-up rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 id="leave-replace-title" className="font-display text-base font-bold text-ink">
+                        החלפה באמצע משמרת
+                      </h3>
+                      <p className="text-xs text-ink-soft">
+                        {current?.fullName ?? '—'} יוצא מ{lane?.name ?? 'הנתיב'}. שאר האנשים נשארים במקום.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLeaveTarget(null)}
+                      className="rounded-lg p-1.5 text-ink-soft hover:bg-surface"
+                      aria-label="סגור"
+                    >
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  </div>
+                  {options.length === 0 ? (
+                    <p className="rounded-xl bg-surface px-3 py-3 text-sm text-ink-soft">
+                      אין מי כשיר ופנוי להיכנס במקומו. מי שכבר יושב בנתיב אחר לא מוזז.
+                    </p>
+                  ) : (
+                    <ul className="max-h-64 space-y-1 overflow-y-auto">
+                      {options.map((worker) => (
+                        <li key={worker.id}>
+                          <button
+                            type="button"
+                            className="flex w-full rounded-xl px-3 py-2 text-start text-sm font-semibold text-ink hover:bg-surface"
+                            onClick={() => {
+                              replaceLeavingWorker(leaveTarget.workerId, worker.id)
+                              setLeaveTarget(null)
+                              notify.success(`${worker.fullName} נכנס במקום ${current?.fullName ?? ''}`)
+                            }}
+                          >
+                            {worker.fullName}
                           </button>
                         </li>
                       ))}
