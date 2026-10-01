@@ -354,6 +354,14 @@ export function BoardStep({
     workerId: string | null,
   ) => {
     if (locked) return
+    if (!workerId) {
+      const seated =
+        draft.assignments.find((row) => row.laneId === laneId)?.workerIds[slotIndex]
+      if (seated) {
+        beginRemoval(seated)
+        return
+      }
+    }
     if (workerId) {
       const other = workerLaneNameElsewhere(
         workerId,
