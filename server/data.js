@@ -1352,38 +1352,57 @@ export async function upsertShift(id, body, actor, options = {}) {
   const idx = state.history.findIndex((h) => h.id === schedule.id)
   const isNew = idx === -1
   const previous = isNew ? null : state.history[idx]
-  if (
-    options.expectedRevision != null &&
-    Number(options.expectedRevision) !== Number(state.revision ?? 0)
-  ) {
-    throw conflictError(state)
-  }
   const history = isNew
     ? [schedule, ...state.history]
-    : state.history.map((h, i) => (i === idx ? { ...h, ...schedule } : h))
+    : state.history.map((h, i) => (i === idx ? { ...previous, ...schedule } : h))
 
-  const nextRevision = await claimRevision(scope, state.revision ?? 0)
-  if (nextRevision == null) {
-    invalidateStateCache(scope)
-    throw conflictError(await readState(scope))
+  let saved = null
+  for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope)
+    const latest = attempt === 0 ? state : await readState(scope)
+    const latestHistory = attempt === 0
+      ? history
+      : (() => {
+          const found = latest.history.findIndex((h) => h.id === schedule.id)
+          return found === -1
+            ? [schedule, ...latest.history]
+            : latest.history.map((h, i) =>
+                i === found ? { ...h, ...schedule } : h,
+              )
+        })()
+    const duplicate = latestHistory.find(
+      (h) =>
+        h.id !== schedule.id &&
+        h.date === schedule.date &&
+        h.shiftType === schedule.shiftType &&
+        audienceOf(h) === audienceOf(schedule),
+    )
+    if (duplicate) {
+      const err = new Error(
+        'כבר קיים שיבוץ לאותו תאריך ואותה משמרת. לא ניתן ליצור שיבוץ כפול.',
+      )
+      err.status = 400
+      throw err
+    }
+    const nextRevision = await claimRevision(scope, latest.revision ?? 0)
+    if (nextRevision == null) continue
+    const target = targetForScope(scope)
+    const db = await getDb(target)
+    const stored = stampScope({ ...schedule }, scope)
+    delete stored._id
+    await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
+      { _id: shiftDocId(scope, schedule.id) },
+      {
+        $set: stored,
+        $setOnInsert: { listOrder: -Date.now() },
+      },
+      { upsert: true },
+    )
+    const savedState = { ...latest, history: latestHistory, revision: nextRevision }
+    rememberState(scope, savedState)
+    saved = publicData(savedState)
   }
-
-  const target = targetForScope(scope)
-  const db = await getDb(target)
-  const stored = stampScope({ ...schedule }, scope)
-  delete stored._id
-  await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
-    { _id: shiftDocId(scope, schedule.id) },
-    {
-      $set: stored,
-      $setOnInsert: { listOrder: -Date.now() },
-    },
-    { upsert: true },
-  )
-
-  const savedState = { ...state, history, revision: nextRevision }
-  rememberState(scope, savedState)
-  const saved = publicData(savedState)
+  if (!saved) throw conflictError(await readState(scope))
 
   const header = shiftAuditHeader(schedule)
   const movement = summarizeAssignmentChanges(previous, schedule, {
@@ -1408,37 +1427,36 @@ export async function deleteShift(id, actor, options = {}) {
   const state = await readState(scope)
   const existing = state.history.find((h) => h.id === id)
   if (!existing) return publicData(state)
-  if (
-    options.expectedRevision != null &&
-    Number(options.expectedRevision) !== Number(state.revision ?? 0)
-  ) {
-    throw conflictError(state)
-  }
 
-  const nextRevision = await claimRevision(scope, state.revision ?? 0)
-  if (nextRevision == null) {
-    invalidateStateCache(scope)
-    throw conflictError(await readState(scope))
+  let saved = null
+  let removed = existing
+  for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope)
+    const latest = attempt === 0 ? state : await readState(scope)
+    const targetShift = latest.history.find((h) => h.id === id)
+    if (!targetShift) return publicData(latest)
+    removed = targetShift
+    const nextRevision = await claimRevision(scope, latest.revision ?? 0)
+    if (nextRevision == null) continue
+    const target = targetForScope(scope)
+    const db = await getDb(target)
+    await db.collection(MODEL_COLLECTIONS.shifts).deleteOne({
+      _id: shiftDocId(scope, id),
+    })
+    const savedState = {
+      ...latest,
+      history: latest.history.filter((h) => h.id !== id),
+      revision: nextRevision,
+    }
+    rememberState(scope, savedState)
+    saved = publicData(savedState)
   }
-
-  const target = targetForScope(scope)
-  const db = await getDb(target)
-  await db.collection(MODEL_COLLECTIONS.shifts).deleteOne({
-    _id: shiftDocId(scope, id),
-  })
-
-  const savedState = {
-    ...state,
-    history: state.history.filter((h) => h.id !== id),
-    revision: nextRevision,
-  }
-  rememberState(scope, savedState)
-  const saved = publicData(savedState)
+  if (!saved) throw conflictError(await readState(scope))
 
   await appendAuditLog({
     action: 'shift_delete',
     actor,
-    details: `נמחק שיבוץ ${existing.date} · ${existing.shiftType}`,
+    details: `נמחק שיבוץ ${removed.date} · ${removed.shiftType}`,
     orgId: scope?.orgId,
     module: scope?.module,
   })

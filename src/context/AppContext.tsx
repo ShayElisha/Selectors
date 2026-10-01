@@ -990,6 +990,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!user?.token || user.role !== 'org_manager') return
     let stop = false
     const tick = async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return
       try {
         const fresh = await refreshSessionRemote()
         if (stop) return
