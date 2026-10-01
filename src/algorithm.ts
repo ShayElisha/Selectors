@@ -137,9 +137,9 @@ export interface MultiPassOptimizationResult {
 /** Soft objective weights for evaluateBoard (sum ≈ 1). */
 export const DEFAULT_BOARD_WEIGHTS = {
   /** Dominant when staffing is equal — prefer who was on the lane longest ago. */
-  rotation: 0.42,
+  rotation: 0.36,
   workload: 0.11,
-  recovery: 0.09,
+  recovery: 0.15,
   hardBalance: 0.07,
   handoff: 0.08,
   versatility: 0.03,
@@ -688,8 +688,18 @@ export function accumulateLoadWithRestDecay(
 }
 
 /**
- * Night recovery applies only on the afternoon of the calendar day after a night shift.
- * Night dated D (starts evening D) → recovery window = afternoon of D+1.
+ * Night dated D (starts evening D) → recovery on every afternoon shift of D+1.
+ */
+export function isAfternoonShift(shiftType: ShiftType): boolean {
+  return (
+    shiftType === 'afternoon' ||
+    shiftType === 'afternoonA' ||
+    shiftType === 'afternoonB'
+  )
+}
+
+/**
+ * Night recovery applies on the afternoon shifts of the calendar day after a night shift.
  */
 export function needsAfternoonNightRecovery(
   workerId: string,
@@ -697,7 +707,7 @@ export function needsAfternoonNightRecovery(
   currentDate: string,
   currentShiftType: ShiftType,
 ): boolean {
-  if (currentShiftType !== 'afternoon' && currentShiftType !== 'afternoonA') {
+  if (!isAfternoonShift(currentShiftType)) {
     return false
   }
   const nightDate = previousLocalDate(currentDate)
@@ -1007,8 +1017,8 @@ export function buildWorkerProfile(
 /**
  * Ranking for a lane (lower compare result = better). Order:
  * 1) afternoon handoff
- * 2) short-return avoidance (almost-hard when alternatives exist in sort set)
- * 3) night→afternoon recovery
+ * 2) night→afternoon recovery (ahead of rotation, so last night's worker gets the lighter lane)
+ * 3) short-return avoidance (almost-hard when alternatives exist in sort set)
  * 4) hard lanes: clearly lower recent load than the other candidate
  * 5) Maximum Distance rotation — raw score (not continuous)
  * 6) load / hard balance by intensity (relative hard rate)
@@ -1038,25 +1048,24 @@ function compareForLane(
     if (ta !== tb) return ta - tb
   }
 
-  if (!relaxRotation) {
-    // Almost-hard: prefer anyone who is NOT a short return when the other is.
-    const aShort = isShortReturnToLane(pa, lane.id) ? 1 : 0
-    const bShort = isShortReturnToLane(pb, lane.id) ? 1 : 0
-    if (aShort !== bShort) return aShort - bShort
-  }
-
   const applyRecovery =
     !relaxNightRecovery || lane.intensity === 'hard'
   if (applyRecovery) {
-  const aRec = recoveringIds.has(a.id) ? 1 : 0
-  const bRec = recoveringIds.has(b.id) ? 1 : 0
-  if (aRec !== bRec) {
-    if (lane.intensity === 'hard') return aRec - bRec
-    if (lane.intensity === 'easy') return bRec - aRec
-    const easyLeft = easyStaffingRemaining(otherOpen)
-    if (easyLeft > 0) return aRec - bRec
-    return bRec - aRec
+    const aRec = recoveringIds.has(a.id) ? 1 : 0
+    const bRec = recoveringIds.has(b.id) ? 1 : 0
+    if (aRec !== bRec) {
+      if (lane.intensity === 'hard') return aRec - bRec
+      if (lane.intensity === 'easy') return bRec - aRec
+      const easyLeft = easyStaffingRemaining(otherOpen)
+      if (easyLeft > 0) return aRec - bRec
+      return bRec - aRec
     }
+  }
+
+  if (!relaxRotation) {
+    const aShort = isShortReturnToLane(pa, lane.id) ? 1 : 0
+    const bShort = isShortReturnToLane(pb, lane.id) ? 1 : 0
+    if (aShort !== bShort) return aShort - bShort
   }
 
   if (lane.intensity === 'hard') {
@@ -1609,8 +1618,8 @@ function illegalBoardEval(): BoardEvaluation {
  * Lexicographic order (does not drop soft rules — only prioritizes):
  * 1) fewer understaffed slots (maximize fill)
  * 2) fewer short returns to the same lane (when fill is equal)
- * 3) higher weighted soft score (rotation weighted highest)
- * 4) fewer recovering-on-hard, then spacing / rotation / stability
+ * 3) fewer night workers placed on a hard afternoon lane
+ * 4) higher weighted soft score, then spacing / rotation / stability
  */
 export function isBoardBetter(
   next: BoardEvaluation,
@@ -1630,13 +1639,14 @@ export function isBoardBetter(
     return next.shortReturnCount < current.shortReturnCount
   }
 
-  if (next.score > current.score + 1e-6) return true
-  if (next.score < current.score - 1e-6) return false
-
-  // Near-equal global score — ordered soft tie-breaks
+  // Near-equal fill — a night worker on a hard afternoon lane loses to a lighter placement.
   if (next.recoveryOnHard !== current.recoveryOnHard) {
     return next.recoveryOnHard < current.recoveryOnHard
   }
+
+  if (next.score > current.score + 1e-6) return true
+  if (next.score < current.score - 1e-6) return false
+
   if (Math.abs(next.minDaysSince - current.minDaysSince) > 1e-9) {
     return next.minDaysSince > current.minDaysSince
   }
@@ -2251,6 +2261,13 @@ function greedyAssignPass(
       }
     }
 
+    if (lane.intensity === 'easy' && isAfternoonShift(currentShiftType)) {
+      const nightFirst = qualified.filter((w) => recoveringIds.has(w.id))
+      if (nightFirst.length >= lane.staffingStandard) {
+        pool = nightFirst
+      }
+    }
+
     // Relax night-recovery preference for medium/easy when still short
     if (
       pool.length < lane.staffingStandard &&
@@ -2540,7 +2557,7 @@ export function runAssignmentAlgorithm(
     currentShiftType === 'afternoon'
       ? buildSameDayMorningContext(history, currentDate)
       : null
-  if (currentShiftType === 'afternoon') {
+  if (isAfternoonShift(currentShiftType)) {
     for (const w of presentWorkers) {
       if (
         needsAfternoonNightRecovery(w.id, history, currentDate, currentShiftType)

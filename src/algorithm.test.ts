@@ -152,6 +152,12 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(
       needsAfternoonNightRecovery('r', history, '2026-03-11', 'afternoon'),
     ).toBe(false)
+    expect(
+      needsAfternoonNightRecovery('r', history, '2026-03-10', 'afternoonA'),
+    ).toBe(true)
+    expect(
+      needsAfternoonNightRecovery('r', history, '2026-03-10', 'afternoonB'),
+    ).toBe(true)
 
     const result = runAssignmentAlgorithm(
       [hard, easy, medium],
@@ -161,7 +167,9 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 3 },
     )
     const hardAsg = result.assignments.find((a) => a.laneId === 'hard')
+    const easyAsg = result.assignments.find((a) => a.laneId === 'easy')
     expect(hardAsg?.workerIds.includes('r')).toBe(false)
+    expect(easyAsg?.workerIds.includes('r')).toBe(true)
   })
 
   it('counts night placements in lane rotation', () => {
