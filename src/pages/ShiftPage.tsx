@@ -18,6 +18,7 @@ import {
   Shield,
   Download,
   MessageCircle,
+  Lock,
 } from 'lucide-react'
 import {
   isQualified,
@@ -26,6 +27,7 @@ import {
 } from '../algorithm'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
+import { ShiftClosedBanner, ShiftSignOffDialog } from '../components/ShiftSignOffDialog'
 import {
   findShiftForSlot,
   getCurrentShiftContext,
@@ -115,6 +117,7 @@ export function ShiftPage() {
     setWindowAdjustment,
     addExtraWorkerToLane,
     saveCurrentShift,
+    signCurrentShift,
     startShift,
     discardDraft,
     loadShiftFromHistory,
@@ -135,6 +138,8 @@ export function ShiftPage() {
   const [requestExplainModal, setRequestExplainModal] = useState(false)
   const [explainModalOpen, setExplainModalOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
+  const [signOpen, setSignOpen] = useState(false)
+  const [signBusy, setSignBusy] = useState(false)
   const [otherEditors, setOtherEditors] = useState<string[]>([])
   const [feasibilityOpen, setFeasibilityOpen] = useState(false)
   const [attendanceQuery, setAttendanceQuery] = useState('')
@@ -486,6 +491,10 @@ export function ShiftPage() {
     commitSelectorBoard()
   }, [shiftStep, draft, commitSelectorBoard])
 
+  useEffect(() => {
+    if (draft?.signOff?.signedAt && shiftStep !== 'board') setShiftStep('board')
+  }, [draft?.signOff?.signedAt, shiftStep, setShiftStep])
+
   const handleSave = async () => {
     if (!draft) return
     if (!draft.gateManagerWorkerId?.trim()) {
@@ -516,6 +525,42 @@ export function ShiftPage() {
       window.setTimeout(() => setSaveFlash(false), 2000)
     } catch {
       /* error shown via context + toast */
+    }
+  }
+
+  const openSignOff = () => {
+    if (!draft || draft.signOff?.signedAt) return
+    if (!draft.gateManagerWorkerId?.trim()) {
+      notify.error(
+        'לא סומן מנהל שער',
+        'לפני הסגירה צריך לסמן מנהל שער. השיבוץ לא נסגר.',
+      )
+      return
+    }
+    if (slotConflict) {
+      notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
+      return
+    }
+    if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
+      notify.error(
+        'לא ניתן לסגור',
+        `נשארו ${draft.unassignedWorkerIds.length} ${roleName} שלא שובצו לעמדה. שבצו את כולם לפני הסגירה.`,
+      )
+      return
+    }
+    setSignOpen(true)
+  }
+
+  const confirmSignOff = async (signature: string) => {
+    setSignBusy(true)
+    try {
+      await signCurrentShift(signature)
+      setSignOpen(false)
+      notify.success('המשמרת נסגרה', 'הלוח נעול לעריכה ולמחיקה.')
+    } catch {
+      /* error shown via context + toast */
+    } finally {
+      setSignBusy(false)
     }
   }
 
@@ -1557,6 +1602,7 @@ export function ShiftPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {draft.signOff?.signedAt ? null : (
               <button
                 type="button"
                 onClick={() => setShiftStep('attendance')}
@@ -1564,6 +1610,7 @@ export function ShiftPage() {
               >
                 חזרה לנוכחות
               </button>
+              )}
               <button
                 type="button"
                 onClick={shareHandover}
@@ -1587,6 +1634,8 @@ export function ShiftPage() {
                 <Download className="size-4" aria-hidden />
                 ייצוא
               </button>
+              {draft.signOff?.signedAt ? null : (
+                <>
               <button
                 type="button"
                 onClick={handleAutoAssign}
@@ -1602,6 +1651,16 @@ export function ShiftPage() {
               >
                 שמירה
               </button>
+              <button
+                type="button"
+                onClick={openSignOff}
+                className="ui-btn ui-btn-secondary gap-2"
+              >
+                <Lock className="size-4" aria-hidden />
+                סגירת משמרת
+              </button>
+                </>
+              )}
             </div>
           </div>
           </div>
@@ -1612,6 +1671,7 @@ export function ShiftPage() {
               ))}
             </ul>
           ) : null}
+          {draft.signOff ? <ShiftClosedBanner signOff={draft.signOff} /> : null}
           <SelectorRoundTable
             rounds={draft.rounds ?? []}
             lanes={selectorLanes(data.lanes, draft.activeLaneIds)}
@@ -1627,7 +1687,7 @@ export function ShiftPage() {
                     ?.fullName ?? ''
                 : ''
             }
-            editable
+            editable={!draft.signOff?.signedAt}
             onChange={updateSelectorCell}
             onRemoveLane={(laneId) => {
               removeLaneFromShift(laneId)
@@ -1638,6 +1698,8 @@ export function ShiftPage() {
       ) : null}
 
       {shiftStep === 'board' && !usesRounds(draft) && (
+        <div className="space-y-3">
+          {draft.signOff ? <ShiftClosedBanner signOff={draft.signOff} /> : null}
         <BoardStep
           draft={draft}
           data={data}
@@ -1651,6 +1713,7 @@ export function ShiftPage() {
           requestExplainModal={requestExplainModal}
           onClearExplainRequest={() => setRequestExplainModal(false)}
           onSave={handleSave}
+          onSignOff={openSignOff}
           onReassign={handleAutoAssign}
           onEditSettings={() => setShiftStep('lanes')}
           onRequestDiscard={() => setDiscardOpen(true)}
@@ -1662,6 +1725,7 @@ export function ShiftPage() {
           onBackToAttendance={() => setShiftStep('attendance')}
           onExplainModalOpenChange={setExplainModalOpen}
         />
+        </div>
       )}
 
       {extraFlow !== 'closed' && (
@@ -1811,6 +1875,16 @@ export function ShiftPage() {
           </div>
         </div>
       )}
+      {signOpen ? (
+        <ShiftSignOffDialog
+          accountName={user?.fullName ?? ''}
+          busy={signBusy}
+          onClose={() => {
+            if (!signBusy) setSignOpen(false)
+          }}
+          onConfirm={(signature) => void confirmSignOff(signature)}
+        />
+      ) : null}
     </div>
   )
 }

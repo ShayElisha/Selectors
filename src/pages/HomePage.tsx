@@ -13,6 +13,7 @@ import {
   Table2,
   BarChart3,
   AlertTriangle,
+  Lock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
@@ -335,7 +336,9 @@ export function HomePage() {
           if (cancelled) return
           const match = logs.find(
             (l) =>
-              (l.action === 'shift_save' || l.action === 'shift_update') &&
+              (l.action === 'shift_save' ||
+                l.action === 'shift_update' ||
+                l.action === 'shift_signoff') &&
               l.details.includes(target.date) &&
               l.details.includes(target.shiftType),
           )
@@ -477,8 +480,12 @@ export function HomePage() {
           ) : currentShift ? (
             <>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-2.5 py-1 text-[11px] font-semibold text-ok ring-1 ring-ok/20 sm:text-xs">
-                <CheckCircle2 className="size-3.5" aria-hidden />
-                משובץ
+                {currentShift.signOff?.signedAt ? (
+                  <Lock className="size-3.5" aria-hidden />
+                ) : (
+                  <CheckCircle2 className="size-3.5" aria-hidden />
+                )}
+                {currentShift.signOff?.signedAt ? 'נסגרה' : 'משובץ'}
               </span>
               <div className="min-w-0">
                 <h2 className="font-display text-base font-bold tracking-tight text-ink sm:text-lg">
@@ -559,7 +566,7 @@ export function HomePage() {
                 className="ui-btn ui-btn-primary gap-2"
               >
                 <ArrowLeft className="size-4" aria-hidden />
-                עריכת שיבוץ
+                {currentShift.signOff?.signedAt ? 'צפייה בשיבוץ' : 'עריכת שיבוץ'}
               </button>
               <button
                 type="button"
@@ -791,7 +798,7 @@ export function HomePage() {
               onClick={() => loadShiftFromHistory(selectorShift.id)}
               className="ui-btn ui-btn-secondary no-print"
             >
-              עריכה
+              {selectorShift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
             </button>
           }
         >

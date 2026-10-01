@@ -79,6 +79,15 @@ export interface SelectorRound {
   assignments: LaneAssignment[]
 }
 
+/** Formal close by the manager who is logged in. After this, the board is locked. */
+export interface ShiftSignOff {
+  signedAt: string
+  signerName: string
+  signerId: string
+  /** Typed full name, matching the connected manager. */
+  signature: string
+}
+
 /** A small trim of a person's saved hours. Does not rewrite the placement. */
 export interface WindowAdjustment {
   /** Arrived this many minutes later than the saved window. */
@@ -134,6 +143,11 @@ export interface ShiftSchedule {
    * Older shifts may omit this; the history screen can rebuild it.
    */
   explanations?: { laneId: string; workerId: string; reasons: string[] }[]
+  /**
+   * Present only after an explicit shift close.
+   * The board cannot be edited or deleted once this is stored.
+   */
+  signOff?: ShiftSignOff
   createdAt: string
   updatedAt: string
 }

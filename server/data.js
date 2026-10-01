@@ -1185,6 +1185,9 @@ export async function writeState(data, options = {}) {
     ...normalized,
     workers,
   }
+  if (options.action !== 'data_reset') {
+    payload.history = keepSignedShifts(payload.history, prev?.history)
+  }
   const nextRevision = currentRevision + 1
   const toStore = {
     workers: payload.workers,
@@ -1311,6 +1314,65 @@ export async function resendManagerTempPassword(workerId, actor, options = {}) {
   return { ok: true }
 }
 
+function compactPersonName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ')
+}
+
+function isShiftSignedOff(shift) {
+  return Boolean(shift?.signOff && String(shift.signOff.signedAt || '').trim())
+}
+
+function signedShiftError(verb) {
+  const err = new Error(`המשמרת נסגרה וננעלה. לא ניתן ${verb} אותה.`)
+  err.status = 409
+  throw err
+}
+
+/** A full data write cannot rewrite or drop a closed shift. */
+function keepSignedShifts(incoming, stored) {
+  const lockedById = new Map(
+    (stored || []).filter(isShiftSignedOff).map((shift) => [shift.id, shift]),
+  )
+  if (lockedById.size === 0) return incoming || []
+  const seen = new Set()
+  const next = (incoming || []).map((shift) => {
+    const locked = lockedById.get(shift.id)
+    if (!locked) return shift
+    seen.add(shift.id)
+    return locked
+  })
+  for (const [id, shift] of lockedById) {
+    if (!seen.has(id)) next.push(shift)
+  }
+  return next
+}
+
+/**
+ * A close request must be signed with the connected manager's full name.
+ * Returns true when this save is the close itself.
+ */
+function attachSignOff(schedule, actor) {
+  const requested = schedule.signOff
+  if (!requested) {
+    delete schedule.signOff
+    return false
+  }
+  const typed = compactPersonName(requested.signature)
+  const name = compactPersonName(actor?.fullName)
+  if (!name || typed !== name) {
+    const err = new Error('החתימה צריכה להיות השם המלא של המנהל שמחובר.')
+    err.status = 400
+    throw err
+  }
+  schedule.signOff = {
+    signedAt: new Date().toISOString(),
+    signerName: name,
+    signerId: String(actor?.id || ''),
+    signature: typed,
+  }
+  return true
+}
+
 export async function upsertShift(id, body, actor, options = {}) {
   const scope = options.scope
   const state = await readState(scope)
@@ -1352,6 +1414,8 @@ export async function upsertShift(id, body, actor, options = {}) {
   const idx = state.history.findIndex((h) => h.id === schedule.id)
   const isNew = idx === -1
   const previous = isNew ? null : state.history[idx]
+  if (isShiftSignedOff(previous)) signedShiftError('לערוך')
+  const closing = attachSignOff(schedule, actor)
   const history = isNew
     ? [schedule, ...state.history]
     : state.history.map((h, i) => (i === idx ? { ...previous, ...schedule } : h))
@@ -1360,6 +1424,8 @@ export async function upsertShift(id, body, actor, options = {}) {
   for (let attempt = 0; attempt < 5 && !saved; attempt++) {
     if (attempt > 0) invalidateStateCache(scope)
     const latest = attempt === 0 ? state : await readState(scope)
+    const foundNow = latest.history.find((h) => h.id === schedule.id)
+    if (isShiftSignedOff(foundNow)) signedShiftError('לערוך')
     const latestHistory = attempt === 0
       ? history
       : (() => {
@@ -1412,9 +1478,11 @@ export async function upsertShift(id, body, actor, options = {}) {
   const details = movement ? `${header} · ${movement}` : header
 
   await appendAuditLog({
-    action: isNew ? 'shift_save' : 'shift_update',
+    action: closing ? 'shift_signoff' : isNew ? 'shift_save' : 'shift_update',
     actor,
-    details,
+    details: closing
+      ? `נסגרה משמרת ${schedule.date} · ${schedule.shiftType} · ${schedule.signOff.signerName}`
+      : details,
     orgId: scope?.orgId,
     module: scope?.module,
   })
@@ -1427,6 +1495,7 @@ export async function deleteShift(id, actor, options = {}) {
   const state = await readState(scope)
   const existing = state.history.find((h) => h.id === id)
   if (!existing) return publicData(state)
+  if (isShiftSignedOff(existing)) signedShiftError('למחוק')
 
   let saved = null
   let removed = existing
@@ -1435,6 +1504,7 @@ export async function deleteShift(id, actor, options = {}) {
     const latest = attempt === 0 ? state : await readState(scope)
     const targetShift = latest.history.find((h) => h.id === id)
     if (!targetShift) return publicData(latest)
+    if (isShiftSignedOff(targetShift)) signedShiftError('למחוק')
     removed = targetShift
     const nextRevision = await claimRevision(scope, latest.revision ?? 0)
     if (nextRevision == null) continue

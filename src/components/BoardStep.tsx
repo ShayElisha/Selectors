@@ -27,6 +27,7 @@ import {
   Trash2,
   UserMinus,
   X,
+  Lock,
 } from 'lucide-react'
 import {
   afternoonHandoffTier,
@@ -82,6 +83,7 @@ export interface BoardStepProps {
   requestExplainModal: boolean
   onClearExplainRequest: () => void
   onSave: () => void | Promise<void>
+  onSignOff?: () => void
   onReassign: () => void
   onEditSettings: () => void
   onRequestDiscard: () => void
@@ -131,6 +133,7 @@ export function BoardStep({
   requestExplainModal,
   onClearExplainRequest,
   onSave,
+  onSignOff,
   onReassign,
   onEditSettings,
   onRequestDiscard,
@@ -329,6 +332,7 @@ export function BoardStep({
   }, [partitioned, boardIssues, slotConflict, draft.date, draft.shiftType])
 
   const hasBoardErrors = boardIssues.some((i) => i.severity === 'error')
+  const locked = Boolean(draft.signOff?.signedAt)
   const saveBlocked =
     Boolean(slotConflict) ||
     draft.unassignedWorkerIds.length > 0 ||
@@ -347,6 +351,7 @@ export function BoardStep({
     slotIndex: number,
     workerId: string | null,
   ) => {
+    if (locked) return
     if (workerId) {
       const other = workerLaneNameElsewhere(
         workerId,
@@ -555,6 +560,11 @@ export function BoardStep({
 
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {locked ? (
+          <p className="rounded-xl border border-line/80 bg-surface/70 px-3 py-2 text-sm font-semibold text-ink">
+            {selectedWorker?.fullName || 'פנוי'}
+          </p>
+        ) : (
         <div className="relative min-w-0">
         <select
           className={`min-w-0 w-full appearance-none rounded-xl border py-2 pe-8 ps-3 text-sm font-semibold tracking-tight text-ink transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
@@ -585,6 +595,7 @@ export function BoardStep({
           aria-hidden
         />
         </div>
+        )}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -631,6 +642,7 @@ export function BoardStep({
             </span>
           ) : null}
         </div>
+        {!locked ? (
         <button
           type="button"
           onClick={onEditSettings}
@@ -638,6 +650,8 @@ export function BoardStep({
         >
           עריכת שיבוץ
         </button>
+        ) : null}
+        {!locked ? (
         <div className="relative" ref={summaryMenuRef}>
           <button
             ref={summaryBtnRef}
@@ -674,6 +688,7 @@ export function BoardStep({
               )
             : null}
         </div>
+        ) : null}
       </div>
 
       <div
@@ -866,7 +881,7 @@ export function BoardStep({
                       </span>
                     </div>
                   </div>
-                  {!isGateLane ? (
+                  {!isGateLane && !locked ? (
                     <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
                       <button
                         type="button"
@@ -927,7 +942,7 @@ export function BoardStep({
                           </span>
                         ) : null}
                         {renderWorkerSelect(lane, laneId, slotIndex, workerId, std)}
-                        {workerId ? (
+                        {workerId && !locked ? (
                           <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
                             <button
                               type="button"
@@ -990,7 +1005,11 @@ export function BoardStep({
                         maxLength={LANE_NOTE_MAX_LENGTH}
                         placeholder={"הערה בכמה שורות…\nתופיע גם בוואטסאפ ובייצוא"}
                         value={assignment?.notes ?? ''}
-                        onChange={(e) => updateLaneNotes(laneId, e.target.value)}
+                        readOnly={locked}
+                        onChange={(e) => {
+                          if (locked) return
+                          updateLaneNotes(laneId, e.target.value)
+                        }}
                         aria-describedby={`lane-note-hint-${laneId}`}
                       />
                       <p
@@ -1028,6 +1047,8 @@ export function BoardStep({
                     className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-card px-2.5 py-1 text-xs text-ink shadow-sm"
                   >
                     <span>{name}</span>
+                    {!locked ? (
+                      <>
                     <button
                       type="button"
                       onClick={() => onOpenExtraPick(undefined, id)}
@@ -1044,6 +1065,8 @@ export function BoardStep({
                     >
                       <X className="size-3.5" aria-hidden />
                     </button>
+                      </>
+                    ) : null}
                   </li>
                 )
               })}
@@ -1052,6 +1075,7 @@ export function BoardStep({
         ) : null}
       </div>
 
+      {!locked ? (
       <button
         type="button"
         onClick={onBackToAttendance}
@@ -1060,10 +1084,17 @@ export function BoardStep({
         <ChevronRight className="size-3.5 sm:size-4" aria-hidden />
         חזרה לנוכחות
       </button>
+      ) : null}
 
       {/* Sticky actions */}
       <div className="fixed inset-x-3 bottom-20 z-40 rounded-2xl border border-line/70 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-panel-hover)] backdrop-blur-md no-print sm:inset-x-4 lg:bottom-4 lg:left-1/2 lg:right-auto lg:w-[min(72rem,calc(100%-2rem))] lg:-translate-x-1/2">
         <div className="mx-auto flex flex-wrap items-center gap-2">
+          {locked ? (
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ok">
+              <Lock className="size-4" aria-hidden />
+              הלוח נעול
+            </span>
+          ) : (
           <button
             type="button"
             onClick={() => void onSave()}
@@ -1088,6 +1119,23 @@ export function BoardStep({
             )}
             שמירה
           </button>
+          )}
+          {!locked && onSignOff ? (
+            <button
+              type="button"
+              onClick={onSignOff}
+              disabled={saveBlocked}
+              title={
+                saveBlocked
+                  ? 'אפשר לסגור רק כשהלוח תקין וכולם משובצים'
+                  : 'סגירה נועלת את הלוח לעריכה'
+              }
+              className="ui-btn ui-btn-secondary !py-2 gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-40"
+            >
+              <Lock className="size-4" aria-hidden />
+              סגירת משמרת
+            </button>
+          ) : null}
           <span
             className={`text-[12px] font-medium tabular-nums ${
               saveFlash || (!boardDirty && lastSavedAt)
@@ -1151,6 +1199,7 @@ export function BoardStep({
           >
             מסירה
           </button>
+          {!locked ? (
           <button
             type="button"
             onClick={confirmReassign}
@@ -1159,6 +1208,7 @@ export function BoardStep({
             <Sparkles className="size-4" aria-hidden />
             שבץ מחדש
           </button>
+          ) : null}
         </div>
       </div>
 
