@@ -413,6 +413,20 @@ function ShiftAccordion({
       {open ? (
         <div className="min-w-0 overflow-hidden border-t border-line px-3 py-3">
           <ShiftExplanation shift={shift} />
+          {shift.shiftEvents?.length ? (
+            <ul className="mb-3 space-y-1">
+              {shift.shiftEvents.map((event) => (
+                <li key={event.id} className="rounded-xl bg-ok-soft/70 px-3 py-2 text-[13px] text-ink">
+                  <p className="font-semibold">שיקום לוח · {event.summary}</p>
+                  {event.lines.map((line) => (
+                    <p key={line} className="mt-0.5 text-ink-soft">
+                      {line}
+                    </p>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {usesRounds(shift) ? (
             <SelectorRoundTable
               rounds={shift.rounds ?? []}

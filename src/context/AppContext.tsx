@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
+import { toast } from 'sonner'
 import {
   runAssignmentAlgorithm,
   type AssignmentResult,
@@ -30,11 +31,13 @@ import {
   fetchOrgSettings,
   saveAppDataRemote,
   saveOrgSettings,
+  selfHealShiftRemote,
   saveShiftRemote,
   seedAppDataRemote,
   type LoginNextStep,
 } from '../api'
 import { notify } from '../lib/notify'
+import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { normalizeSignOff } from '../lib/shiftSignOff'
 import {
   clearAppDataCache,
@@ -113,7 +116,9 @@ import type {
   AssignmentMode,
   ShiftAudience,
   ShiftSchedule,
+  ShiftChangeEvent,
   ShiftSignOff,
+  SeatSegment,
   ShiftType,
   StaffingStandard,
   WindowAdjustment,
@@ -197,6 +202,13 @@ export interface ShiftDraft {
   staffingOverrides: StaffingOverrides
   /** Set after a formal close. The board is read-only. */
   signOff?: ShiftSignOff
+  frozenLaneIds?: string[]
+  seatSegments?: SeatSegment[]
+  seatSpan?: { startMinutes: number; endMinutes: number }
+  isSelfHealed?: boolean
+  shiftEvents?: ShiftChangeEvent[]
+  /** Transient glow after an accepted refill. */
+  healHighlights?: { laneId: string; tone: 'filled' | 'frozen' }[]
 }
 
 interface AppContextValue {
@@ -300,6 +312,13 @@ interface AppContextValue {
    * and drops them from present attendance so save is not blocked.
    */
   removeWorkerFromShift: (workerId: string) => void
+  /** Prepare an automatic refill before a seated person leaves. */
+  beginRemoval: (workerId: string) => void
+  confirmSelfHeal: () => Promise<void>
+  editRemovalManually: () => void
+  dismissSelfHeal: () => void
+  healing: boolean
+  healPlan: { healed: SelfHealPlan; manual: SelfHealPlan } | null
   /** Replace one seated person. Other seats stay as they are. */
   replaceLeavingWorker: (leavingId: string, replacementId: string) => void
   /** Drop a lane from the open shift. People who were on it stay present and become unassigned. */
@@ -369,6 +388,16 @@ function selectorRoundBounds(shiftType: string, models: ShiftModel[] | undefined
   )
   if (!model) return undefined
   return { start: model.startMinutes, end: shiftModelAbsoluteEnd(model) }
+}
+
+function workerIsSeated(
+  draft: { assignments: { workerIds: string[] }[]; rounds?: { assignments: { workerIds: string[] }[] }[] },
+  workerId: string,
+): boolean {
+  if (draft.assignments.some((row) => row.workerIds.includes(workerId))) return true
+  return (draft.rounds ?? []).some((round) =>
+    round.assignments.some((row) => row.workerIds.includes(workerId)),
+  )
 }
 
 function padAssignments(
@@ -542,6 +571,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /** Restored drafts were already persisted → treat as dirty until discarded/saved clean. */
   const [draftDirty, setDraftDirty] = useState(() => restoreDraft() != null)
   const draftBaselineRef = useRef<string | null>(null)
+  const beginRemovalRef = useRef<(workerId: string) => void>(() => {})
+  const [healing, setHealing] = useState(false)
+  const [healPlan, setHealPlan] = useState<{
+    healed: SelfHealPlan
+    manual: SelfHealPlan
+  } | null>(null)
   const laneHoursKey = data.lanes
     .map(
       (lane) =>
@@ -1119,6 +1154,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           windowAdjustments: item.windowAdjustments ?? {},
           staggerRounds: Boolean(item.staggerRounds),
           signOff: normalizeSignOff(item.signOff),
+          frozenLaneIds: item.frozenLaneIds,
+          seatSegments: item.seatSegments,
+          seatSpan: item.seatSpan,
+          isSelfHealed: item.isSelfHealed,
+          shiftEvents: item.shiftEvents,
           warnings: [],
           unassignedWorkerIds: [],
           explanations: Array.isArray(item.explanations) ? item.explanations : [],
@@ -1183,6 +1223,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           reasons: item.reasons,
         })),
       ...(d.signOff?.signedAt ? { signOff: d.signOff } : {}),
+      ...(d.isSelfHealed ? { isSelfHealed: true } : {}),
+      ...(d.seatSegments?.length
+        ? { seatSegments: d.seatSegments, seatSpan: d.seatSpan }
+        : {}),
+      ...(d.frozenLaneIds?.length ? { frozenLaneIds: d.frozenLaneIds } : {}),
+      ...(d.shiftEvents?.length ? { shiftEvents: d.shiftEvents } : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -1417,6 +1463,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const toggleWorker = useCallback((workerId: string) => {
+    if (
+      draft &&
+      !draft.signOff?.signedAt &&
+      draft.presentWorkerIds.includes(workerId) &&
+      workerIsSeated(draft, workerId)
+    ) {
+      beginRemovalRef.current(workerId)
+      return
+    }
     setDraft((d) => {
       if (!d) return d
       const has = d.presentWorkerIds.includes(workerId)
@@ -1468,7 +1523,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data.lanes,
       )
     })
-  }, [data.lanes])
+  }, [data.lanes, draft])
 
   const setGateManager = useCallback(
     (workerId: string | null) => {
@@ -2306,6 +2361,147 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [data.lanes],
   )
 
+  const applyHealPlan = useCallback(
+    (plan: SelfHealPlan, persist: boolean) => {
+      const current = draft
+      if (!current) return
+      const eventId = uuid()
+      const event: ShiftChangeEvent | null = persist
+        ? {
+            id: eventId,
+            at: new Date().toISOString(),
+            atMinutes: plan.atMinutes,
+            removedWorkerId: plan.removedWorkerId,
+            summary: plan.summary,
+            lines: plan.lines,
+            moves: plan.moves,
+          }
+        : null
+      const next: ShiftDraft = {
+        ...current,
+        presentWorkerIds: plan.presentWorkerIds,
+        gateManagerWorkerId: plan.gateManagerWorkerId,
+        assignments: plan.assignments,
+        rounds: plan.rounds,
+        frozenLaneIds: plan.frozenLaneIds,
+        seatSegments: plan.seatSegments ?? current.seatSegments,
+        seatSpan: plan.seatSpan ?? current.seatSpan,
+        isSelfHealed: persist ? true : current.isSelfHealed,
+        shiftEvents: event ? [...(current.shiftEvents ?? []), event] : current.shiftEvents,
+        healHighlights: plan.highlights,
+        explanations: [
+          ...(current.explanations ?? []),
+          ...plan.lines.map((line) => ({
+            laneId: plan.moves[0]?.toLaneId || plan.highlights[0]?.laneId || current.activeLaneIds[0] || '',
+            workerId: plan.moves[0]?.workerId || plan.removedWorkerId,
+            reasons: [line],
+          })),
+        ].filter((item) => item.laneId && item.reasons.length),
+      }
+      setDraft(next)
+      setHealPlan(null)
+      if (!dataRef.current.history.some((shift) => shift.id === current.id)) return
+      void (async () => {
+        try {
+          const saved = await runWithFreshRevision((revision) =>
+            selfHealShiftRemote(
+              current.id,
+              {
+                eventId,
+                removedWorkerId: plan.removedWorkerId,
+                atMinutes: plan.atMinutes,
+                summary: plan.summary,
+                lines: plan.lines,
+                moves: plan.moves,
+                assignments: next.assignments,
+                rounds: next.rounds,
+                presentWorkerIds: next.presentWorkerIds,
+                gateManagerWorkerId: next.gateManagerWorkerId,
+                seatSegments: next.seatSegments,
+                seatSpan: next.seatSpan,
+                frozenLaneIds: next.frozenLaneIds,
+                explanations: next.explanations,
+              },
+              revision,
+            ),
+          )
+          skipNextSync.current = true
+          dataRef.current = saved
+          setData(saved)
+          saveAppDataCache(saved)
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) {
+            setError(error instanceof Error ? error.message : 'שמירת השיקום נכשלה')
+          }
+        }
+      })()
+    },
+    [draft, runWithFreshRevision],
+  )
+
+  const beginRemoval = useCallback(
+    (workerId: string) => {
+      const current = draft
+      if (!current || current.signOff?.signedAt) return
+      if (!workerIsSeated(current, workerId)) {
+        removeWorkerFromShift(workerId)
+        return
+      }
+      setHealing(true)
+      const toastId = toast.loading('מחשב שיבוץ חליפי אופטימלי...')
+      window.setTimeout(() => {
+        try {
+          const inspectors = user?.module === 'inspectors'
+          const bounds = selectorRoundBounds(
+            current.shiftType,
+            data.shiftModels,
+            Boolean(inspectors),
+          )
+          const start = bounds?.start ?? 6 * 60
+          const end = bounds?.end ?? start + 8 * 60
+          const plan = planRemoval({
+            draft: current,
+            workerId,
+            workers: data.workers,
+            lanes: data.lanes,
+            history: data.history,
+            startMinutes: start,
+            endMinutes: end,
+            atMinutes: removalMinute({
+              shiftDate: current.date,
+              startMinutes: start,
+              endMinutes: end,
+            }),
+            rounds: usesRounds(current),
+            roundMinutes:
+              roundMinutesRef.current[inspectors ? 'inspectors' : 'selectors'],
+            bounds,
+          })
+          setHealPlan(plan)
+        } finally {
+          setHealing(false)
+          toast.dismiss(toastId)
+        }
+      }, 40)
+    },
+    [data.history, data.lanes, data.shiftModels, data.workers, draft, removeWorkerFromShift, user?.module],
+  )
+  beginRemovalRef.current = beginRemoval
+
+  const confirmSelfHeal = useCallback(async () => {
+    if (!healPlan) return
+    applyHealPlan(healPlan.healed, true)
+  }, [applyHealPlan, healPlan])
+
+  const editRemovalManually = useCallback(() => {
+    if (!healPlan) return
+    applyHealPlan(healPlan.manual, false)
+  }, [applyHealPlan, healPlan])
+
+  const dismissSelfHeal = useCallback(() => {
+    setHealPlan(null)
+  }, [])
+
   const removeLaneFromShift = useCallback(
     (laneId: string) => {
       setDraft((d) => {
@@ -2959,6 +3155,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSelectorCell,
       swapAssignments,
       removeWorkerFromShift,
+      beginRemoval,
+      confirmSelfHeal,
+      editRemovalManually,
+      dismissSelfHeal,
+      healing,
+      healPlan,
       replaceLeavingWorker,
       removeLaneFromShift,
       updateLaneNotes,
@@ -3039,6 +3241,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSelectorCell,
       swapAssignments,
       removeWorkerFromShift,
+      beginRemoval,
+      confirmSelfHeal,
+      editRemovalManually,
+      dismissSelfHeal,
+      healing,
+      healPlan,
       replaceLeavingWorker,
       removeLaneFromShift,
       updateLaneNotes,

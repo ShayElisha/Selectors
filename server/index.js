@@ -15,6 +15,7 @@ import {
   publicData,
   listHistoryPage,
   readState,
+  recordSelfHeal,
   requestPasswordReset,
   resendManagerTempPassword,
   upsertShift,
@@ -411,6 +412,24 @@ app.put('/api/shifts/:id', async (req, res) => {
     delete body.expectedRevision
     res.json(
       await upsertShift(req.params.id, body, actor, {
+        scope,
+        expectedRevision:
+          expectedRevision === undefined ? undefined : Number(expectedRevision),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shifts/:id/self-heal', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    const body = req.body || {}
+    const expectedRevision = body.expectedRevision
+    delete body.expectedRevision
+    res.json(
+      await recordSelfHeal(req.params.id, body, actor, {
         scope,
         expectedRevision:
           expectedRevision === undefined ? undefined : Number(expectedRevision),
