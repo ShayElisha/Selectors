@@ -303,6 +303,27 @@ export function setBugReportHandledRemote(
   })
 }
 
+export interface SystemMessage {
+  id: string
+  title: string
+  body: string
+  at: string
+}
+
+export function fetchSystemMessagesRemote(): Promise<SystemMessage[]> {
+  return request('/api/system-messages')
+}
+
+export function createSystemMessageRemote(body: {
+  title: string
+  body: string
+}): Promise<SystemMessage> {
+  return request('/api/system-messages', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 export function requestPasswordResetRemote(
   phone: string,
 ): Promise<{ ok: boolean; message: string }> {

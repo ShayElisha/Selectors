@@ -1,4 +1,5 @@
 import { usesRounds } from './assignmentMode'
+import { earlyLeaveFraction } from './earlyLeave'
 import type { ShiftSchedule } from '../types'
 
 export interface ShiftPlacement {
@@ -63,8 +64,17 @@ export function shiftPlacements(shift: ShiftSchedule): ShiftPlacement[] {
   const segments = shift.seatSegments ?? []
   const span = shift.seatSpan
   const base = wholeBoardPlacements(shift)
+  const withLeave = (placement: ShiftPlacement): ShiftPlacement => {
+    if (usesRounds(shift) && (shift.rounds?.length ?? 0) > 0) return placement
+    const leave = shift.earlyLeaveAt?.[placement.workerId]
+    if (leave == null) return placement
+    return {
+      ...placement,
+      weight: placement.weight * earlyLeaveFraction(shift.shiftType, leave),
+    }
+  }
   if (!segments.length || !span || (usesRounds(shift) && (shift.rounds?.length ?? 0) > 0)) {
-    return base
+    return base.map(withLeave)
   }
   const length = Math.max(1, span.endMinutes - span.startMinutes)
   const covered = new Set(segments.map((segment) => segment.workerId))
@@ -81,5 +91,5 @@ export function shiftPlacements(shift: ShiftSchedule): ShiftPlacement[] {
   return [
     ...fromSegments,
     ...base.filter((placement) => !covered.has(placement.workerId)),
-  ]
+  ].map(withLeave)
 }

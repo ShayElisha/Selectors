@@ -28,6 +28,7 @@ import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
+import { listSystemMessages, createSystemMessage } from './messages.js'
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -133,6 +134,24 @@ app.patch('/api/bug-reports/:id', async (req, res) => {
   try {
     requireSuperAdmin(req)
     res.json(await setBugReportHandled(req.params.id, req.body?.handled === true))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/system-messages', async (req, res) => {
+  try {
+    requireUser(req)
+    res.json(await listSystemMessages())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/system-messages', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    res.status(201).json(await createSystemMessage(req.body || {}))
   } catch (err) {
     sendError(res, err)
   }

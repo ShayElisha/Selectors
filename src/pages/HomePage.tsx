@@ -25,7 +25,8 @@ import {
   resolveShiftModels,
   shiftModelLabel,
 } from '../lib/shiftModels'
-import { fetchAuditLogs, postAuditEvent } from '../api'
+import { fetchAuditLogs, fetchSystemMessagesRemote, postAuditEvent } from '../api'
+import type { SystemMessage } from '../api'
 import { downloadBoardImage, type ExportLaneLine } from '../lib/export'
 import {
   daysBetweenLocal,
@@ -129,6 +130,7 @@ export function HomePage() {
   ).length
   const [savedBy, setSavedBy] = useState<string | null>(null)
   const [exportBusy, setExportBusy] = useState(false)
+  const [systemMessages, setSystemMessages] = useState<SystemMessage[]>([])
   const [nowTick, setNowTick] = useState(() => Date.now())
   /** Reserved for when health is persisted on ShiftSchedule — not filled today. */
   const [shiftHealth] = useState<ShiftHealthSnapshot | null>(null)
@@ -138,6 +140,21 @@ export function HomePage() {
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (user?.role !== 'org_manager') return
+    let stop = false
+    void fetchSystemMessagesRemote()
+      .then((list) => {
+        if (!stop) setSystemMessages(list.slice(0, 5))
+      })
+      .catch(() => {
+        if (!stop) setSystemMessages([])
+      })
+    return () => {
+      stop = true
+    }
+  }, [user?.role])
 
   const shiftModels = useMemo(
     () => resolveShiftModels(data.shiftModels, module),
@@ -451,6 +468,19 @@ export function HomePage() {
 
   return (
     <div className="space-y-6">
+      {systemMessages.length > 0 ? (
+        <section className="rounded-xl border border-line/70 bg-card px-4 py-3">
+          <h2 className="font-display text-base font-bold text-ink">הודעות מערכת</h2>
+          <ul className="mt-2 space-y-2">
+            {systemMessages.map((message) => (
+              <li key={message.id} className="rounded-lg bg-surface px-3 py-2">
+                <p className="text-sm font-semibold text-ink">{message.title}</p>
+                <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">{message.body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {/* 1. Compact status bar */}
       <section
         className="flex flex-col gap-3 rounded-xl border border-line/70 bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-4"

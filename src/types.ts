@@ -183,6 +183,8 @@ export interface ShiftSchedule {
   frozenLaneIds?: string[]
   /** Real-time board changes, newest last. */
   shiftEvents?: ShiftChangeEvent[]
+  /** Clock time someone left the shift, keyed by worker id. Load uses the hours until then. */
+  earlyLeaveAt?: Record<string, number>
   createdAt: string
   updatedAt: string
 }

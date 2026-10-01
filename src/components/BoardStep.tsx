@@ -61,6 +61,7 @@ import {
   type ExportLaneLine,
 } from '../lib/export'
 import { pluralizeHe } from '../lib/hebrew'
+import { earlyLeaveOptions } from '../lib/earlyLeave'
 import { isGateManagerLane } from '../lib/gateManager'
 import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
@@ -147,6 +148,7 @@ export function BoardStep({
     updateAssignment,
     swapAssignments,
     beginRemoval,
+    setEarlyLeave,
     replaceLeavingWorker,
     removeLaneFromShift,
     addSlotToLane,
@@ -606,6 +608,26 @@ export function BoardStep({
         />
         </div>
         )}
+        {!locked && workerId ? (
+          <label className="mt-1 block text-[11px] font-medium text-ink-soft">
+            ירידה מהמשמרת
+            <select
+              className="mt-0.5 w-full rounded-lg border border-line bg-card px-2 py-1 text-[12px] text-ink"
+              value={draft.earlyLeaveAt?.[workerId] ?? ''}
+              onChange={(event) => {
+                const raw = event.target.value
+                setEarlyLeave(workerId, raw === '' ? null : Number(raw))
+              }}
+            >
+              <option value="">עד סוף המשמרת</option>
+              {earlyLeaveOptions(draft.shiftType).map((option) => (
+                <option key={option.minutes} value={option.minutes}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -1112,7 +1134,9 @@ export function BoardStep({
 
       {/* Sticky actions */}
       <div className="fixed inset-x-3 bottom-20 z-40 rounded-2xl border border-line/70 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-panel-hover)] backdrop-blur-md no-print sm:inset-x-4 lg:bottom-4 lg:left-1/2 lg:right-auto lg:w-[min(72rem,calc(100%-2rem))] lg:-translate-x-1/2">
-        <div className="mx-auto flex flex-wrap items-center gap-2">
+        <div className="mx-auto flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold text-ink-soft">שמירה</span>
           {locked ? (
             <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ok">
               <Lock className="size-4" aria-hidden />
@@ -1171,7 +1195,10 @@ export function BoardStep({
           >
             {saveStatusText}
           </span>
-          <div className="relative ms-auto" ref={shareRootRef}>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-line/60 pt-2">
+            <span className="text-[11px] font-semibold text-ink-soft">כלים</span>
+          <div className="relative" ref={shareRootRef}>
             <button
               type="button"
               aria-haspopup="menu"
@@ -1242,6 +1269,7 @@ export function BoardStep({
             שבץ מחדש
           </button>
           ) : null}
+          </div>
         </div>
       </div>
 

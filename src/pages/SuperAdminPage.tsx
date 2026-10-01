@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  createSystemMessageRemote,
   deleteOrganizationRemote,
   extendOrganizationRestoreRemote,
   fetchBugReportsRemote,
   fetchOrganizationsRemote,
+  fetchSystemMessagesRemote,
   purgeOrganizationRemote,
   restoreOrganizationRemote,
   reviewOrganizationRemote,
@@ -276,6 +278,10 @@ export function SuperAdminPage() {
   const [purgeTarget, setPurgeTarget] = useState<OrganizationSummary | null>(null)
   const [purgeName, setPurgeName] = useState('')
   const [purgePassword, setPurgePassword] = useState('')
+  const [messageTitle, setMessageTitle] = useState('')
+  const [messageBody, setMessageBody] = useState('')
+  const [systemMessages, setSystemMessages] = useState<{ id: string; title: string; body: string; at: string }[]>([])
+  const [messageBusy, setMessageBusy] = useState(false)
   const [reports, setReports] = useState<BugReportSummary[]>([])
   const [reportFilter, setReportFilter] = useState<'open' | 'handled' | 'all'>('open')
   const [openReportId, setOpenReportId] = useState<string | null>(null)
@@ -307,6 +313,21 @@ export function SuperAdminPage() {
       })
       .catch((err) => {
         if (!stop) setError(err instanceof Error ? err.message : 'טעינת הדיווחים נכשלה')
+      })
+    return () => {
+      stop = true
+    }
+  }, [user?.role])
+
+  useEffect(() => {
+    if (user?.role !== 'super_admin') return
+    let stop = false
+    void fetchSystemMessagesRemote()
+      .then((list) => {
+        if (!stop) setSystemMessages(list)
+      })
+      .catch(() => {
+        if (!stop) setSystemMessages([])
       })
     return () => {
       stop = true
@@ -538,6 +559,62 @@ export function SuperAdminPage() {
         <BarChart title="הצטרפויות לפי שבוע" series={joinSeries} />
         <BarChart title="אישורים מול דחיות" series={decisionSeries} />
       </div>
+
+      <section className="mb-4 rounded-xl border border-line/70 bg-card px-4 py-4">
+        <h2 className="font-display text-lg font-bold text-ink">הודעה לכל הארגונים</h2>
+        <p className="mt-1 text-[13px] text-ink-soft">
+          ההודעה מופיעה בדף הבית של כל המנהלים.
+        </p>
+        <label className="mt-3 block text-sm font-medium text-ink">
+          כותרת
+          <input
+            className="ui-field mt-1"
+            value={messageTitle}
+            onChange={(event) => setMessageTitle(event.target.value)}
+            maxLength={120}
+          />
+        </label>
+        <label className="mt-3 block text-sm font-medium text-ink">
+          תוכן
+          <textarea
+            className="ui-field mt-1 min-h-24"
+            value={messageBody}
+            onChange={(event) => setMessageBody(event.target.value)}
+            maxLength={2000}
+          />
+        </label>
+        <button
+          type="button"
+          className="ui-btn ui-btn-primary mt-3"
+          disabled={messageBusy}
+          onClick={() => {
+            setMessageBusy(true)
+            void createSystemMessageRemote({ title: messageTitle, body: messageBody })
+              .then((message) => {
+                setSystemMessages((current) => [message, ...current])
+                setMessageTitle('')
+                setMessageBody('')
+                notify.success('ההודעה נשלחה לכל הארגונים')
+              })
+              .catch((err) => {
+                setError(err instanceof Error ? err.message : 'שליחת ההודעה נכשלה')
+              })
+              .finally(() => setMessageBusy(false))
+          }}
+        >
+          פרסום הודעה
+        </button>
+        {systemMessages.length > 0 ? (
+          <ul className="mt-4 space-y-2">
+            {systemMessages.slice(0, 5).map((message) => (
+              <li key={message.id} className="rounded-lg bg-surface px-3 py-2 text-sm">
+                <p className="font-semibold text-ink">{message.title}</p>
+                <p className="mt-0.5 whitespace-pre-wrap text-ink-soft">{message.body}</p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
 
       <section className="mb-4 overflow-hidden rounded-xl border border-line/70 bg-card">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/70 bg-surface/80 px-4 py-3">
