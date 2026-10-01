@@ -2103,6 +2103,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       slotIndex: number,
       workerId: string | null,
     ) => {
+      if (!workerId && draft) {
+        const seated = draft.rounds?.[roundIndex]?.assignments.find(
+          (row) => row.laneId === laneId,
+        )?.workerIds[slotIndex]
+        if (seated) {
+          beginRemovalRef.current(seated)
+          return
+        }
+      }
       setDraft((d) => {
         if (!d || !usesRounds(d)) return d
         const rounds = setSelectorCell(
@@ -2126,7 +2135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.lanes],
+    [data.lanes, draft],
   )
 
   const swapAssignments = useCallback(
