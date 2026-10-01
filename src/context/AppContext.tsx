@@ -2469,7 +2469,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const start = bounds?.start ?? 6 * 60
           const end = bounds?.end ?? start + 8 * 60
           const plan = planRemoval({
-            draft: current,
+            draft: {
+              ...current,
+              assignments: current.assignments ?? [],
+              rounds: current.rounds ?? [],
+            },
             workerId,
             workers: data.workers,
             lanes: data.lanes,
@@ -2487,6 +2491,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             bounds,
           })
           setHealPlan(plan)
+        } catch (error) {
+          notify.error(
+            'לא הצלחתי לחשב מחליף',
+            error instanceof Error ? error.message : 'האדם הוסר מהלוח. אפשר לערוך ידנית.',
+          )
+          removeWorkerFromShift(workerId)
         } finally {
           setHealing(false)
           toast.dismiss(toastId)

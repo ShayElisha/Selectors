@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Check,
   ChevronLeft,
@@ -1949,8 +1950,9 @@ export function ShiftPage() {
           onConfirm={(signature) => void confirmSignOff(signature)}
         />
       ) : null}
-      {healPlan ? (
-        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">
+      {healPlan
+        ? createPortal(
+            <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">
           <div
             role="dialog"
             aria-modal="true"
@@ -2004,8 +2006,10 @@ export function ShiftPage() {
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+            document.body,
+          )
+        : null}
       {healing ? (
         <p className="fixed bottom-24 start-1/2 z-[210] -translate-x-1/2 rounded-full bg-ink px-3 py-1.5 text-[13px] font-semibold text-white shadow-lg">
           מחשב שיבוץ חליפי אופטימלי...

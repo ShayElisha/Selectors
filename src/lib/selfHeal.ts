@@ -200,9 +200,9 @@ function planLaneRemoval(
   const leaving = args.workers.find((worker) => worker.id === args.workerId)
   const presentWorkerIds = args.draft.presentWorkerIds.filter((id) => id !== args.workerId)
   const plan = basePlan(args, presentWorkerIds)
-  let assignments = clearWorker(copyAssignments(args.draft.assignments), args.workerId)
+  let assignments = clearWorker(copyAssignments(args.draft.assignments ?? []), args.workerId)
   const laneById = new Map(args.lanes.map((lane) => [lane.id, lane]))
-  const vacated = args.draft.assignments.flatMap((row) =>
+  const vacated = (args.draft.assignments ?? []).flatMap((row) =>
     row.workerIds
       .map((id, slotIndex) => ({ id, slotIndex, laneId: row.laneId }))
       .filter((seat) => seat.id === args.workerId),
@@ -393,7 +393,7 @@ function planRoundRemoval(
         existingRounds: args.draft.rounds,
         freezeBeforeMinutes: args.atMinutes,
       }).rounds
-    : args.draft.rounds.map((round) =>
+    : (args.draft.rounds ?? []).map((round) =>
         round.endMinutes <= args.atMinutes
           ? round
           : {
@@ -405,7 +405,7 @@ function planRoundRemoval(
             },
       )
   for (const round of rounds) {
-    const previous = args.draft.rounds.find((item) => item.startMinutes === round.startMinutes)
+    const previous = (args.draft.rounds ?? []).find((item) => item.startMinutes === round.startMinutes)
     if (!previous || round.endMinutes <= args.atMinutes) continue
     for (const row of round.assignments) {
       const before = previous.assignments.find((item) => item.laneId === row.laneId)
