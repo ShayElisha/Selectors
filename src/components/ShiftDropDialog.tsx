@@ -3,6 +3,16 @@ import { earlyLeaveOptions } from '../lib/earlyLeave'
 import { formatMinutes } from '../lib/shiftModels'
 import type { ShiftDrop, ShiftType, Worker } from '../types'
 
+function dropNeedsTime(kind: ShiftDrop['kind']): boolean {
+  return kind !== 'noshow'
+}
+
+function dropTitle(kind: ShiftDrop['kind']): string {
+  if (kind === 'leave') return 'ירידה ממשמרת'
+  if (kind === 'noshow') return 'לא הגיע מתחילת המשמרת'
+  return 'ביטול'
+}
+
 export function ShiftDropDialog({
   worker,
   shiftType,
@@ -32,7 +42,7 @@ export function ShiftDropDialog({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const ready = reason.trim().length > 0 && minutes !== ''
+  const ready = reason.trim().length > 0 && (!dropNeedsTime(kind) || minutes !== '')
 
   return (
     <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">
@@ -45,40 +55,48 @@ export function ShiftDropDialog({
         <h3 id={titleId} className="font-display text-lg font-bold text-ink">
           הורדה ממשמרת
         </h3>
-        <p className="mt-1 text-sm text-ink">
-          {worker.fullName}
-        </p>
-        <div className="mt-3 flex gap-2">
+        <p className="mt-1 text-sm font-semibold text-ink">{worker.fullName}</p>
+        <div className="mt-3 grid gap-2">
           {(
             [
-              ['leave', 'ירידה ממשמרת'],
-              ['cancel', 'ביטול'],
+              ['leave', 'ירידה ממשמרת', 'ישב עד שעה מסוימת. העומס מחושב רק עד אז.'],
+              ['cancel', 'ביטול', 'המשמרת בוטלה. נרשמות שעה וסיבה.'],
+              ['noshow', 'לא הגיע', 'לא הגיע מתחילת המשמרת. אין שעות ואין עומס.'],
             ] as const
-          ).map(([id, label]) => (
+          ).map(([id, label, hint]) => (
             <button
               key={id}
               type="button"
               onClick={() => setKind(id)}
-              className={`ui-btn ${kind === id ? 'ui-btn-primary' : 'ui-btn-secondary'}`}
+              className={`rounded-xl border px-3 py-2 text-right ${
+                kind === id ? 'border-brand bg-brand/10' : 'border-line bg-surface'
+              }`}
             >
-              {label}
+              <span className="block text-sm font-semibold text-ink">{label}</span>
+              <span className="mt-0.5 block text-[12px] text-ink-soft">{hint}</span>
             </button>
           ))}
         </div>
-        <label className="mt-3 block text-sm font-medium text-ink">
-          שעה
-          <select
-            className="ui-field mt-1"
-            value={minutes}
-            onChange={(event) => setMinutes(event.target.value)}
-          >
-            {options.map((option) => (
-              <option key={option.minutes} value={option.minutes}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {dropNeedsTime(kind) ? (
+          <label className="mt-3 block text-sm font-medium text-ink">
+            שעה
+            <select
+              className="ui-field mt-1"
+              value={minutes}
+              onChange={(event) => setMinutes(event.target.value)}
+            >
+              {options.map((option) => (
+                <option key={option.minutes} value={option.minutes}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-[13px] text-ink-soft">
+            אין שעת יציאה. {worker.fullName} לא נספר במשמרת.
+          </p>
+        )}
         <label className="mt-3 block text-sm font-medium text-ink">
           סיבה
           <textarea
@@ -86,12 +104,16 @@ export function ShiftDropDialog({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             maxLength={300}
-            placeholder="למשל הרגיש לא טוב, או ביטל לפני המשמרת"
+            placeholder={
+              kind === 'noshow'
+                ? 'למשל הודיע בבוקר שלא מגיע'
+                : 'למשל הרגיש לא טוב, או ביטל לפני המשמרת'
+            }
           />
         </label>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" className="ui-btn ui-btn-secondary" onClick={onClose}>
-            ביטול
+            סגור
           </button>
           <button
             type="button"
@@ -101,12 +123,12 @@ export function ShiftDropDialog({
               onConfirm({
                 workerId: worker.id,
                 kind,
-                minutes: Number(minutes),
+                minutes: dropNeedsTime(kind) ? Number(minutes) : 0,
                 reason: reason.trim(),
               })
             }
           >
-            אישור הורדה
+            אישור
           </button>
         </div>
       </div>
@@ -137,8 +159,8 @@ export function ShiftDropSummary({
             >
               <div>
                 <p className="text-sm font-semibold text-ink">
-                  {name} · {drop.kind === 'leave' ? 'ירידה ממשמרת' : 'ביטול'} ·{' '}
-                  {formatMinutes(drop.minutes)}
+                  {name} · {dropTitle(drop.kind)}
+                  {drop.kind === 'noshow' ? '' : ` · ${formatMinutes(drop.minutes)}`}
                 </p>
                 <p className="mt-0.5 text-[13px] text-ink-soft">{drop.reason}</p>
               </div>

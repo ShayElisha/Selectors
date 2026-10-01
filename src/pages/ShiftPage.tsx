@@ -121,6 +121,7 @@ export function ShiftPage() {
     setWindowAdjustment,
     recordShiftDrop,
     undoShiftDrop,
+    addBoardLane,
     addExtraWorkerToLane,
     saveCurrentShift,
     signCurrentShift,
@@ -154,6 +155,7 @@ export function ShiftPage() {
   const [signOpen, setSignOpen] = useState(false)
   const [signBusy, setSignBusy] = useState(false)
   const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
+  const [addPicker, setAddPicker] = useState<'lane' | 'worker' | null>(null)
   const [compareOptions, setCompareOptions] = useState<{
     loadFair: AssignmentResult
     hardExperience: AssignmentResult
@@ -1713,6 +1715,20 @@ export function ShiftPage() {
                 <>
               <button
                 type="button"
+                onClick={() => setAddPicker('lane')}
+                className="ui-btn ui-btn-secondary"
+              >
+                הוספת נתיב
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddPicker('worker')}
+                className="ui-btn ui-btn-secondary"
+              >
+                הוספת בודק
+              </button>
+              <button
+                type="button"
                 onClick={handleAutoAssign}
                 className="ui-btn ui-btn-secondary gap-2"
               >
@@ -2080,6 +2096,40 @@ export function ShiftPage() {
           onClose={() => setCompareOptions(null)}
           onChoose={chooseBoardOption}
         />
+      ) : null}
+      {addPicker && draft ? (
+        <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center">
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-line bg-card p-4 shadow-xl">
+            <h3 className="font-display text-lg font-bold text-ink">
+              {addPicker === 'lane' ? 'הוספת נתיב' : 'הוספת בודק'}
+            </h3>
+            <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
+              {(addPicker === 'lane'
+                ? managedLanes(data.lanes).filter((lane) => !draft.activeLaneIds.includes(lane.id))
+                : activeAttendanceWorkers(data.workers).filter(
+                    (worker) => !draft.presentWorkerIds.includes(worker.id),
+                  )
+              ).map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-3 py-2 text-right text-sm font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      if (addPicker === 'lane') addBoardLane(item.id)
+                      else toggleWorker(item.id)
+                      setAddPicker(null)
+                    }}
+                  >
+                    {'fullName' in item ? item.fullName : item.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="ui-btn ui-btn-secondary mt-3" onClick={() => setAddPicker(null)}>
+              סגירה
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   )
