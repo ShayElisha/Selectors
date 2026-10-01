@@ -541,6 +541,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncTimer = useRef<number | null>(null)
   const pendingSaveRef = useRef<AppData | null>(null)
   const persistInFlightRef = useRef(false)
+  const persistFlightRef = useRef<Promise<void>>(Promise.resolve())
   const skipNextSync = useRef(true)
   const userRef = useRef(user)
   userRef.current = user
@@ -624,18 +625,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * Fixes false 409s when debounced saves overlap (same user, stale expectedRevision).
    */
   const drainPersist = useCallback(async () => {
-    if (persistInFlightRef.current) return
+    if (persistInFlightRef.current) {
+      await persistFlightRef.current
+      return
+    }
     persistInFlightRef.current = true
+    let resolveFlight: () => void = () => undefined
+    let rejectFlight: (err: unknown) => void = () => undefined
+    const flight = new Promise<void>((resolve, reject) => {
+      resolveFlight = resolve
+      rejectFlight = reject
+    })
+    persistFlightRef.current = flight
     setSyncing(true)
-    let retries409 = 0
-    const MAX_409_RETRIES = 3
-
+    let failed: unknown = null
     try {
+      let retries409 = 0
+      const MAX_409_RETRIES = 3
       while (pendingSaveRef.current) {
         const snapshot = pendingSaveRef.current
         pendingSaveRef.current = null
         const expectedRevision = dataRef.current.revision ?? 0
-
         try {
           const saved = await saveAppDataRemote({
             ...snapshot,
@@ -657,7 +667,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               e.current,
               loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
             )
-            // Keep local intent; adopt only the server's revision (own overlapping write).
             const merged: AppData = {
               ...snapshot,
               revision: server.revision ?? 0,
@@ -671,12 +680,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               pendingSaveRef.current = merged
               continue
             }
-            // Real conflict after retries — show server copy
             dataRef.current = server
             setData(server)
             saveAppDataCache(server)
-            const msg = e.message
-            setError(msg)
+            setError(e.message)
             throw e
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
@@ -684,14 +691,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           throw e
         }
       }
+    } catch (e) {
+      failed = e
     } finally {
       persistInFlightRef.current = false
       setSyncing(false)
-      // Something was queued while we were finishing
-      if (pendingSaveRef.current) {
-        void drainPersist().catch(() => undefined)
+    }
+    if (failed) {
+      rejectFlight(failed)
+      throw failed
+    }
+    if (pendingSaveRef.current) {
+      try {
+        await drainPersist()
+      } catch (e) {
+        rejectFlight(e)
+        throw e
       }
     }
+    resolveFlight()
   }, [handleAuthFailure])
 
   const queuePersist = useCallback(
@@ -2257,31 +2275,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncing(true)
     try {
       await flushPersist()
-      const saved = await deleteShiftRemote(id, dataRef.current.revision ?? 0)
-      skipNextSync.current = true
-      dataRef.current = saved
-      setData(saved)
-      saveAppDataCache(saved)
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) handleAuthFailure()
-      if (e instanceof ApiError && e.status === 409 && e.current) {
+      let revision = dataRef.current.revision ?? 0
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const server = applyRemoteData(e.current)
-          const saved = await deleteShiftRemote(id, server.revision ?? 0)
+          const saved = await deleteShiftRemote(id, revision)
           skipNextSync.current = true
           dataRef.current = saved
           setData(saved)
           saveAppDataCache(saved)
+          setError(null)
           return
-        } catch (e2) {
-          if (e2 instanceof ApiError && e2.status === 409 && e2.current) {
-            applyRemoteData(e2.current)
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) handleAuthFailure()
+          if (e instanceof ApiError && e.status === 409) {
+            const remote = e.current
+              ? applyRemoteData(e.current)
+              : applyRemoteData(await fetchAppData())
+            revision = remote.revision ?? 0
+            if (!remote.history.some((shift) => shift.id === id)) return
+            continue
           }
-          setError(e2 instanceof Error ? e2.message : 'מחיקה נכשלה')
+          setError(e instanceof Error ? e.message : 'מחיקה נכשלה')
           return
         }
       }
-      setError(e instanceof Error ? e.message : 'מחיקה נכשלה')
+      setError('מחיקה נכשלה. רעננו את המסך ונסו שוב.')
     } finally {
       setSyncing(false)
     }
