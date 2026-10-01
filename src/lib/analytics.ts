@@ -11,6 +11,9 @@ export interface WorkerAnalyticsRow {
   effectiveLoad: number
   loadRose: number
   loadFell: number
+  morningLoad: number
+  afternoonLoad: number
+  nightLoad: number
   hardCount: number
   dayEasyCount: number
   nightEasyCount: number
@@ -135,9 +138,13 @@ export function formatLoadOneDecimal(n: number): string {
 }
 
 /** Where a balance sits between the floor and the highest value on screen, 0–100. */
-export function loadScalePosition(value: number, max: number): number {
-  const span = Math.max(max - LOAD_BALANCE_FLOOR, 1)
-  const pct = ((value - LOAD_BALANCE_FLOOR) / span) * 100
+export function loadScalePosition(
+  value: number,
+  max: number,
+  floor = LOAD_BALANCE_FLOOR,
+): number {
+  const span = Math.max(max - floor, 1)
+  const pct = ((value - floor) / span) * 100
   return Math.min(100, Math.max(0, pct))
 }
 
@@ -309,6 +316,9 @@ export function computeTeamAnalytics(
       effectiveLoad: s.effectiveLoad,
       loadRose: s.loadRose,
       loadFell: s.loadFell,
+      morningLoad: s.morningLoad,
+      afternoonLoad: s.afternoonLoad,
+      nightLoad: s.nightLoad,
       hardCount: s.hardCount,
       dayEasyCount: s.dayEasyCount,
       nightEasyCount: s.nightEasyCount,

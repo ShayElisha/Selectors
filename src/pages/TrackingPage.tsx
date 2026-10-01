@@ -141,18 +141,20 @@ function LoadBar({
   value,
   max,
   average,
-  rose,
-  fell,
+  morning,
+  afternoon,
+  night,
 }: {
   value: number
   max: number
   average: number
-  rose: number
-  fell: number
+  morning: number
+  afternoon: number
+  night: number
 }) {
   const spanMax = Math.max(max, average, 0)
-  const pct = loadScalePosition(value, spanMax)
-  const avgPct = loadScalePosition(average, spanMax)
+  const pct = loadScalePosition(value, spanMax, -6)
+  const avgPct = loadScalePosition(average, spanMax, -6)
   return (
     <div className="inline-flex items-center justify-center gap-1">
       <div
@@ -170,14 +172,15 @@ function LoadBar({
           title="ממוצע צוות"
         />
       </div>
-      <span className="text-start leading-tight">
-        <Ltr className="text-[10px] font-medium text-ink">
-          {formatLoadOneDecimal(value)}
-        </Ltr>
-        <span className="block text-[10px] text-ink-soft">
-          עלה <Ltr>{formatLoadOneDecimal(rose)}</Ltr>
-          {' · '}
-          ירד <Ltr>{formatLoadOneDecimal(fell)}</Ltr>
+      <span className="text-start text-[10px] leading-tight text-ink-soft">
+        <span className="block">
+          בוקר <Ltr className="font-medium text-ink">{formatLoadOneDecimal(morning)}</Ltr>
+        </span>
+        <span className="block">
+          צהריים <Ltr className="font-medium text-ink">{formatLoadOneDecimal(afternoon)}</Ltr>
+        </span>
+        <span className="block">
+          לילה <Ltr className="font-medium text-ink">{formatLoadOneDecimal(night)}</Ltr>
         </span>
       </span>
     </div>
@@ -653,11 +656,11 @@ export function TrackingPage() {
                         קל יום <Ltr>{formatShiftShare(s.dayEasyCount || 0)}</Ltr>
                       </span>
                       <span className="rounded-md bg-card px-1.5 py-0.5 font-semibold text-ink ring-1 ring-line">
-                        עומס <Ltr>{formatLoadOneDecimal(s.effectiveLoad)}</Ltr>
+                        בוקר <Ltr>{formatLoadOneDecimal(s.morningLoad)}</Ltr>
                         {' · '}
-                        עלה <Ltr>{formatLoadOneDecimal(s.loadRose)}</Ltr>
+                        צהריים <Ltr>{formatLoadOneDecimal(s.afternoonLoad)}</Ltr>
                         {' · '}
-                        ירד <Ltr>{formatLoadOneDecimal(s.loadFell)}</Ltr>
+                        לילה <Ltr>{formatLoadOneDecimal(s.nightLoad)}</Ltr>
                       </span>
                     </div>
                     {topLanes.length > 0 ? (
@@ -931,8 +934,9 @@ export function TrackingPage() {
                             value={s.effectiveLoad}
                             max={maxLoad}
                             average={avgLoad}
-                            rose={s.loadRose}
-                            fell={s.loadFell}
+                            morning={s.morningLoad}
+                            afternoon={s.afternoonLoad}
+                            night={s.nightLoad}
                           />
                         </td>
                         <td
