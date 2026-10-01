@@ -28,6 +28,8 @@ import {
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import { ShiftClosedBanner, ShiftSignOffDialog } from '../components/ShiftSignOffDialog'
+import { BoardCompareDialog } from '../components/BoardCompareDialog'
+import type { AssignmentResult } from '../algorithm'
 import {
   findShiftForSlot,
   getCurrentShiftContext,
@@ -118,6 +120,8 @@ export function ShiftPage() {
     addExtraWorkerToLane,
     saveCurrentShift,
     signCurrentShift,
+    previewBoardOptions,
+    applyBoardOption,
     startShift,
     discardDraft,
     loadShiftFromHistory,
@@ -140,6 +144,10 @@ export function ShiftPage() {
   const [discardOpen, setDiscardOpen] = useState(false)
   const [signOpen, setSignOpen] = useState(false)
   const [signBusy, setSignBusy] = useState(false)
+  const [compareOptions, setCompareOptions] = useState<{
+    loadFair: AssignmentResult
+    hardExperience: AssignmentResult
+  } | null>(null)
   const [otherEditors, setOtherEditors] = useState<string[]>([])
   const [feasibilityOpen, setFeasibilityOpen] = useState(false)
   const [attendanceQuery, setAttendanceQuery] = useState('')
@@ -562,6 +570,36 @@ export function ShiftPage() {
     } finally {
       setSignBusy(false)
     }
+  }
+
+  const openCompare = () => {
+    if (!draft || draft.signOff?.signedAt || usesRounds(draft)) return
+    const options = previewBoardOptions()
+    if (!options) {
+      notify.error(
+        'אין מה להשוות',
+        'צריך נתיבים ונוכחים במשמרת לפני שאפשר להכין שתי חלופות.',
+      )
+      return
+    }
+    setCompareOptions(options)
+  }
+
+  const chooseBoardOption = (result: AssignmentResult, label: string) => {
+    const filled = draft?.assignments.some((row) => row.workerIds.some(Boolean))
+    if (
+      filled &&
+      !window.confirm('החלופה תחליף את השיבוץ שבלוח. להמשיך?')
+    ) {
+      return
+    }
+    applyBoardOption(result, label)
+    setCompareOptions(null)
+    setExtraAskedOnce(false)
+    setExtraFlow('closed')
+    setSaveFlash(false)
+    setBoardBaselineKey((key) => key + 1)
+    notify.success('החלופה הוכנסה ללוח', 'אפשר לשמור אותה כשהלוח מוכן.')
   }
 
   if (!draft) {
@@ -1479,6 +1517,16 @@ export function ShiftPage() {
                     <Sparkles className="size-4" aria-hidden />
                     שיבוץ אוטומטי מחדש
                   </button>
+                  {!usesRounds(draft) ? (
+                    <button
+                      type="button"
+                      disabled={!attendanceAdvance.ok}
+                      onClick={openCompare}
+                      className="ui-btn ui-btn-ghost !py-2 disabled:opacity-40"
+                    >
+                      השוואת חלופות
+                    </button>
+                  ) : null}
                 </>
               ) : (
                                 <>
@@ -1502,6 +1550,16 @@ export function ShiftPage() {
                     <Sparkles className="size-4" aria-hidden />
                     שבץ אוטומטית
                                   </button>
+                                  {!usesRounds(draft) ? (
+                                    <button
+                                      type="button"
+                                      disabled={!attendanceAdvance.ok}
+                                      onClick={openCompare}
+                                      className="ui-btn ui-btn-secondary !py-2 disabled:opacity-40"
+                                    >
+                                      השוואת חלופות
+                                    </button>
+                                  ) : null}
                                 </>
                               )}
                             </div>
@@ -1714,6 +1772,7 @@ export function ShiftPage() {
           onClearExplainRequest={() => setRequestExplainModal(false)}
           onSave={handleSave}
           onSignOff={openSignOff}
+          onCompare={openCompare}
           onReassign={handleAutoAssign}
           onEditSettings={() => setShiftStep('lanes')}
           onRequestDiscard={() => setDiscardOpen(true)}
@@ -1883,6 +1942,16 @@ export function ShiftPage() {
             if (!signBusy) setSignOpen(false)
           }}
           onConfirm={(signature) => void confirmSignOff(signature)}
+        />
+      ) : null}
+      {compareOptions && draft ? (
+        <BoardCompareDialog
+          loadFair={compareOptions.loadFair}
+          hardExperience={compareOptions.hardExperience}
+          lanes={data.lanes.filter((lane) => draft.activeLaneIds.includes(lane.id))}
+          workers={data.workers}
+          onClose={() => setCompareOptions(null)}
+          onChoose={chooseBoardOption}
         />
       ) : null}
     </div>

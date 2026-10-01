@@ -84,6 +84,7 @@ export interface BoardStepProps {
   onClearExplainRequest: () => void
   onSave: () => void | Promise<void>
   onSignOff?: () => void
+  onCompare?: () => void
   onReassign: () => void
   onEditSettings: () => void
   onRequestDiscard: () => void
@@ -134,6 +135,7 @@ export function BoardStep({
   onClearExplainRequest,
   onSave,
   onSignOff,
+  onCompare,
   onReassign,
   onEditSettings,
   onRequestDiscard,
@@ -1199,6 +1201,15 @@ export function BoardStep({
           >
             מסירה
           </button>
+          {!locked && onCompare ? (
+            <button
+              type="button"
+              onClick={onCompare}
+              className="ui-btn ui-btn-secondary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              השוואת חלופות
+            </button>
+          ) : null}
           {!locked ? (
           <button
             type="button"

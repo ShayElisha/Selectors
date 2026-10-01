@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import {
   runAssignmentAlgorithm,
+  type AssignmentResult,
   type PlacementExplanation,
 } from '../algorithm'
 import {
@@ -270,6 +271,13 @@ interface AppContextValue {
   setAllActiveLanes: (on: boolean) => void
   setAllActiveWorkers: (on: boolean) => void
   runAutoAssign: () => void
+  /** Two boards for the open single-placement shift: load fairness and hard-lane experience. */
+  previewBoardOptions: () => {
+    loadFair: AssignmentResult
+    hardExperience: AssignmentResult
+  } | null
+  /** Replace the open board with a chosen alternative. Does not save. */
+  applyBoardOption: (placed: AssignmentResult, label: string) => void
   /** Turn the open inspector board into a full-shift selector round table. */
   commitSelectorBoard: () => void
   /** Open an empty board so managers can place present workers by hand. */
@@ -1822,6 +1830,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setShiftStep('board')
   }, [data.history, data.lanes, data.shiftModels, data.workers, user?.module])
 
+  const previewBoardOptions = useCallback(() => {
+    if (!draft || draft.signOff?.signedAt || usesRounds(draft)) return null
+    const activeLanes = data.lanes
+      .filter(
+        (lane) =>
+          draft.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
+      )
+      .map((lane) => ({
+        ...lane,
+        staffingStandard: effectiveStaffingStandard(lane, draft.staffingOverrides),
+      }))
+    const presentWorkers = data.workers.filter(
+      (worker) =>
+        draft.presentWorkerIds.includes(worker.id) &&
+        worker.id !== draft.gateManagerWorkerId &&
+        worker.status === 'active',
+    )
+    if (activeLanes.length === 0 || presentWorkers.length === 0) return null
+    const shared = { date: draft.date, shiftType: draft.shiftType }
+    return {
+      loadFair: runAssignmentAlgorithm(
+        activeLanes,
+        presentWorkers,
+        data.history,
+        data.lanes,
+        { ...shared, objective: 'loadFair' },
+      ),
+      hardExperience: runAssignmentAlgorithm(
+        activeLanes,
+        presentWorkers,
+        data.history,
+        data.lanes,
+        { ...shared, objective: 'hardExperience' },
+      ),
+    }
+  }, [data.history, data.lanes, data.workers, draft])
+
+  const applyBoardOption = useCallback(
+    (placed: AssignmentResult, label: string) => {
+      if (!draft || draft.signOff?.signedAt || usesRounds(draft)) return
+      const filled = placed.assignments.reduce(
+        (count, row) => count + row.workerIds.filter(Boolean).length,
+        0,
+      )
+      void postAuditEvent(
+        'auto_assign',
+        `${draft.date} · ${SHIFT_TYPE_LABELS[draft.shiftType]} · חלופה ${label} · ${filled} שיבוצים`,
+      )
+      setDraft((current) => {
+        if (!current || current.signOff?.signedAt || usesRounds(current)) return current
+        return withGateManagerSync(
+          {
+            ...current,
+            assignmentMode: 'single',
+            rounds: [],
+            assignments: padAssignments(
+              placed.assignments,
+              data.lanes,
+              current.activeLaneIds,
+              current.staffingOverrides,
+            ),
+            warnings: placed.warnings,
+            explanations: placed.explanations,
+          },
+          data.lanes,
+        )
+      })
+      setShiftStep('board')
+    },
+    [data.lanes, draft, setShiftStep],
+  )
+
   const startManualAssign = useCallback(() => {
     setDraft((d) => {
       if (!d) return d
@@ -2871,6 +2951,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAllActiveLanes,
       setAllActiveWorkers,
       runAutoAssign,
+      previewBoardOptions,
+      applyBoardOption,
       commitSelectorBoard,
       startManualAssign,
       updateAssignment,
@@ -2949,6 +3031,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAllActiveLanes,
       setAllActiveWorkers,
       runAutoAssign,
+      previewBoardOptions,
+      applyBoardOption,
       commitSelectorBoard,
       startManualAssign,
       updateAssignment,
