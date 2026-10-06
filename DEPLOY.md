@@ -4,6 +4,7 @@
 
 - `MONGODB_URI` — Atlas connection string
 - `SESSION_SECRET` — long random secret (32+ chars) for signing Bearer tokens
+- `CRON_SECRET` — shared secret for `/api/cron/load-rest` (Vercel Cron sends it as `Authorization: Bearer …`)
 - Never commit `.env`
 
 ## Atlas network
@@ -26,6 +27,12 @@
 
 ## After deploy
 
-1. Set `SESSION_SECRET` in Vercel project env (Production + Preview)
+1. Set `SESSION_SECRET` and `CRON_SECRET` in Vercel project env (Production + Preview)
 2. Redeploy
 3. Log in once — old localStorage sessions without `token` must log in again
+
+## Nightly load rest (02:00 Israel)
+
+- Vercel Cron hits `GET /api/cron/load-rest` daily at `23:00 UTC` (~02:00 Israel daylight time)
+- Local `npm run start:api` / `dev:api` also runs the same check around 02:00 Asia/Jerusalem
+- Workers who had no real שיבוץ the previous Israel day get a −2 rest credit recorded; the tracking עומס already applies −2 per idle shift-family day from history (presence alone no longer blocks rest)

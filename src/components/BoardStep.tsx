@@ -26,6 +26,7 @@ import {
   StickyNote,
   Trash2,
   UserMinus,
+  UserX,
   X,
   Lock,
 } from 'lucide-react'
@@ -60,10 +61,10 @@ import {
   shareBoardImage,
   type ExportLaneLine,
 } from '../lib/export'
+import { exportBlockedReason } from '../lib/exportGate'
 import { pluralizeHe } from '../lib/hebrew'
 import { ShiftDropDialog, ShiftDropSummary } from './ShiftDropDialog'
 import { activeAttendanceWorkers, isGateManagerLane, managedLanes } from '../lib/gateManager'
-import { buildHandoverText } from '../lib/handover'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { postAuditEvent } from '../api'
@@ -157,7 +158,26 @@ export function BoardStep({
     addSlotToLane,
     updateLaneNotes,
     user,
+    draftDirty,
+    restoreDraftSnapshot,
   } = useApp()
+
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+
+  const runWithUndo = useCallback(
+    (message: string, action: () => void) => {
+      const current = draftRef.current
+      if (!current || current.signOff?.signedAt) {
+        action()
+        return
+      }
+      const snapshot = JSON.parse(JSON.stringify(current)) as typeof current
+      action()
+      notify.undoable(message, () => restoreDraftSnapshot(snapshot))
+    },
+    [restoreDraftSnapshot],
+  )
 
   const [boardBaseline, setBoardBaseline] = useState<BoardSnapshot>(() =>
     snapshotBoard(draft.assignments),
@@ -194,6 +214,20 @@ export function BoardStep({
     [draft.assignments],
   )
   const boardDirty = !boardsEqual(boardBaseline, currentSnapshot)
+  const historyIds = useMemo(
+    () => data.history.map((h) => h.id),
+    [data.history],
+  )
+  const exportBlock = useMemo(
+    () =>
+      exportBlockedReason({
+        draftId: draft.id,
+        historyIds,
+        draftDirty,
+        boardDirty,
+      }),
+    [draft.id, historyIds, draftDirty, boardDirty],
+  )
 
   useEffect(() => {
     setBoardBaseline(snapshotBoard(draft.assignments))
@@ -346,6 +380,36 @@ export function BoardStep({
     Boolean(slotConflict) ||
     draft.unassignedWorkerIds.length > 0 ||
     hasBoardErrors
+  const saveBlockedReason = slotConflict
+    ? 'כבר קיים שיבוץ לאותו תאריך ומשמרת'
+    : draft.unassignedWorkerIds.length > 0
+      ? `יש ${draft.unassignedWorkerIds.length} בודקים שלא שובצו — שבצו את כולם לפני השמירה`
+      : hasBoardErrors
+        ? 'יש שגיאות בלוח שצריך לתקן לפני השמירה'
+        : null
+
+  const trySave = () => {
+    if (saveBlockedReason) {
+      notify.error('לא ניתן לשמור', saveBlockedReason)
+      return
+    }
+    void onSave()
+  }
+
+  const trySignOff = () => {
+    if (saveBlockedReason) {
+      notify.error(
+        'לא ניתן לסגור משמרת',
+        saveBlockedReason === 'יש שגיאות בלוח שצריך לתקן לפני השמירה'
+          ? 'יש שגיאות בלוח שצריך לתקן לפני הסגירה'
+          : saveBlockedReason.includes('לא שובצו')
+            ? 'אפשר לסגור רק כשכולם משובצים'
+            : saveBlockedReason,
+      )
+      return
+    }
+    onSignOff?.()
+  }
 
   const handoffOptionLabel = (workerId: string, fullName: string, laneId: string) => {
     if (!morningCtx?.found) return fullName
@@ -365,7 +429,7 @@ export function BoardStep({
       const seated =
         draft.assignments.find((row) => row.laneId === laneId)?.workerIds[slotIndex]
       if (seated) {
-        beginRemoval(seated)
+        runWithUndo('הוסרה ישיבה מהנתיב', () => beginRemoval(seated))
         return
       }
     }
@@ -382,7 +446,10 @@ export function BoardStep({
         showToast(`${name} הועבר/ה מנתיב ${other}`)
       }
     }
-    updateAssignment(laneId, slotIndex, workerId)
+    runWithUndo(
+      workerId ? 'השיבוץ עודכן' : 'השיבוץ נוקה',
+      () => updateAssignment(laneId, slotIndex, workerId),
+    )
   }
 
   const scrollToLane = (laneId: string) => {
@@ -405,7 +472,7 @@ export function BoardStep({
       )
       if (!ok) return
     }
-    onReassign()
+    runWithUndo('שיבוץ מחדש', () => onReassign())
   }
 
   const gateManagerName = useMemo(() => {
@@ -415,11 +482,10 @@ export function BoardStep({
   }, [draft.gateManagerWorkerId, data.workers])
 
   const runShare = async (mode: 'whatsapp' | 'download') => {
-    if (boardDirty) {
-      notify.warning(
-        'יש שינויים שלא נשמרו',
-        'השיתוף משקף את הלוח הנוכחי.',
-      )
+    if (exportBlock) {
+      notify.error('לא ניתן לייצא', exportBlock)
+      setShareOpen(false)
+      return
     }
     setShareBusy(true)
     const meta = {
@@ -487,28 +553,10 @@ export function BoardStep({
         )
         openWhatsAppShare(text)
       }
-    } finally {
+    }     finally {
       setShareBusy(false)
       setShareOpen(false)
     }
-  }
-
-  const shareHandover = () => {
-    const text = buildHandoverText({
-      date: draft.date,
-      shiftType: draft.shiftType,
-      lanes: data.lanes,
-      workers: data.workers,
-      activeLaneIds: draft.activeLaneIds,
-      presentWorkerIds: draft.presentWorkerIds,
-      workerWindows: draft.workerWindows,
-      assignments: draft.assignments,
-      rounds: draft.rounds,
-      staffingOverrides: draft.staffingOverrides,
-    })
-    void navigator.clipboard?.writeText(text).catch(() => undefined)
-    openWhatsAppShare(text)
-    notify.success('טקסט המסירה הוכן')
   }
 
   const saveStatusText = saveFlash
@@ -934,7 +982,9 @@ export function BoardStep({
                     <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
                       <button
                         type="button"
-                        onClick={() => addSlotToLane(laneId)}
+                        onClick={() =>
+                          runWithUndo('נוסף מקום בנתיב', () => addSlotToLane(laneId))
+                        }
                         className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-card hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                         title="הוסף משבצת"
                         aria-label={`הוסף משבצת בנתיב ${lane.name}`}
@@ -948,16 +998,16 @@ export function BoardStep({
                             (id) =>
                               data.workers.find((worker) => worker.id === id)?.fullName ?? id,
                           )
-                          removeLaneFromShift(laneId)
-                          showToast(
+                          runWithUndo(
                             parked.length > 0
                               ? `${lane.name} הוסר. ${parked.join(', ')} ממתינים לשיבוץ`
                               : `${lane.name} הוסר מהמשמרת`,
+                            () => removeLaneFromShift(laneId),
                           )
                         }}
                         className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                        title="הסר את הנתיב מהמשמרת"
-                        aria-label={`הסר את הנתיב ${lane.name}`}
+                        title="הסר נתיב מהמשמרת"
+                        aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
                       >
                         <Trash2 className="size-3.5" aria-hidden />
                       </button>
@@ -1015,12 +1065,16 @@ export function BoardStep({
                             </button>
                             <button
                               type="button"
-                              onClick={() => beginRemoval(workerId)}
+                              onClick={() =>
+                                runWithUndo('הוסרה ישיבה מהנתיב', () =>
+                                  beginRemoval(workerId),
+                                )
+                              }
                               className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                              title="הסר מהשיבוץ ומהנוכחות"
-                              aria-label="הסר מהשיבוץ"
+                              title="הסר בודק מהשיבוץ ומהנוכחות"
+                              aria-label="הסר בודק מהשיבוץ"
                             >
-                              <Trash2 className="size-3.5" aria-hidden />
+                              <UserX className="size-4" aria-hidden />
                             </button>
                           </div>
                         ) : null}
@@ -1107,12 +1161,14 @@ export function BoardStep({
                     </button>
                     <button
                       type="button"
-                      onClick={() => beginRemoval(id)}
+                      onClick={() =>
+                        runWithUndo('הוסר בודק מהממתינים', () => beginRemoval(id))
+                      }
                       className="inline-flex size-5 items-center justify-center rounded-md text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                      title={`הסר את ${name}`}
+                      title={`הסר את ${name} מהממתינים`}
                       aria-label={`הסר את ${name}`}
                     >
-                      <X className="size-3.5" aria-hidden />
+                      <UserX className="size-3.5" aria-hidden />
                     </button>
                       </>
                     ) : null}
@@ -1154,20 +1210,12 @@ export function BoardStep({
           ) : (
           <button
             type="button"
-            onClick={() => void onSave()}
-            disabled={saveBlocked}
-            title={
-              slotConflict
-                ? 'כבר קיים שיבוץ לאותו תאריך ומשמרת'
-                : draft.unassignedWorkerIds.length > 0
-                  ? 'יש בודקים שלא שובצו'
-                  : hasBoardErrors
-                    ? 'יש שגיאות בלוח'
-                    : undefined
-            }
-            className={`ui-btn ui-btn-primary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-40 ${
-              saveFlash ? '!bg-ok hover:!bg-ok' : ''
-            }`}
+            onClick={trySave}
+            aria-disabled={saveBlocked}
+            title={saveBlockedReason ?? undefined}
+            className={`ui-btn ui-btn-primary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              saveBlocked ? 'cursor-not-allowed opacity-40' : ''
+            } ${saveFlash ? '!bg-ok hover:!bg-ok' : ''}`}
           >
             {saveFlash ? (
               <Check className="size-4" aria-hidden />
@@ -1180,14 +1228,16 @@ export function BoardStep({
           {!locked && onSignOff ? (
             <button
               type="button"
-              onClick={onSignOff}
-              disabled={saveBlocked}
+              onClick={trySignOff}
+              aria-disabled={saveBlocked}
               title={
                 saveBlocked
                   ? 'אפשר לסגור רק כשהלוח תקין וכולם משובצים'
                   : 'סגירה נועלת את הלוח לעריכה'
               }
-              className="ui-btn ui-btn-secondary !py-2 gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-40"
+              className={`ui-btn ui-btn-secondary !py-2 gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                saveBlocked ? 'cursor-not-allowed opacity-40' : ''
+              }`}
             >
               <Lock className="size-4" aria-hidden />
               סגירת משמרת
@@ -1213,7 +1263,14 @@ export function BoardStep({
               aria-haspopup="menu"
               aria-expanded={shareOpen}
               disabled={shareBusy}
-              onClick={() => setShareOpen((o) => !o)}
+              title={exportBlock ?? undefined}
+              onClick={() => {
+                if (exportBlock) {
+                  notify.error('לא ניתן לייצא', exportBlock)
+                  return
+                }
+                setShareOpen((o) => !o)
+              }}
               className="ui-btn ui-btn-secondary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60"
             >
               {shareBusy ? (
@@ -1252,13 +1309,6 @@ export function BoardStep({
               </div>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={shareHandover}
-            className="ui-btn ui-btn-secondary !py-2"
-          >
-            מסירה
-          </button>
           {!locked && onCompare ? (
             <button
               type="button"
@@ -1378,15 +1428,17 @@ export function BoardStep({
                           <button
                             type="button"
                             onClick={() => {
-                              swapAssignments(
-                                {
-                                  laneId: swapTarget.laneId,
-                                  slotIndex: swapTarget.slotIndex,
-                                },
-                                {
-                                  laneId: opt.laneId,
-                                  slotIndex: opt.slotIndex,
-                                },
+                              runWithUndo('החלפה בין נתיבים', () =>
+                                swapAssignments(
+                                  {
+                                    laneId: swapTarget.laneId,
+                                    slotIndex: swapTarget.slotIndex,
+                                  },
+                                  {
+                                    laneId: opt.laneId,
+                                    slotIndex: opt.slotIndex,
+                                  },
+                                ),
                               )
                               setSwapTarget(null)
                             }}
@@ -1479,9 +1531,15 @@ export function BoardStep({
                             type="button"
                             className="flex w-full rounded-xl px-3 py-2 text-start text-sm font-semibold text-ink hover:bg-surface"
                             onClick={() => {
-                              replaceLeavingWorker(leaveTarget.workerId, worker.id)
+                              runWithUndo(
+                                `${worker.fullName} נכנס במקום ${current?.fullName ?? ''}`,
+                                () =>
+                                  replaceLeavingWorker(
+                                    leaveTarget.workerId,
+                                    worker.id,
+                                  ),
+                              )
                               setLeaveTarget(null)
-                              notify.success(`${worker.fullName} נכנס במקום ${current?.fullName ?? ''}`)
                             }}
                           >
                             {worker.fullName}
@@ -1516,7 +1574,7 @@ export function BoardStep({
                 initial={(draft.shiftDrops ?? []).find((item) => item.workerId === worker.id)}
                 onClose={() => setDropWorkerId(null)}
                 onConfirm={(drop) => {
-                  recordShiftDrop(drop)
+                  runWithUndo('נרשמה יציאה מהמשמרת', () => recordShiftDrop(drop))
                   setDropWorkerId(null)
                 }}
               />
@@ -1541,8 +1599,11 @@ export function BoardStep({
                     type="button"
                     className="w-full rounded-xl px-3 py-2 text-right text-sm font-semibold text-ink hover:bg-surface"
                     onClick={() => {
-                      if (addPicker === 'lane') addBoardLane(item.id)
-                      else toggleWorker(item.id)
+                      if (addPicker === 'lane') {
+                        runWithUndo('נוסף נתיב למשמרת', () => addBoardLane(item.id))
+                      } else {
+                        runWithUndo('נוסף בודק לנוכחות', () => toggleWorker(item.id))
+                      }
                       setAddPicker(null)
                     }}
                   >

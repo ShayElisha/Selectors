@@ -384,6 +384,40 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(note?.reasons.some((r) => r.includes('עומס'))).toBe(true)
   })
 
+  it('prefers a worker idle 4+ days for a hard lane over someone who worked recently', () => {
+    const rested = worker('rested', 'נח', ['forklift'])
+    const recent = worker('recent', 'טרי', ['forklift'])
+    const history = [
+      shift(
+        'recent-1',
+        '2026-03-15',
+        'morning',
+        [{ laneId: 'easy', workerIds: ['recent'] }],
+        ['recent'],
+        ['easy'],
+      ),
+      shift(
+        'rested-1',
+        '2026-03-11',
+        'morning',
+        [{ laneId: 'easy', workerIds: ['rested'] }],
+        ['rested'],
+        ['easy'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [hard, easy],
+      [recent, rested],
+      history,
+      [hard, easy],
+      { date: '2026-03-16', shiftType: 'morning', rngSeed: 44 },
+    )
+    const hardAsg = result.assignments.find((a) => a.laneId === 'hard')
+    expect(hardAsg?.workerIds[0]).toBe('rested')
+    const note = result.explanations.find((e) => e.workerId === 'rested')
+    expect(note?.reasons.some((r) => r.includes('לא עבד'))).toBe(true)
+  })
+
   it('does not put a short-return worker on a hard lane just because their load is lower', () => {
     const quiet = worker('quiet', 'שקטה', ['forklift'])
     const steady = worker('steady', 'יציב', ['forklift'])
@@ -1213,10 +1247,28 @@ describe('accumulateLoadBalance', () => {
     expect(balance.net).toBe(2)
   })
 
-  it('treats present-only day as on duty without adding placement points', () => {
+  it('treats present-only day as rest (−2), not as on-duty with zero points', () => {
     const laneMap = new Map([['hard', hardLane]])
     const byDate = groupShiftsByDate([
       shift('m1', '2026-03-08', 'morning', [], ['a'], ['hard']),
+    ])
+    const balance = accumulateLoadBalance(
+      'a',
+      byDate,
+      laneMap,
+      '2026-03-08',
+      '2026-03-08',
+    )
+    expect(balance.net).toBe(-2)
+    expect(balance.rose).toBe(0)
+    expect(balance.fell).toBe(2)
+  })
+
+  it('still counts gate manager as on duty without lane points', () => {
+    const laneMap = new Map([['hard', hardLane]])
+    const base = shift('m1', '2026-03-08', 'morning', [], ['a'], ['hard'])
+    const byDate = groupShiftsByDate([
+      { ...base, gateManagerWorkerId: 'a' },
     ])
     const balance = accumulateLoadBalance(
       'a',

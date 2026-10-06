@@ -543,12 +543,43 @@ summary:focus-visible {
   }
 }
 
+/* Undo toast — 3s countdown bar (RTL: shrinks toward the end). */
+.undo-toast {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.undo-toast::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--color-brand);
+  transform-origin: right center;
+  animation: undo-progress 3s linear forwards;
+}
+
+@keyframes undo-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up,
   .ui-skeleton,
   .page-loader::before,
   .page-loader--sm::before {
     animation: none !important;
+  }
+
+  .undo-toast::after {
+    animation: none;
+    opacity: 0.35;
   }
 
   .ui-btn:active:not(:disabled) {

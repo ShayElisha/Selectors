@@ -56,9 +56,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function fetchAppData(module?: 'selectors' | 'inspectors'): Promise<AppData> {
-  return request<AppData>('/api/data', {
-    headers: module ? { 'X-App-Module': module } : {},
+export function fetchAppData(
+  module?: 'selectors' | 'inspectors',
+  knownRevision?: number,
+): Promise<AppData | { unchanged: true; revision: number }> {
+  const headers: Record<string, string> = {}
+  if (module) headers['X-App-Module'] = module
+  if (knownRevision != null && Number.isFinite(knownRevision)) {
+    headers['X-Known-Revision'] = String(knownRevision)
+  }
+  return request<AppData | { unchanged: true; revision: number }>('/api/data', {
+    headers,
   })
 }
 

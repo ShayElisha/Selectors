@@ -218,7 +218,14 @@ export interface BoardEvaluation {
   understaffedSlots: number
   /** Placements that return to the same lane within SHORT_RETURN_DAYS. */
   shortReturnCount: number
+  /** Short returns specifically onto hard lanes (stronger than idle-on-hard). */
+  shortReturnOnHard: number
   recoveryOnHard: number
+  /**
+   * Idle workers (≥ IDLE_HARD_REST_DAYS off) seated on hard lanes.
+   * Higher is better — keeps rested people on hard through optimization.
+   */
+  idleOnHard: number
   minDaysSince: number
   totalRotation: number
 }
@@ -233,7 +240,7 @@ export const ROTATION_LOOKBACK_DAYS = 14
 export const LOAD_BALANCE_DAYS = 14
 /** A fully rested person sits here; extra days off do not add more credit. */
 export const LOAD_BALANCE_FLOOR = -2
-/** Change on a calendar day with no presence and no assignment. */
+/** Change on a calendar day with no real work (no placement / not gate manager). */
 const LOAD_OFF_DAY = -2
 /**
  * Subtracted from each day-easy placement score so easy morning/afternoon
@@ -254,6 +261,12 @@ export const SHORT_RETURN_DAYS = 2
  * many points (about two weeks). Smaller gaps stay with rotation and hard-count balance.
  */
 export const IDLE_HARD_LOAD_GAP = 1.5
+/**
+ * On a hard lane, prefer someone who has not worked for this many calendar days
+ * (or longer). ~4–5 days of rest is enough to pull them toward a hard seat when
+ * they are qualified; shorter gaps stay with load / rotation.
+ */
+export const IDLE_HARD_REST_DAYS = 4
 /** Multi-pass local-search iteration cap. */
 const DEFAULT_MAX_OPTIMIZATION_PASSES = 200
 /** Only treat versatility as decisive when the gap is at least this many open lanes. */
@@ -411,6 +424,12 @@ export interface WorkerHistoryProfile {
   rotationLaneCounts: Map<string, number>
   /** Calendar days since last visit to lane (0.5 = earlier today). */
   daysSinceLastVisit: Map<string, number>
+  /**
+   * Calendar days since the worker last actually worked any shift
+   * (placement or gate manager). null = no duty in the lookback window.
+   * 0.5 = earlier today.
+   */
+  daysSinceLastDuty: number | null
   /** Shift weight of the most recent visit to that lane. */
   lastVisitShiftWeight: Map<string, number>
   /** Lanes from most recent placement (any shift). */
@@ -538,16 +557,20 @@ export function eachLocalDateInclusive(from: string, to: string): string[] {
   return out
 }
 
+/**
+ * True when the worker actually worked the shift for load / recovery.
+ * Presence alone does not count — continuers marked נוכח without a seat
+ * were blocking the −2 rest day and making load only rise.
+ */
 function workerAssignedOnShift(
   workerId: string,
   shift: ShiftSchedule,
 ): boolean {
-  if (shift.presentWorkerIds?.includes(workerId)) return true
   if (shift.gateManagerWorkerId?.trim() === workerId) return true
   return shiftPlacements(shift).some((p) => p.workerId === workerId)
 }
 
-/** True when the worker was present or assigned on any shift that calendar day. */
+/** True when the worker worked (placement or gate manager) on any shift that day. */
 export function workerOnDutyThatDay(
   workerId: string,
   shiftsThatDay: ShiftSchedule[],
@@ -905,6 +928,12 @@ function versatility(worker: Worker, otherOpenLanes: Lane[]): number {
   return otherOpenLanes.filter((l) => isQualified(worker, l)).length
 }
 
+/** True when the worker has been off duty long enough to prefer a hard seat. */
+export function isIdleForHardLane(profile: WorkerHistoryProfile): boolean {
+  if (profile.daysSinceLastDuty == null) return true
+  return profile.daysSinceLastDuty >= IDLE_HARD_REST_DAYS
+}
+
 function easyStaffingRemaining(otherOpen: Lane[]): number {
   return otherOpen
     .filter((l) => l.intensity === 'easy')
@@ -941,6 +970,7 @@ export function buildWorkerProfile(
     rotationWeightedVisits: new Map(),
     rotationLaneCounts: new Map(),
     daysSinceLastVisit: new Map(),
+    daysSinceLastDuty: null,
     lastVisitShiftWeight: new Map(),
     lastDayLaneIds: new Set(),
     prevCalendarDayLaneIds: new Set(),
@@ -982,6 +1012,18 @@ export function buildWorkerProfile(
   lookback.forEach((shift, shiftIndex) => {
     const placements: Lane[] = []
     const daysSince = daysBetweenLocal(shift.date, currentDate)
+
+    const workedDuty =
+      shift.gateManagerWorkerId?.trim() === workerId ||
+      shiftPlacements(shift).some((p) => p.workerId === workerId)
+    if (workedDuty) {
+      if (
+        profile.daysSinceLastDuty == null ||
+        daysSince < profile.daysSinceLastDuty
+      ) {
+        profile.daysSinceLastDuty = daysSince
+      }
+    }
 
     for (const assignment of shift.assignments ?? []) {
       if (!assignment?.workerIds?.includes(workerId)) continue
@@ -1075,6 +1117,13 @@ export function buildWorkerProfile(
       }
     }
 
+    if (
+      shift.gateManagerWorkerId?.trim() === workerId ||
+      placements.length > 0
+    ) {
+      profile.daysSinceLastDuty = 0.5
+    }
+
     if (placements.length === 0) continue
 
     profile.shiftsSeen += 1
@@ -1102,7 +1151,7 @@ export function buildWorkerProfile(
  * 1) afternoon handoff
  * 2) night→afternoon recovery (ahead of rotation, so last night's worker gets the lighter lane)
  * 3) short-return avoidance (almost-hard when alternatives exist in sort set)
- * 4) hard lanes: clearly lower recent load than the other candidate
+ * 4) hard lanes: idle ≥ IDLE_HARD_REST_DAYS, then clearly lower recent load
  * 5) Maximum Distance rotation — raw score (not continuous)
  * 6) load / hard balance by intensity (relative hard rate)
  * 7) versatility buckets (transitive)
@@ -1163,6 +1212,9 @@ function compareForLane(
     const bRate = pb.hardCount / Math.max(1, pb.shiftsSeen)
     if (Math.abs(aRate - bRate) > 1e-9) return bRate - aRate
   } else if (lane.intensity === 'hard') {
+    const idleA = isIdleForHardLane(pa)
+    const idleB = isIdleForHardLane(pb)
+    if (idleA !== idleB) return idleA ? -1 : 1
     const loadGap = pa.load - pb.load
     if (Math.abs(loadGap) >= IDLE_HARD_LOAD_GAP) return loadGap
   }
@@ -1539,8 +1591,10 @@ export function evaluateBoard(
   const staffing = clamp01to100((filled / required) * 100)
 
   let shortReturnCount = 0
+  let shortReturnOnHard = 0
   let rotSum = 0
   let recoveryOnHard = 0
+  let idleOnHard = 0
   let handoffScoreSum = 0
   let handoffN = 0
   let versatilityPenalties = 0
@@ -1559,7 +1613,10 @@ export function evaluateBoard(
   for (const { lane, workerId, profile } of placements) {
     const rot = rotationScoreFor(profile, lane.id)
     rotSum += rot.rawScore
-    if (isShortReturnToLane(profile, lane.id)) shortReturnCount += 1
+    if (isShortReturnToLane(profile, lane.id)) {
+      shortReturnCount += 1
+      if (lane.intensity === 'hard') shortReturnOnHard += 1
+    }
 
     const projectedLoad = Math.max(
       LOAD_BALANCE_FLOOR,
@@ -1577,6 +1634,13 @@ export function evaluateBoard(
 
     if (ctx.recoveringIds.has(workerId) && lane.intensity === 'hard') {
       recoveryOnHard += 1
+    }
+    if (
+      lane.intensity === 'hard' &&
+      !ctx.recoveringIds.has(workerId) &&
+      isIdleForHardLane(profile)
+    ) {
+      idleOnHard += 1
     }
 
     if (lane.afternoonHandoff && ctx.currentShiftType === 'afternoon') {
@@ -1669,7 +1733,9 @@ export function evaluateBoard(
     components,
     understaffedSlots,
     shortReturnCount,
+    shortReturnOnHard,
     recoveryOnHard,
+    idleOnHard,
     minDaysSince: boardMinDaysSince(assignments, ctx.profiles),
     totalRotation: rotSum,
   }
@@ -1688,6 +1754,7 @@ function idleHardPlacementAdjust(
   for (const { lane, workerId, profile } of placements) {
     if (lane.intensity !== 'hard') continue
     if (ctx.recoveringIds.has(workerId)) continue
+    if (isIdleForHardLane(profile)) delta += 8
     const loads: number[] = []
     for (const [id] of ctx.profiles) {
       const worker = ctx.workersById.get(id)
@@ -1722,7 +1789,9 @@ function illegalBoardEval(): BoardEvaluation {
     components: zero,
     understaffedSlots: Number.POSITIVE_INFINITY,
     shortReturnCount: Number.POSITIVE_INFINITY,
+    shortReturnOnHard: Number.POSITIVE_INFINITY,
     recoveryOnHard: Number.POSITIVE_INFINITY,
+    idleOnHard: Number.NEGATIVE_INFINITY,
     minDaysSince: 0,
     totalRotation: 0,
   }
@@ -1732,9 +1801,11 @@ function illegalBoardEval(): BoardEvaluation {
  * Compare two legal boards.
  * Lexicographic order (does not drop soft rules — only prioritizes):
  * 1) fewer understaffed slots (maximize fill)
- * 2) fewer short returns to the same lane (when fill is equal)
+ * 2) fewer short returns onto hard lanes
  * 3) fewer night workers placed on a hard afternoon lane
- * 4) higher weighted soft score, then spacing / rotation / stability
+ * 4) more idle (≥4 days off) workers on hard lanes
+ * 5) fewer short returns on other lanes
+ * 6) higher weighted soft score, then spacing / rotation / stability
  */
 export function isBoardBetter(
   next: BoardEvaluation,
@@ -1748,15 +1819,23 @@ export function isBoardBetter(
     return next.understaffedSlots < current.understaffedSlots
   }
 
-  // When enough people exist, do not put yesterday's occupant back
-  // just to improve load balance.
-  if (next.shortReturnCount !== current.shortReturnCount) {
-    return next.shortReturnCount < current.shortReturnCount
+  // Hard short-return beats idle preference; easy short-return does not.
+  if (next.shortReturnOnHard !== current.shortReturnOnHard) {
+    return next.shortReturnOnHard < current.shortReturnOnHard
   }
 
   // Near-equal fill — a night worker on a hard afternoon lane loses to a lighter placement.
   if (next.recoveryOnHard !== current.recoveryOnHard) {
     return next.recoveryOnHard < current.recoveryOnHard
+  }
+
+  // Keep rested people on hard seats through multi-pass swaps.
+  if (next.idleOnHard !== current.idleOnHard) {
+    return next.idleOnHard > current.idleOnHard
+  }
+
+  if (next.shortReturnCount !== current.shortReturnCount) {
+    return next.shortReturnCount < current.shortReturnCount
   }
 
   if (next.score > current.score + 1e-6) return true
@@ -2097,6 +2176,15 @@ function buildPlacementReasons(
   }
 
   if (lane.intensity === 'hard') {
+    if (isIdleForHardLane(p)) {
+      const days =
+        p.daysSinceLastDuty == null
+          ? `מעל ${ROTATION_LOOKBACK_DAYS}`
+          : String(Math.floor(p.daysSinceLastDuty))
+      reasons.push(
+        `לא עבד ${days} ימים — עדיפות לעמדה קשה אחרי מנוחה של לפחות ${IDLE_HARD_REST_DAYS} ימים`,
+      )
+    }
     const highestLoad = ranked.reduce((max, w) => {
       return Math.max(max, profiles.get(w.id)?.load ?? 0)
     }, 0)
@@ -2161,6 +2249,15 @@ function buildPlacementReasons(
       } else if (lane.intensity !== 'easy' && !aRec && bRec) {
         diffs.push(`${rival.fullName} נשמר למנוחה אחרי לילה`)
       }
+    }
+    if (
+      lane.intensity === 'hard' &&
+      isIdleForHardLane(p) &&
+      !isIdleForHardLane(rp)
+    ) {
+      diffs.push(
+        `נח יותר זמן מ${rival.fullName} (לפחות ${IDLE_HARD_REST_DAYS} ימים בלי שיבוץ)`,
+      )
     }
     if (
       lane.intensity === 'hard' &&
