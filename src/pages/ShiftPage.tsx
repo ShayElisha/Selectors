@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Check,
@@ -68,7 +68,7 @@ import {
   shareRoundsImage,
   type ExportRoundCell,
 } from '../lib/export'
-import { buildHandoverText } from '../lib/handover'
+import { exportBlockedReason } from '../lib/exportGate'
 import { postAuditEvent, reportShiftPresence } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
@@ -136,11 +136,37 @@ export function ShiftPage() {
     discardDraft,
     loadShiftFromHistory,
     draftDirty,
+    restoreDraftSnapshot,
     setView,
     user,
     module,
   } = useApp()
   const roleName = module === 'inspectors' ? 'בודקים' : 'סלקטורים'
+
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  const runWithUndo = useCallback(
+    (message: string, action: () => void) => {
+      const current = draftRef.current
+      if (!current || current.signOff?.signedAt) {
+        action()
+        return
+      }
+      const snapshot = JSON.parse(JSON.stringify(current)) as typeof current
+      action()
+      notify.undoable(message, () => restoreDraftSnapshot(snapshot))
+    },
+    [restoreDraftSnapshot],
+  )
+
+  const exportBlock = useMemo(() => {
+    if (!draft) return 'אין שיבוץ פתוח לייצוא.'
+    return exportBlockedReason({
+      draftId: draft.id,
+      historyIds: data.history.map((h) => h.id),
+      draftDirty,
+    })
+  }, [draft, data.history, draftDirty])
 
   const [extraFlow, setExtraFlow] = useState<ExtraFlow>('closed')
   const [extraAskedOnce, setExtraAskedOnce] = useState(false)
@@ -252,6 +278,10 @@ export function ShiftPage() {
 
   const exportSelectorBoard = async (mode: 'download' | 'whatsapp') => {
     if (!draft) return
+    if (exportBlock) {
+      notify.error('לא ניתן לייצא', exportBlock)
+      return
+    }
     const meta = { preparedBy: user?.fullName, organizationName: user?.orgName || undefined }
     const text = buildRoundsWhatsAppText(
       draft.date,
@@ -289,25 +319,6 @@ export function ShiftPage() {
         mode === 'download' ? 'ייצוא השיבוץ נכשל' : 'שיתוף השיבוץ נכשל',
       )
     }
-  }
-
-  const shareHandover = () => {
-    if (!draft) return
-    const text = buildHandoverText({
-      date: draft.date,
-      shiftType: draft.shiftType,
-      lanes: data.lanes,
-      workers: data.workers,
-      activeLaneIds: draft.activeLaneIds,
-      presentWorkerIds: draft.presentWorkerIds,
-      workerWindows: draft.workerWindows,
-      assignments: draft.assignments,
-      rounds: draft.rounds,
-      staffingOverrides: draft.staffingOverrides,
-    })
-    void navigator.clipboard?.writeText(text).catch(() => undefined)
-    openWhatsAppShare(text)
-    notify.success('טקסט המסירה הוכן')
   }
 
   const slotConflict = useMemo(() => {
@@ -450,7 +461,7 @@ export function ShiftPage() {
     setExtraFlow('closed')
     setSaveFlash(false)
     setRequestExplainModal(true)
-    runAutoAssign()
+    runWithUndo('שיבוץ אוטומטי', () => runAutoAssign())
     setBoardBaselineKey((k) => k + 1)
   }
 
@@ -469,7 +480,7 @@ export function ShiftPage() {
     setExtraAskedOnce(true)
     setExtraFlow('closed')
     setSaveFlash(false)
-    startManualAssign()
+    runWithUndo('לוח ידני', () => startManualAssign())
     setBoardBaselineKey((k) => k + 1)
   }
 
@@ -1669,14 +1680,8 @@ export function ShiftPage() {
               )}
               <button
                 type="button"
-                onClick={shareHandover}
-                className="ui-btn ui-btn-secondary gap-2"
-              >
-                מסירה
-              </button>
-              <button
-                type="button"
                 onClick={() => void exportSelectorBoard('whatsapp')}
+                title={exportBlock ?? undefined}
                 className="ui-btn ui-btn-secondary gap-2"
               >
                 <MessageCircle className="size-4" aria-hidden />
@@ -1685,6 +1690,7 @@ export function ShiftPage() {
               <button
                 type="button"
                 onClick={() => void exportSelectorBoard('download')}
+                title={exportBlock ?? undefined}
                 className="ui-btn ui-btn-secondary gap-2"
               >
                 <Download className="size-4" aria-hidden />
@@ -1758,10 +1764,11 @@ export function ShiftPage() {
                 : ''
             }
             editable={!draft.signOff?.signedAt}
-            onChange={updateSelectorCell}
+            onChange={(...args) =>
+              runWithUndo('השיבוץ בסבב עודכן', () => updateSelectorCell(...args))
+            }
             onRemoveLane={(laneId) => {
-              removeLaneFromShift(laneId)
-              notify.success('הנתיב הוסר מהמשמרת')
+              runWithUndo('הנתיב הוסר מהמשמרת', () => removeLaneFromShift(laneId))
             }}
           />
           {!draft.signOff?.signedAt ? (
@@ -2059,7 +2066,7 @@ export function ShiftPage() {
                 initial={(draft.shiftDrops ?? []).find((item) => item.workerId === worker.id)}
                 onClose={() => setDropWorkerId(null)}
                 onConfirm={(drop) => {
-                  recordShiftDrop(drop)
+                  runWithUndo('נרשמה יציאה מהמשמרת', () => recordShiftDrop(drop))
                   setDropWorkerId(null)
                 }}
               />
@@ -2094,8 +2101,11 @@ export function ShiftPage() {
                     type="button"
                     className="w-full rounded-xl px-3 py-2 text-right text-sm font-semibold text-ink hover:bg-surface"
                     onClick={() => {
-                      if (addPicker === 'lane') addBoardLane(item.id)
-                      else toggleWorker(item.id)
+                      if (addPicker === 'lane') {
+                        runWithUndo('נוסף נתיב למשמרת', () => addBoardLane(item.id))
+                      } else {
+                        runWithUndo('נוסף בודק לנוכחות', () => toggleWorker(item.id))
+                      }
                       setAddPicker(null)
                     }}
                   >

@@ -662,30 +662,35 @@ async function loadModelDocs(db, name, session, scope) {
 async function assembleState(revision, session, scope, target = 'selectors') {
   const db = await getDb(target)
   const read = (name) => loadModelDocs(db, name, session, scope)
-  const workers = fromOrderedDocs(await read(MODEL_COLLECTIONS.workers))
-  const lanes = fromOrderedDocs(await read(MODEL_COLLECTIONS.lanes))
-  const history = fromOrderedDocs(await read(MODEL_COLLECTIONS.shifts))
-  const certifications = fromOrderedDocs(
-    await read(MODEL_COLLECTIONS.certifications),
-  )
-  const briefingSections = fromOrderedDocs(
-    await read(MODEL_COLLECTIONS.briefingSections),
-  )
-  const questionBank = fromOrderedDocs(await read(MODEL_COLLECTIONS.questionBank))
-  const customsBrokers = fromOrderedDocs(
-    await read(MODEL_COLLECTIONS.customsBrokers),
-  )
-  const shiftModels = fromOrderedDocs(await read(MODEL_COLLECTIONS.shiftModels))
+  const [
+    workers,
+    lanes,
+    history,
+    certifications,
+    briefingSections,
+    questionBank,
+    customsBrokers,
+    shiftModels,
+  ] = await Promise.all([
+    read(MODEL_COLLECTIONS.workers),
+    read(MODEL_COLLECTIONS.lanes),
+    read(MODEL_COLLECTIONS.shifts),
+    read(MODEL_COLLECTIONS.certifications),
+    read(MODEL_COLLECTIONS.briefingSections),
+    read(MODEL_COLLECTIONS.questionBank),
+    read(MODEL_COLLECTIONS.customsBrokers),
+    read(MODEL_COLLECTIONS.shiftModels),
+  ])
   return normalizeData(
     {
-      workers,
-      lanes,
-      history,
-      certificationsCatalog: certifications.map((item) => item.name),
-      briefingSections,
-      questionBank,
-      customsBrokers,
-      shiftModels,
+      workers: fromOrderedDocs(workers),
+      lanes: fromOrderedDocs(lanes),
+      history: fromOrderedDocs(history),
+      certificationsCatalog: fromOrderedDocs(certifications).map((item) => item.name),
+      briefingSections: fromOrderedDocs(briefingSections),
+      questionBank: fromOrderedDocs(questionBank),
+      customsBrokers: fromOrderedDocs(customsBrokers),
+      shiftModels: fromOrderedDocs(shiftModels),
       revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
     },
     scope?.module === 'inspectors' ? 'inspector' : 'selector',
@@ -984,17 +989,23 @@ export function modelsMissingFromScope(unscoped, scopedIds) {
   return missing
 }
 
+let inspectorsUnscopedEmpty = false
+
 export async function importUnscopedInspectorModels(scope) {
+  if (inspectorsUnscopedEmpty) return 0
   const db = await getDb('inspectors')
   const metaCol = await getMetaCollection('inspectors')
   let imported = 0
+  let sawUnscoped = false
   for (const name of Object.values(MODEL_COLLECTIONS)) {
     const col = db.collection(name)
-    const unscoped = await col.find({ orgId: { $exists: false } }).toArray()
+    const unscoped = await col.find({ orgId: { $exists: false } }).limit(1).toArray()
     if (unscoped.length === 0) continue
+    sawUnscoped = true
+    const allUnscoped = await col.find({ orgId: { $exists: false } }).toArray()
     const scoped = await col.find(scopeFilter(scope)).project({ id: 1 }).toArray()
     const missing = modelsMissingFromScope(
-      unscoped,
+      allUnscoped,
       scoped.map((doc) => modelId(doc)),
     )
     if (missing.length === 0) continue
@@ -1018,6 +1029,7 @@ export async function importUnscopedInspectorModels(scope) {
     }
     imported += missing.length
   }
+  if (!sawUnscoped) inspectorsUnscopedEmpty = true
   if (imported > 0) {
     await metaCol.updateOne(
       { _id: metaIdFor(scope) },
@@ -1028,7 +1040,8 @@ export async function importUnscopedInspectorModels(scope) {
 }
 
 const stateCache = new Map()
-const STATE_CACHE_MS = 20_000
+/** Soft TTL only used for logging/metrics; matching revision always hits. */
+const STATE_CACHE_MS = 120_000
 
 function stateCacheKey(scope) {
   return `${scope.orgId}:${scope.module}`
@@ -1104,11 +1117,9 @@ export async function readState(scope) {
     const key = stateCacheKey(scope)
     const cached = stateCache.get(key)
     const revision = Number(meta.revision ?? 0)
-    if (
-      cached &&
-      cached.revision === revision &&
-      Date.now() - cached.at < STATE_CACHE_MS
-    ) {
+    // Same revision → always reuse in-memory state (no TTL rebuild).
+    if (cached && cached.revision === revision) {
+      cached.at = Date.now()
       return cached.state
     }
     const state = await assembleState(meta.revision, undefined, scope, target)
@@ -1116,6 +1127,30 @@ export async function readState(scope) {
     return state
   }
   return emptyState()
+}
+
+/**
+ * True when the client's known revision matches the live meta revision.
+ * Avoids assembling the full AppData payload on refresh when nothing changed.
+ */
+export async function clientRevisionIsCurrent(scope, knownRevision) {
+  if (!scope?.orgId || !scope?.module) return false
+  const known = Number(knownRevision)
+  if (!Number.isFinite(known)) return false
+  const target = targetForScope(scope)
+  if (target === 'inspectors') {
+    await migrateInspectorsDatabase()
+  } else {
+    await migrateLegacyTenancy()
+  }
+  const cached = stateCache.get(stateCacheKey(scope))
+  if (cached && cached.revision === known) return true
+  const metaCol = await getMetaCollection(target)
+  const meta = await metaCol.findOne(
+    { _id: metaIdFor(scope) },
+    { projection: { revision: 1 } },
+  )
+  return Number(meta?.revision ?? 0) === known
 }
 
 /** One page of saved shifts, newest first, without loading the whole history. */

@@ -73,8 +73,8 @@ export function SelectorRoundTable({
                             type="button"
                             onClick={() => onRemoveLane(lane.id)}
                             className="inline-flex size-6 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard"
-                            title="הסר את הנתיב מהמשמרת"
-                            aria-label={`הסר את הנתיב ${lane.name}`}
+                            title="הסר נתיב מהמשמרת"
+                            aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
                           >
                             <Trash2 className="size-3.5" aria-hidden />
                           </button>

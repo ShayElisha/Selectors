@@ -15,6 +15,7 @@ import {
   publicData,
   listHistoryPage,
   readState,
+  clientRevisionIsCurrent,
   recordSelfHeal,
   requestPasswordReset,
   resendManagerTempPassword,
@@ -29,6 +30,7 @@ import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 import { listSystemMessages, createSystemMessage } from './messages.js'
+import { runDailyLoadRest, scheduleLocalLoadRestCron } from './loadRest.js'
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -51,6 +53,52 @@ function sendError(res, err) {
   if (err.code) body.code = err.code
   res.status(status).json(body)
 }
+
+function assertCronAuth(req) {
+  const secret = process.env.CRON_SECRET?.trim()
+  if (!secret) {
+    const err = new Error('CRON_SECRET לא מוגדר')
+    err.status = 503
+    throw err
+  }
+  const header = String(req.get('authorization') || '')
+  const bearer = header.toLowerCase().startsWith('bearer ')
+    ? header.slice(7).trim()
+    : ''
+  const query = String(req.query?.secret || '')
+  if (bearer !== secret && query !== secret) {
+    const err = new Error('אין הרשאה')
+    err.status = 401
+    throw err
+  }
+}
+
+/** Nightly load rest: −2 for workers who did not work the previous Israel day. */
+app.post('/api/cron/load-rest', async (req, res) => {
+  try {
+    assertCronAuth(req)
+    const date =
+      typeof req.body?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)
+        ? req.body.date
+        : undefined
+    res.json(await runDailyLoadRest({ date }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/cron/load-rest', async (req, res) => {
+  try {
+    assertCronAuth(req)
+    const date =
+      typeof req.query?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+        ? req.query.date
+        : undefined
+    res.json(await runDailyLoadRest({ date }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
 
 app.get('/api/health', async (_req, res) => {
   try {
@@ -389,6 +437,14 @@ app.get('/api/history', async (req, res) => {
 app.get('/api/data', async (req, res) => {
   try {
     const { scope } = await scopeForRequest(req)
+    const known = Number(req.headers['x-known-revision'])
+    if (
+      Number.isFinite(known) &&
+      (await clientRevisionIsCurrent(scope, known))
+    ) {
+      res.json({ unchanged: true, revision: known })
+      return
+    }
     res.json(publicData(await readState(scope)))
   } catch (err) {
     sendError(res, err)
@@ -554,6 +610,7 @@ async function start() {
   await ensureOrgIndexes()
   await migrateLegacyTenancy()
   await migrateInspectorsDatabase()
+  scheduleLocalLoadRestCron()
   app.listen(PORT, () => {
     console.log(`API listening on http://127.0.0.1:${PORT}`)
   })

@@ -258,6 +258,8 @@ interface AppContextValue {
   draft: ShiftDraft | null
   /** True only after the in-memory shift differs from its clean baseline (and thus is persisted). */
   draftDirty: boolean
+  /** Restore a previous board snapshot (used by the 3s undo toast). */
+  restoreDraftSnapshot: (snapshot: ShiftDraft) => void
   startShift: (audience?: ShiftAudience) => void
   /** Discard in-progress shift draft and return home */
   discardDraft: () => void
@@ -632,6 +634,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setDraft(next)
   }, [])
 
+  const restoreDraftSnapshot = useCallback((snapshot: ShiftDraft) => {
+    setDraft(JSON.parse(JSON.stringify(snapshot)) as ShiftDraft)
+  }, [])
+
   const applyRemoteData = useCallback((remote: AppData) => {
     const next = normalizeAppData(
       remote,
@@ -812,9 +818,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [drainPersist])
 
   const readServerRevision = useCallback(async () => {
-    const fresh = applyRemoteData(
-      await fetchAppData(userRef.current?.module ?? undefined),
-    )
+    const remote = await fetchAppData(userRef.current?.module ?? undefined)
+    if (remote && 'unchanged' in remote && remote.unchanged) {
+      return remote.revision
+    }
+    const fresh = applyRemoteData(remote as AppData)
     return fresh.revision ?? 0
   }, [applyRemoteData])
 
@@ -872,8 +880,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     else setLoading(true)
     setError(null)
     try {
-      const remote = await fetchAppData(userRef.current?.module ?? undefined)
-      applyRemoteData(remote)
+      const knownRevision = hasLocal ? dataRef.current.revision : undefined
+      const remote = await fetchAppData(
+        userRef.current?.module ?? undefined,
+        knownRevision,
+      )
+      if (remote && 'unchanged' in remote && remote.unchanged) {
+        return
+      }
+      applyRemoteData(remote as AppData)
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         handleAuthFailure()
@@ -3332,6 +3347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setShiftStep,
       draft,
       draftDirty,
+      restoreDraftSnapshot,
       startShift,
       discardDraft,
       updateDraftMeta,
@@ -3422,6 +3438,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setShiftStep,
       draft,
       draftDirty,
+      restoreDraftSnapshot,
       startShift,
       discardDraft,
       updateDraftMeta,
