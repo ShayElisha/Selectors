@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Lane, Worker } from '../types'
+import type { Lane, ShiftSchedule, Worker } from '../types'
 import { roundCutsForWindows } from './shiftCatalog'
 import {
   applyLaneActivityHours,
@@ -101,6 +101,61 @@ describe('assignSelectorRounds', () => {
       }
       expect(customs?.workerIds ?? []).not.toContain('w2')
     })
+  })
+
+  it('opens the next shift off the person who sat the lane last, including a later round', () => {
+    const history: ShiftSchedule[] = [
+      {
+        id: 'h',
+        date: '2026-03-15',
+        shiftType: 'morning',
+        activeLaneIds: ['a', 'b'],
+        presentWorkerIds: ['w1', 'w2'],
+        assignments: [],
+        rounds: [
+          {
+            startMinutes: 360,
+            endMinutes: 480,
+            label: '06:00–08:00',
+            assignments: [
+              { laneId: 'a', workerIds: ['w2'] },
+              { laneId: 'b', workerIds: ['w1'] },
+            ],
+          },
+          {
+            startMinutes: 480,
+            endMinutes: 600,
+            label: '08:00–10:00',
+            assignments: [
+              { laneId: 'a', workerIds: ['w1'] },
+              { laneId: 'b', workerIds: ['w2'] },
+            ],
+          },
+        ],
+        createdAt: '2026-03-15T00:00:00.000Z',
+        updatedAt: '2026-03-15T00:00:00.000Z',
+      },
+    ]
+    const { rounds, explanations, warnings } = assignSelectorRounds({
+      shiftType: 'morning',
+      lanes,
+      activeLaneIds: ['a', 'b'],
+      workers,
+      history,
+      date: '2026-03-16',
+    })
+    const firstA = rounds[0]!.assignments.find((row) => row.laneId === 'a')
+    const secondA = rounds[1]!.assignments.find((row) => row.laneId === 'a')
+    expect(firstA?.workerIds[0]).not.toBe('w1')
+    expect(firstA?.workerIds[0]).not.toBe(secondA?.workerIds[0])
+    expect(
+      explanations.some((item) =>
+        item.reasons.some(
+          (reason) => reason.includes('אביב') && reason.includes('האחרון בנתיב'),
+        ),
+      ),
+    ).toBe(true)
+    expect(warnings.some((warning) => warning.includes('נבדקו'))).toBe(true)
   })
 })
 

@@ -64,7 +64,12 @@ import {
 import { exportBlockedReason } from '../lib/exportGate'
 import { pluralizeHe } from '../lib/hebrew'
 import { ShiftDropDialog, ShiftDropSummary } from './ShiftDropDialog'
-import { activeAttendanceWorkers, isGateManagerLane, managedLanes } from '../lib/gateManager'
+import {
+  activeAttendanceWorkers,
+  findGateManagerLane,
+  isGateManagerLane,
+  managedLanes,
+} from '../lib/gateManager'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { postAuditEvent } from '../api'
@@ -87,7 +92,7 @@ export interface BoardStepProps {
   onSave: () => void | Promise<void>
   onSignOff?: () => void
   onCompare?: () => void
-  onReassign: () => void
+  onReassign: () => void | Promise<void>
   onEditSettings: () => void
   onRequestDiscard: () => void
   onOpenExtraPick: (laneId?: string, workerId?: string) => void
@@ -157,9 +162,11 @@ export function BoardStep({
     removeLaneFromShift,
     addSlotToLane,
     updateLaneNotes,
+    setGateManager,
     user,
     draftDirty,
     restoreDraftSnapshot,
+    assigning,
   } = useApp()
 
   const draftRef = useRef(draft)
@@ -371,11 +378,62 @@ export function BoardStep({
         message: shiftSlotConflictMessage(draft.date, draft.shiftType),
       })
     }
+    if (!draft.gateManagerWorkerId) {
+      items.push({
+        severity: 'warning',
+        message: 'לא נבחר מנהל משמרת. אפשר לבחור אותו כאן בלוח, בלי לחזור אחורה.',
+      })
+    }
     return items
-  }, [partitioned, boardIssues, slotConflict, draft.date, draft.shiftType])
+  }, [
+    partitioned,
+    boardIssues,
+    slotConflict,
+    draft.date,
+    draft.shiftType,
+    draft.gateManagerWorkerId,
+  ])
 
   const hasBoardErrors = boardIssues.some((i) => i.severity === 'error')
   const locked = Boolean(draft.signOff?.signedAt)
+  const gateLane = findGateManagerLane(data.lanes)
+  const shiftManagers = useMemo(
+    () =>
+      data.workers
+        .filter(
+          (worker) =>
+            worker.status === 'active' && worker.isManager && worker.isInspector,
+        )
+        .sort((a, b) => a.fullName.localeCompare(b.fullName, 'he')),
+    [data.workers],
+  )
+  const chooseGateManager = (workerId: string) => {
+    if (locked) return
+    runWithUndo(
+      workerId ? 'נבחר מנהל משמרת' : 'הוסר מנהל משמרת',
+      () => setGateManager(workerId || null),
+    )
+  }
+  const gateManagerSelect = (
+    <select
+      className="ui-field w-full py-2 text-sm"
+      aria-label="בחירת מנהל משמרת"
+      value={draft.gateManagerWorkerId ?? ''}
+      disabled={locked || shiftManagers.length === 0}
+      onChange={(event) => chooseGateManager(event.target.value)}
+    >
+      <option value="">
+        {shiftManagers.length === 0
+          ? 'אין מנהל שהוא גם בודק'
+          : 'בחרו מנהל משמרת'}
+      </option>
+      {shiftManagers.map((manager) => (
+        <option key={manager.id} value={manager.id}>
+          {manager.fullName}
+        </option>
+      ))}
+    </select>
+  )
   const saveBlocked =
     Boolean(slotConflict) ||
     draft.unassignedWorkerIds.length > 0 ||
@@ -459,6 +517,7 @@ export function BoardStep({
   }
 
   const confirmReassign = () => {
+    if (assigning) return
     const changes = countAssignmentChanges(boardBaseline, currentSnapshot)
     const filled = currentSnapshot.assignments.reduce(
       (n, a) => n + a.workerIds.filter(Boolean).length,
@@ -472,7 +531,18 @@ export function BoardStep({
       )
       if (!ok) return
     }
-    runWithUndo('שיבוץ מחדש', () => onReassign())
+    // The reassignment is async (progress loader); undo toast only after the
+    // new board landed so a fast undo cannot race the search.
+    void (async () => {
+      const current = draftRef.current
+      if (!current || current.signOff?.signedAt) {
+        await onReassign()
+        return
+      }
+      const snapshot = JSON.parse(JSON.stringify(current)) as typeof current
+      await onReassign()
+      notify.undoable('שיבוץ מחדש', () => restoreDraftSnapshot(snapshot))
+    })()
   }
 
   const gateManagerName = useMemo(() => {
@@ -886,6 +956,18 @@ export function BoardStep({
         </div>
 
         <div className="flex touch-pan-y flex-col gap-2.5 bg-surface/50 p-2.5 sm:gap-3 sm:p-4">
+          {gateLane && !draft.activeLaneIds.includes(gateLane.id) ? (
+            <div className="rounded-2xl border border-line/70 border-s-4 border-s-brand bg-card px-3 py-3 shadow-[var(--shadow-panel)] sm:px-4">
+              <h4 className="inline-flex items-center gap-1.5 font-display text-base font-bold text-ink">
+                <Shield className="size-4 text-brand" aria-hidden />
+                מנהל משמרת
+              </h4>
+              <p className="mt-1 text-xs text-ink-soft">
+                לא סומן מנהל בתחילת המשמרת. הבחירה כאן מוסיפה אותו ללוח.
+              </p>
+              <div className="mt-2.5">{gateManagerSelect}</div>
+            </div>
+          ) : null}
           {[...draft.activeLaneIds]
             .sort((a, b) => {
               const la = data.lanes.find((l) => l.id === a)
@@ -952,7 +1034,7 @@ export function BoardStep({
                       ) : null}
                       {isGateLane ? (
                         <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand">
-                          שובץ אוטומטית
+                          {locked ? 'שובץ אוטומטית' : 'בחירה בלוח'}
                         </span>
                       ) : (
                         <IntensityBadge intensity={lane.intensity} />
@@ -1024,12 +1106,18 @@ export function BoardStep({
                       return (
                         <div
                           key={slotIndex}
-                          className="flex items-center gap-3 rounded-xl bg-brand/[0.06] px-3 py-2.5 ring-1 ring-brand/15"
+                          className="rounded-xl bg-brand/[0.06] px-3 py-2.5 ring-1 ring-brand/15"
                         >
-                          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-                            <Shield className="size-4" aria-hidden />
-                          </span>
-                          <span className="text-base font-semibold tracking-tight text-ink">{name}</span>
+                          {locked ? (
+                            <div className="flex items-center gap-3">
+                              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                                <Shield className="size-4" aria-hidden />
+                              </span>
+                              <span className="text-base font-semibold tracking-tight text-ink">{name}</span>
+                            </div>
+                          ) : (
+                            gateManagerSelect
+                          )}
                         </div>
                       )
                     }
@@ -1322,6 +1410,7 @@ export function BoardStep({
           <button
             type="button"
             onClick={confirmReassign}
+            disabled={assigning}
             className="ui-btn ui-btn-secondary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             <Sparkles className="size-4" aria-hidden />

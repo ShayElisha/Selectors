@@ -1,9 +1,16 @@
-import { isQualified } from '../algorithm'
+import {
+  buildLaneLastSeatings,
+  isQualified,
+  LAST_OCCUPANT_WINDOW_DAYS,
+  type LaneLastSeating,
+  type PlacementExplanation,
+} from '../algorithm'
 import type {
   Lane,
   LaneAssignment,
   RoundCohort,
   SelectorRound,
+  ShiftSchedule,
   ShiftType,
   WindowAdjustment,
   Worker,
@@ -277,6 +284,8 @@ function pickWorker(
   prevLane: Map<string, string>,
   visits: Map<string, Map<string, number>>,
   roundIndex: number,
+  historical: Map<string, LaneLastSeating>,
+  offset: number,
 ): Worker | null {
   const qualified = workers.filter(
     (w) =>
@@ -288,15 +297,16 @@ function pickWorker(
   const rotated = (worker: Worker) => {
     const index = workers.indexOf(worker)
     const n = workers.length || 1
-    return (index - roundIndex + n * 8) % n
+    return (index - roundIndex + offset + n * 8) % n
   }
+  const wasLast = (worker: Worker) =>
+    historical.get(lane.id)?.workerIds.includes(worker.id) ? 1 : 0
   qualified.sort((a, b) => {
-    const score = (w: Worker) => {
-      const stayed = prevLane.get(w.id) === lane.id ? 1 : 0
-      return stayed * 100 + visitCount(visits, w.id, lane.id)
-    }
-    const byScore = score(a) - score(b)
-    if (byScore !== 0) return byScore
+    const byVisits =
+      visitCount(visits, a.id, lane.id) - visitCount(visits, b.id, lane.id)
+    if (byVisits !== 0) return byVisits
+    const byLast = wasLast(a) - wasLast(b)
+    if (byLast !== 0) return byLast
     return rotated(a) - rotated(b)
   })
   return qualified[0] ?? null
@@ -329,7 +339,17 @@ export function assignSelectorRounds(args: {
    */
   existingRounds?: SelectorRound[]
   freezeBeforeMinutes?: number
-}): { rounds: SelectorRound[]; warnings: string[]; unassignedWorkerIds: string[] } {
+  /** Saved boards used to see who sat each lane last. */
+  history?: ShiftSchedule[]
+  date?: string
+  /** Names for people who sat a lane last but are absent today. */
+  roster?: Worker[]
+}): {
+  rounds: SelectorRound[]
+  warnings: string[]
+  unassignedWorkerIds: string[]
+  explanations: PlacementExplanation[]
+} {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
     a.fullName.localeCompare(b.fullName, 'he'),
@@ -344,11 +364,6 @@ export function assignSelectorRounds(args: {
     warnings.push('אין סלקטורים נוכחים')
   }
 
-  const visits = new Map<string, Map<string, number>>()
-  const prevLane = new Map<string, string>()
-  let emptySeats = 0
-  let repeatBlocks = 0
-
   const earlyCutoff = onShiftClock(6 * 60, args.shiftType)
   const partners = (args.nightPartners ?? []).filter(
     (partner) => !workers.some((worker) => worker.id === partner.id),
@@ -356,6 +371,28 @@ export function assignSelectorRounds(args: {
   const orderedIds = [...workers, ...partners].map((worker) => worker.id)
   const cohortOf = (workerId: string): RoundCohort =>
     orderedIds.indexOf(workerId) % 2 === 0 ? 'hour' : 'half'
+  const names = new Map(
+    [...(args.roster ?? []), ...workers, ...partners].map((worker) => [
+      worker.id,
+      worker.fullName,
+    ]),
+  )
+  const historical = args.date
+    ? buildLaneLastSeatings(
+        args.history ?? [],
+        args.date,
+        args.shiftType,
+        LAST_OCCUPANT_WINDOW_DAYS,
+      )
+    : new Map<string, LaneLastSeating>()
+
+  const buildAttempt = (offset: number) => {
+  const visits = new Map<string, Map<string, number>>()
+  const prevLane = new Map<string, string>()
+  let emptySeats = 0
+  let repeatBlocks = 0
+  let lastHits = 0
+  const explanations: PlacementExplanation[] = []
 
   const rounds: SelectorRound[] = windows.map((w, roundIndex) => {
     const existing = (args.existingRounds ?? []).find(
@@ -419,6 +456,8 @@ export function assignSelectorRounds(args: {
           prevLane,
           visits,
           roundIndex,
+          historical,
+          offset,
         )
         if (!pick) {
           workerIds.push('')
@@ -436,6 +475,25 @@ export function assignSelectorRounds(args: {
         workerIds.push(pick.id)
         bumpVisit(visits, pick.id, lane.id)
         nextPrev.set(pick.id, lane.id)
+        const seating = historical.get(lane.id)
+        if (seating?.workerIds.includes(pick.id)) lastHits += 1
+        const lastNames = (seating?.workerIds ?? [])
+          .map((id) => names.get(id) ?? 'מי ששובץ אז')
+          .join(' ו')
+        const matched = seating?.workerIds.includes(pick.id) ?? false
+        explanations.push({
+          laneId: lane.id,
+          workerId: pick.id,
+          reasons: [
+            `סבב ${w.label}: נבדק מי ישב אחרון ב«${lane.name}», וגם שהאדם לא חוזר על הנתיב של הסבב הקודם.`,
+            seating
+              ? matched
+                ? `האחרון בנתיב היה ${lastNames}. ${pick.fullName} הוא אותו אדם, ושובץ כי לא נשאר מועמד אחר בלי רצף באותו נתיב.`
+                : `האחרון בנתיב היה ${lastNames}. ${pick.fullName} אינו אותו אדם, ולכן הועדף.`
+              : `אין שיבוץ קודם שמור ל«${lane.name}» ב־${LAST_OCCUPANT_WINDOW_DAYS} הימים האחרונים.`,
+            `בסבבים של המשמרת הזו ישב/ה בנתיב ${visitCount(visits, pick.id, lane.id)} פעמים עד הסבב הזה, כולל אותו.`,
+          ],
+        })
       }
       return { laneId: lane.id, workerIds }
     })
@@ -444,13 +502,27 @@ export function assignSelectorRounds(args: {
     return { ...w, assignments }
   })
 
-  if (repeatBlocks > 0) {
+  return { rounds, emptySeats, repeatBlocks, lastHits, explanations }
+  }
+
+  const attempts = Math.min(8, Math.max(1, workers.length))
+  let best = buildAttempt(0)
+  for (let offset = 1; offset < attempts; offset += 1) {
+    const next = buildAttempt(offset)
+    const fewerEmpty = next.emptySeats < best.emptySeats
+    const sameEmptyFewerRepeats =
+      next.emptySeats === best.emptySeats && next.lastHits < best.lastHits
+    if (fewerEmpty || sameEmptyFewerRepeats) best = next
+  }
+
+  const { rounds, explanations } = best
+  if (best.repeatBlocks > 0) {
     warnings.push('נחסם רצף של אותו נתיב בשני סבבים צמודים')
   }
 
-  if (emptySeats > 0 && workers.length > 0 && active.length > 0) {
+  if (best.emptySeats > 0 && workers.length > 0 && active.length > 0) {
     warnings.push(
-      `נותרו ${emptySeats} מקומות ריקים בסבבים — אין מספיק סלקטורים מוסמכים לכל הנתיבים`,
+      `נותרו ${best.emptySeats} מקומות ריקים בסבבים — אין מספיק סלקטורים מוסמכים לכל הנתיבים`,
     )
   }
 
@@ -465,7 +537,13 @@ export function assignSelectorRounds(args: {
     )
   }
 
-  return { rounds, warnings, unassignedWorkerIds }
+  if (attempts > 1) {
+    warnings.push(
+      `נבדקו ${attempts} סידורי סבבים, והשיבוץ שנבחר חוזר פחות למי שישבו אחרונים בנתיב`,
+    )
+  }
+
+  return { rounds, warnings, unassignedWorkerIds, explanations }
 }
 
 export function unassignedSelectorIds(

@@ -51,15 +51,15 @@ describe('formatShiftDateShort', () => {
 
 describe('formatShiftWindow', () => {
   it('formats day shifts without next-day note', () => {
-    expect(formatShiftWindow('morning')).toBe('06:00 עד 14:30')
+    expect(formatShiftWindow('morning')).toBe('06:00 עד 15:00')
     expect(formatShiftWindow('afternoon')).toBe('14:30 עד 21:30')
   })
 
   it('marks night end as next day', () => {
-    expect(formatShiftWindow('night')).toBe('21:30 עד 06:00 (למחרת)')
+    expect(formatShiftWindow('night')).toBe('21:00 עד 06:30 (למחרת)')
     expect(shiftWindowParts('night')).toEqual({
-      start: '21:30',
-      end: '06:00',
+      start: '21:00',
+      end: '06:30',
       nextDay: true,
     })
   })

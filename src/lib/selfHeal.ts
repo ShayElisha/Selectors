@@ -1,4 +1,5 @@
 import {
+  buildLaneLastSeatings,
   buildWorkerProfile,
   isQualified,
   shiftBalanceDelta,
@@ -220,6 +221,11 @@ function planLaneRemoval(
       buildWorkerProfile(id, args.history, args.lanes, args.draft.shiftType, args.draft.date),
     ]),
   )
+  const lastSeatings = buildLaneLastSeatings(
+    args.history,
+    args.draft.date,
+    args.draft.shiftType,
+  )
   const end =
     args.endMinutes <= args.startMinutes ? args.endMinutes + 24 * 60 : args.endMinutes
   const span = Math.max(1, end - args.startMinutes)
@@ -271,6 +277,7 @@ function planLaneRemoval(
       currentShiftType: args.draft.shiftType,
       morning: null,
       recoveringIds: new Set(),
+      lastSeatings,
     })
     let chosen = ranked[0]
     let fromLaneId: string | null = null
@@ -292,6 +299,7 @@ function planLaneRemoval(
         otherOpen: [],
         currentShiftType: args.draft.shiftType,
         morning: null,
+        lastSeatings,
         recoveringIds: new Set(),
       })
       chosen = rankedDonors[0]
@@ -392,6 +400,9 @@ function planRoundRemoval(
         windowAdjustments: args.draft.windowAdjustments,
         existingRounds: args.draft.rounds,
         freezeBeforeMinutes: args.atMinutes,
+        history: args.history,
+        date: args.draft.date,
+        roster: args.workers,
       }).rounds
     : (args.draft.rounds ?? []).map((round) =>
         round.endMinutes <= args.atMinutes
