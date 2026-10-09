@@ -14,6 +14,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import {
+  buildLaneLastSeatings,
+  isLastLaneOccupant,
   runAssignmentAlgorithm,
   runAssignmentAlgorithmWithProgress,
   type AssignmentResult,
@@ -38,6 +40,11 @@ import {
   type LoginNextStep,
 } from '../api'
 import { notify } from '../lib/notify'
+import {
+  assignmentFixKind,
+  assignmentFixTag,
+  primaryAssignmentFix,
+} from '../lib/orgHealth'
 import { earlyLeaveCutoff } from '../lib/earlyLeave'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
@@ -83,9 +90,11 @@ import {
 } from '../lib/gateManager'
 import { replaceLeavingWorkerSeat } from '../lib/boardHelpers'
 import {
+  applyBriefingStar,
   normalizeBriefingSections,
   normalizeQuestionBank,
   reindexOrders,
+  sortBriefingSections,
 } from '../lib/briefings'
 import {
   assignSelectorRounds,
@@ -143,6 +152,27 @@ function uniqueLabels(values: string[] | undefined): string[] {
     out.push(label)
   }
   return out
+}
+
+function fixTagForSeats(
+  lanes: Lane[],
+  history: ShiftSchedule[],
+  date: string,
+  shiftType: ShiftType,
+  seats: { laneId: string; workerId: string }[],
+): string {
+  const last = buildLaneLastSeatings(history, date, shiftType)
+  const kinds = seats.map((seat) => {
+    const lane = lanes.find((item) => item.id === seat.laneId)
+    return assignmentFixKind({
+      intensity: lane?.intensity,
+      afternoonHandoff: Boolean(lane?.afternoonHandoff),
+      returnsToLastSeat: seat.workerId
+        ? isLastLaneOccupant(seat.workerId, seat.laneId, last)
+        : false,
+    })
+  })
+  return assignmentFixTag(primaryAssignmentFix(kinds.length > 0 ? kinds : ['other']))
 }
 
 function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector'): Worker {
@@ -367,6 +397,7 @@ interface AppContextValue {
   ) => void
   deleteBriefingSection: (id: string) => void
   reorderBriefingSections: (orderedIds: string[]) => void
+  setBriefingSectionStarred: (id: string, starred: boolean) => void
   upsertInspectorQuestion: (
     question: Omit<InspectorQuestion, 'id' | 'updatedAt' | 'order'> & {
       id?: string
@@ -2217,7 +2248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (usesRounds(d)) {
         void postAuditEvent(
           'manual_assign',
-          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · סלקטורים · טבלת סבבים ריקה · ${d.activeLaneIds.length} נתיבים · ${d.presentWorkerIds.length} נוכחים`,
+          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · סלקטורים · טבלת סבבים ריקה · ${d.activeLaneIds.length} נתיבים · ${d.presentWorkerIds.length} נוכחים · ${assignmentFixTag('other')}`,
         )
         return withGateManagerSync(
           {
@@ -2246,7 +2277,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       void postAuditEvent(
         'manual_assign',
-        `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · לוח ריק לעריכה ידנית · ${d.activeLaneIds.length} נתיבים · ${d.presentWorkerIds.length} נוכחים`,
+        `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · לוח ריק לעריכה ידנית · ${d.activeLaneIds.length} נתיבים · ${d.presentWorkerIds.length} נוכחים · ${assignmentFixTag('other')}`,
       )
       const notesByLane = new Map(
         d.assignments
@@ -2360,7 +2391,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           void postAuditEvent(
             'manual_assign',
-            `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${bits.join(' · ')}`,
+            `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${bits.join(' · ')} · ${fixTagForSeats(
+              data.lanes,
+              data.history,
+              d.date,
+              d.shiftType,
+              [{ laneId, workerId: workerId || prevId }],
+            )}`,
           )
         }
 
@@ -2405,6 +2442,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notify.error('אי אפשר לשבת באותו נתיב בשני סבבים רצופים')
           return d
         }
+        const prevId =
+          (d.rounds ?? [])[roundIndex]?.assignments.find((row) => row.laneId === laneId)
+            ?.workerIds[slotIndex] || ''
+        if ((workerId ?? '') !== prevId) {
+          const laneName = data.lanes.find((lane) => lane.id === laneId)?.name || laneId
+          void postAuditEvent(
+            'manual_assign',
+            `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · סבב · ${laneName} · ${fixTagForSeats(
+              data.lanes,
+              data.history,
+              d.date,
+              d.shiftType,
+              [{ laneId, workerId: workerId || prevId }],
+            )}`,
+          )
+        }
         return withGateManagerSync(
           {
             ...d,
@@ -2415,7 +2468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.lanes, draft],
+    [data.history, data.lanes, draft],
   )
 
   const swapAssignments = useCallback(
@@ -2454,7 +2507,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         void postAuditEvent(
           'manual_swap',
-          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${nameOf(idA)} ↔ ${nameOf(idB)} (${labelOf(a.laneId)} ↔ ${labelOf(b.laneId)})`,
+          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${nameOf(idA)} ↔ ${nameOf(idB)} (${labelOf(a.laneId)} ↔ ${labelOf(b.laneId)}) · ${fixTagForSeats(
+            data.lanes,
+            data.history,
+            d.date,
+            d.shiftType,
+            [
+              { laneId: a.laneId, workerId: idB },
+              { laneId: b.laneId, workerId: idA },
+            ],
+          )}`,
         )
 
         const trimTrailing = (row: (typeof padded)[number]) => {
@@ -2479,7 +2541,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.lanes, data.workers],
+    [data.history, data.lanes, data.workers],
   )
 
   const laneNoteAuditTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2555,7 +2617,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const laneName = data.lanes.find((lane) => lane.id === laneId)?.name || laneId || ''
         void postAuditEvent(
           'manual_assign',
-          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · החלפה באמצע משמרת · ${laneName}: ${leavingName} → ${nextName}`,
+          `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · החלפה באמצע משמרת · ${laneName}: ${leavingName} → ${nextName} · ${fixTagForSeats(
+            data.lanes,
+            data.history,
+            d.date,
+            d.shiftType,
+            [{ laneId: laneId || '', workerId: replacementId }],
+          )}`,
         )
         return withGateManagerSync(
           {
@@ -2568,7 +2636,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.lanes, data.workers],
+    [data.history, data.lanes, data.workers],
   )
 
   const addExtraWorkerToLane = useCallback(
@@ -3106,25 +3174,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       patchData((prev) => {
         const list = normalizeBriefingSections(prev.briefingSections)
         if (section.id) {
+          const current = list.find((s) => s.id === section.id)
+          const starred =
+            section.starred === undefined
+              ? Boolean(current?.starred)
+              : section.starred
+          const starChanged = Boolean(current?.starred) !== starred
+          const mapped = list.map((s) => {
+            if (s.id !== section.id) return s
+            const next: BriefingSection = {
+              ...s,
+              title,
+              body,
+              updatedAt: now,
+              ...(by ? { updatedBy: by } : {}),
+            }
+            if (starred) next.starred = true
+            else delete next.starred
+            return next
+          })
           return {
             ...prev,
-            briefingSections: list.map((s) =>
-              s.id === section.id
-                ? {
-                    ...s,
-                    title,
-                    body,
-                    updatedAt: now,
-                    ...(by ? { updatedBy: by } : {}),
-                  }
-                : s,
-            ),
+            briefingSections: starChanged
+              ? applyBriefingStar(mapped, section.id, starred)
+              : sortBriefingSections(mapped),
           }
         }
         const next: BriefingSection = {
           id: uuid(),
           title,
           body,
+          ...(section.starred ? { starred: true } : {}),
           order:
             section.order ??
             (list.length === 0
@@ -3133,9 +3213,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           updatedAt: now,
           ...(by ? { updatedBy: by } : {}),
         }
+        const added = [...list, next]
         return {
           ...prev,
-          briefingSections: normalizeBriefingSections([...list, next]),
+          briefingSections: next.starred
+            ? applyBriefingStar(added, next.id, true)
+            : normalizeBriefingSections(added),
         }
       })
     },
@@ -3173,6 +3256,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return { ...prev, briefingSections: reindexOrders(next) }
       })
+    },
+    [patchData],
+  )
+
+  const setBriefingSectionStarred = useCallback(
+    (id: string, starred: boolean) => {
+      patchData((prev) => ({
+        ...prev,
+        briefingSections: applyBriefingStar(
+          normalizeBriefingSections(prev.briefingSections),
+          id,
+          starred,
+        ),
+      }))
     },
     [patchData],
   )
@@ -3487,6 +3584,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertBriefingSection,
       deleteBriefingSection,
       reorderBriefingSections,
+      setBriefingSectionStarred,
       upsertInspectorQuestion,
       deleteInspectorQuestion,
       reorderInspectorQuestions,
@@ -3580,6 +3678,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertBriefingSection,
       deleteBriefingSection,
       reorderBriefingSections,
+      setBriefingSectionStarred,
       upsertInspectorQuestion,
       deleteInspectorQuestion,
       reorderInspectorQuestions,

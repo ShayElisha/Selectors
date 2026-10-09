@@ -3,12 +3,29 @@ import type { BriefingSection, InspectorQuestion } from '../types'
 export function sortBriefingSections(
   sections: BriefingSection[],
 ): BriefingSection[] {
-  return sections
-    .slice()
-    .sort(
-      (a, b) =>
-        a.order - b.order || a.title.localeCompare(b.title, 'he'),
-    )
+  return sections.slice().sort((a, b) => {
+    const star = Number(Boolean(b.starred)) - Number(Boolean(a.starred))
+    return star || a.order - b.order || a.title.localeCompare(b.title, 'he')
+  })
+}
+
+/**
+ * Mark or clear a section's star and keep starred sections at the top.
+ * A newly starred section becomes the first item.
+ */
+export function applyBriefingStar(
+  sections: BriefingSection[],
+  id: string,
+  starred: boolean,
+): BriefingSection[] {
+  const current = sections.find((section) => section.id === id)
+  if (!current) return sortBriefingSections(sections)
+  const updated: BriefingSection = { ...current }
+  if (starred) updated.starred = true
+  else delete updated.starred
+  const rest = sections.filter((section) => section.id !== id)
+  if (starred) return reindexOrders([updated, ...sortBriefingSections(rest)])
+  return reindexOrders(sortBriefingSections([...rest, updated]))
 }
 
 export function sortQuestionBank(
@@ -35,6 +52,7 @@ export function normalizeBriefingSection(raw: unknown): BriefingSection | null {
     title,
     body,
     order: Number.isFinite(order) ? order : 0,
+    ...(o.starred === true ? { starred: true } : {}),
     updatedAt: String(o.updatedAt || new Date().toISOString()),
     ...(typeof o.updatedBy === 'string' && o.updatedBy.trim()
       ? { updatedBy: o.updatedBy.trim() }

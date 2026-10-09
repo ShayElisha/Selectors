@@ -2,7 +2,7 @@ import {
   buildLaneLastSeatings,
   buildWorkerProfile,
   isQualified,
-  shiftBalanceDelta,
+  placementBalancePoints,
   sortCandidatesForLane,
 } from '../algorithm'
 import { isGateManagerLane } from './gateManager'
@@ -88,10 +88,15 @@ function loadLine(args: {
   span: number
   intensity: Lane['intensity']
   shiftType: ShiftType
+  continuesFromMorning?: boolean
 }): string {
   const minutes = Math.max(0, args.to - args.from)
   const weight =
-    shiftBalanceDelta(args.intensity, args.shiftType) * (minutes / Math.max(1, args.span))
+    placementBalancePoints(
+      args.intensity,
+      args.shiftType,
+      Boolean(args.continuesFromMorning),
+    ) * (minutes / Math.max(1, args.span))
   const rounded = Math.round(weight * 100) / 100
   return `${args.name} – ${args.laneName} [${formatMinutes(args.from)}–${formatMinutes(args.to)}] | משקל עומס: ${rounded.toFixed(2)}`
 }
@@ -221,6 +226,15 @@ function planLaneRemoval(
       buildWorkerProfile(id, args.history, args.lanes, args.draft.shiftType, args.draft.date),
     ]),
   )
+  const leavingContinues = leaving
+    ? buildWorkerProfile(
+        leaving.id,
+        args.history,
+        args.lanes,
+        args.draft.shiftType,
+        args.draft.date,
+      ).continuesFromMorning
+    : false
   const lastSeatings = buildLaneLastSeatings(
     args.history,
     args.draft.date,
@@ -248,6 +262,7 @@ function planLaneRemoval(
           span,
           intensity: lane.intensity,
           shiftType: args.draft.shiftType,
+          continuesFromMorning: leavingContinues,
         }),
       )
     }
@@ -354,6 +369,7 @@ function planLaneRemoval(
         span,
         intensity: lane.intensity,
         shiftType: args.draft.shiftType,
+        continuesFromMorning: profiles.get(chosen.id)?.continuesFromMorning,
       }),
     )
   }

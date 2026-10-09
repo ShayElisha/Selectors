@@ -1,4 +1,4 @@
-import { shiftBalanceDelta } from '../algorithm'
+import { placementBalancePoints } from '../algorithm'
 import { shiftPlacements } from './shiftPlacements'
 import type { AuditLogEntry } from '../api'
 import type { Lane, ShiftSchedule } from '../types'
@@ -124,23 +124,39 @@ export function laneUtilization(
 }
 
 /**
- * Net work by calendar month. Easy days pull the month down and hard
- * nights pull it up, without the 14-day floor, so the line can rise and fall.
+ * Net work by calendar month. Someone who continues from morning into
+ * the afternoon gets the afternoon points times 1.20. There is no 14-day
+ * floor here, so the line can rise and fall.
  */
 export function monthlyLoadTrend(
   history: ShiftSchedule[],
   lanes: Lane[],
 ): MonthLoad[] {
   const byId = new Map(lanes.map((lane) => [lane.id, lane]))
+  const morningIds = new Map<string, Set<string>>()
+  for (const shift of history) {
+    if (shift.shiftType !== 'morning') continue
+    const set = morningIds.get(shift.date) ?? new Set<string>()
+    for (const placement of shiftPlacements(shift)) set.add(placement.workerId)
+    const manager = shift.gateManagerWorkerId?.trim()
+    if (manager) set.add(manager)
+    morningIds.set(shift.date, set)
+  }
   const totals = new Map<string, number>()
   for (const shift of history) {
     const month = shift.date.slice(0, 7)
     if (!/^\d{4}-\d{2}$/.test(month)) continue
+    const continued = morningIds.get(shift.date)
     let delta = 0
     for (const placement of shiftPlacements(shift)) {
       const lane = byId.get(placement.laneId)
       if (!lane) continue
-      delta += shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
+      delta +=
+        placementBalancePoints(
+          lane.intensity,
+          shift.shiftType,
+          continued?.has(placement.workerId) ?? false,
+        ) * placement.weight
     }
     totals.set(month, (totals.get(month) ?? 0) + delta)
   }
@@ -170,6 +186,81 @@ export function overrideReport(
     manual,
     rate: auto + manual > 0 ? manual / (auto + manual) : null,
   }
+}
+
+export type AssignmentFixKind = 'kept' | 'hard' | 'return' | 'handoff' | 'other'
+
+export interface AssignmentHealth {
+  kept: number
+  hard: number
+  return: number
+  handoff: number
+  other: number
+  total: number
+}
+
+const FIX_TAGS: Record<Exclude<AssignmentFixKind, 'kept'>, string> = {
+  hard: 'איכות:קשה',
+  return: 'איכות:חזרה',
+  handoff: 'איכות:החלפה',
+  other: 'איכות:אחר',
+}
+
+export function assignmentFixTag(kind: Exclude<AssignmentFixKind, 'kept'>): string {
+  return FIX_TAGS[kind]
+}
+
+export function primaryAssignmentFix(
+  kinds: Array<Exclude<AssignmentFixKind, 'kept'>>,
+): Exclude<AssignmentFixKind, 'kept'> {
+  if (kinds.includes('handoff')) return 'handoff'
+  if (kinds.includes('return')) return 'return'
+  if (kinds.includes('hard')) return 'hard'
+  return 'other'
+}
+
+export function assignmentFixKind(input: {
+  intensity?: 'easy' | 'medium' | 'hard'
+  afternoonHandoff?: boolean
+  returnsToLastSeat?: boolean
+}): Exclude<AssignmentFixKind, 'kept'> {
+  if (input.afternoonHandoff) return 'handoff'
+  if (input.returnsToLastSeat) return 'return'
+  if (input.intensity === 'hard') return 'hard'
+  return 'other'
+}
+
+function fixKindFromDetails(details: string): Exclude<AssignmentFixKind, 'kept'> {
+  if (details.includes(FIX_TAGS.handoff)) return 'handoff'
+  if (details.includes(FIX_TAGS.return)) return 'return'
+  if (details.includes(FIX_TAGS.hard)) return 'hard'
+  return 'other'
+}
+
+/** Pie slices for assignment quality: boards left as proposed, and why a person was moved. */
+export function assignmentHealth(
+  logs: Pick<AuditLogEntry, 'action' | 'at' | 'details'>[],
+  from?: string,
+  to?: string,
+): AssignmentHealth {
+  const health: AssignmentHealth = {
+    kept: 0,
+    hard: 0,
+    return: 0,
+    handoff: 0,
+    other: 0,
+    total: 0,
+  }
+  for (const row of logs) {
+    const day = row.at.slice(0, 10)
+    if (!inRange(day, from, to)) continue
+    if (row.action === 'auto_assign') health.kept += 1
+    else if (row.action === 'manual_assign' || row.action === 'manual_swap') {
+      health[fixKindFromDetails(row.details || '')] += 1
+    } else continue
+    health.total += 1
+  }
+  return health
 }
 
 export function completedShiftCount(

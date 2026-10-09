@@ -224,6 +224,8 @@ export interface BriefingSection {
   title: string
   body: string
   order: number
+  /** When set, the section stays at the top of the briefing list. */
+  starred?: boolean
   updatedAt: string
   updatedBy?: string
 }
