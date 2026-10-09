@@ -1,6 +1,5 @@
 import {
   countsAsDayEasy,
-  effectiveIntensityScore,
   INTENSITY_LABELS,
   SHIFT_TYPE_LABELS,
 } from './constants'
@@ -81,7 +80,8 @@ export interface WorkerLaneStats {
   nightEasyCount: number
   /**
    * Balance over the last 14 days in the range.
-   * Medium day = 0, hard day = +2, day off = −2, hard night = +4. Floor −2.
+   * Morning hard 3.5, medium 2.5, easy 1.5. A day with no work at all is −2.
+   * Floor 0.
    */
   effectiveLoad: number
   /** Points the balance actually rose in that window */
@@ -270,15 +270,16 @@ export const ROTATION_LOOKBACK_DAYS = 14
  * Older days leave the window, so the number cannot grow forever.
  */
 export const LOAD_BALANCE_DAYS = 14
-/** A fully rested person sits here; extra days off do not add more credit. */
-export const LOAD_BALANCE_FLOOR = -2
-/** Change on a calendar day with no real work (no placement / not gate manager). */
-const LOAD_OFF_DAY = -2
+/** Load never falls below zero. Extra days off do not push it further down. */
+export const LOAD_BALANCE_FLOOR = 0
 /**
- * Subtracted from each day-easy placement score so easy morning/afternoon
- * adds less than a full point (net ≈ +0.5 instead of +1).
+ * Drop on a calendar day with no real work in any shift
+ * (no placement and not gate manager). Working another shift that day
+ * does not trigger this.
  */
-export const DAY_EASY_LOAD_CREDIT = 0.5
+const LOAD_OFF_DAY = -2
+/** Afternoon points for someone who also worked the morning shift that day. */
+export const AFTERNOON_CONTINUATION_FACTOR = 1.2
 /** Soft floor: candidates below this score are filtered when alternatives exist. */
 const ROTATION_SOFT_THRESHOLD = 40
 /** Bucket width for rotation ranking — lets load/hard compete inside a band. */
@@ -444,11 +445,16 @@ export function isQualified(worker: Worker, lane: Lane): boolean {
  */
 export interface WorkerHistoryProfile {
   /**
-   * Effective load across prior days in the lookback window, with:
-   * rest-day decay, day-easy credit, easy-only day decay, plus same-day
-   * earlier placements.
+   * Effective load across prior days in the lookback window.
+   * Work only adds points. A calendar day with no duty at all subtracts,
+   * and the number stays at or above zero.
    */
   load: number
+  /**
+   * True when this person already worked the morning shift today.
+   * Their afternoon points are multiplied by AFTERNOON_CONTINUATION_FACTOR.
+   */
+  continuesFromMorning: boolean
   /** Same as load, only placements matching the current shift type (prior days). */
   loadInSameShiftType: number
   hardCount: number
@@ -742,7 +748,8 @@ export type DayLoadFilter = {
   onlyShiftType?: ShiftType
   /**
    * Morning, afternoon (including א/ב), and night each keep their own balance.
-   * A day without that shift is a rest day for that balance only.
+   * A day without that shift adds nothing to it. The rest drop applies only
+   * when the worker had no duty in any shift that calendar day.
    */
   family?: LoadShiftFamily
 }
@@ -767,16 +774,12 @@ export function groupShiftsByDate(
   return map
 }
 
-/** Effective load points for one placement, with day-easy credit applied. */
+/** Same points as the workload balance. One table for every screen. */
 export function placementScoreForLoad(
   intensity: Lane['intensity'],
   shiftType: ShiftType,
 ): number {
-  const raw = effectiveIntensityScore(intensity, shiftType)
-  if (countsAsDayEasy(intensity, shiftType)) {
-    return Math.max(0, raw - DAY_EASY_LOAD_CREDIT)
-  }
-  return raw
+  return shiftBalanceDelta(intensity, shiftType)
 }
 
 export type DayPlacementLoadSummary = {
@@ -858,8 +861,26 @@ export function shiftBalanceDelta(
     return 0.5
   }
   if (intensity === 'hard') return 3.5
-  if (intensity === 'medium') return 2
-  return 1
+  if (intensity === 'medium') return 2.5
+  return 1.5
+}
+
+/**
+ * Points for one placement. Afternoon work by someone who already worked
+ * morning the same day is multiplied by AFTERNOON_CONTINUATION_FACTOR.
+ */
+export function placementBalancePoints(
+  intensity: Lane['intensity'],
+  shiftType: ShiftType,
+  continuesFromMorning: boolean,
+): number {
+  const base = shiftBalanceDelta(intensity, shiftType)
+  const afternoon =
+    shiftType === 'afternoon' ||
+    shiftType === 'afternoonA' ||
+    shiftType === 'afternoonB'
+  if (!continuesFromMorning || !afternoon) return base
+  return Math.round(base * AFTERNOON_CONTINUATION_FACTOR * 10) / 10
 }
 
 export type LoadBalance = {
@@ -883,9 +904,11 @@ function roundLoad(n: number): number {
 
 /**
  * Balance over calendar days in the range, capped at the last LOAD_BALANCE_DAYS.
- * A day off is −2. A placed shift adds its delta (rounds add their share).
- * The number never goes below LOAD_BALANCE_FLOOR, and days that cannot move
- * it are not counted as extra rise or fall.
+ * A day with no work in any shift is −2. Work never reduces the balance.
+ * A placed shift adds its delta (rounds add their share). Someone who worked
+ * morning and then afternoon gets the afternoon points times 1.20.
+ * The number never goes below 0, and days that cannot move it are not
+ * counted as extra rise or fall.
  */
 export function accumulateLoadBalance(
   workerId: string,
@@ -904,10 +927,15 @@ export function accumulateLoadBalance(
     const counted = filter?.family
       ? dayShifts.filter((shift) => shiftLoadFamily(shift.shiftType) === filter.family)
       : dayShifts
-    if (!workerOnDutyThatDay(workerId, counted)) {
+    if (!workerOnDutyThatDay(workerId, dayShifts)) {
       applyBalanceStep(state, LOAD_OFF_DAY)
       continue
     }
+    const continuesFromMorning = dayShifts.some(
+      (shift) =>
+        shift.shiftType === 'morning' &&
+        workerAssignedOnShift(workerId, shift),
+    )
     let dayDelta = 0
     for (const shift of counted) {
       if (filter?.includeNight === false && shift.shiftType === 'night') {
@@ -921,10 +949,14 @@ export function accumulateLoadBalance(
         const lane = laneMap.get(placement.laneId)
         if (!lane) continue
         dayDelta +=
-          shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
+          placementBalancePoints(
+            lane.intensity,
+            shift.shiftType,
+            continuesFromMorning,
+          ) * placement.weight
       }
     }
-    applyBalanceStep(state, dayDelta)
+    if (dayDelta !== 0) applyBalanceStep(state, dayDelta)
   }
   return {
     net: roundLoad(state.net),
@@ -1117,6 +1149,7 @@ export function buildWorkerProfile(
 
   const profile: WorkerHistoryProfile = {
     load: 0,
+    continuesFromMorning: false,
     loadInSameShiftType: 0,
     hardCount: 0,
     hardInSameShiftType: 0,
@@ -1254,6 +1287,12 @@ export function buildWorkerProfile(
     (a, b) => SHIFT_SEQUENCE[b.shiftType] - SHIFT_SEQUENCE[a.shiftType],
   )
 
+  const continuesFromMorning = sameDayEarlier.some(
+    (shift) =>
+      shift.shiftType === 'morning' && workerAssignedOnShift(workerId, shift),
+  )
+  profile.continuesFromMorning = continuesFromMorning
+
   let sameDayLastCaptured = false
   let sameDayDelta = 0
   for (const shift of sameDayEarlier) {
@@ -1265,7 +1304,11 @@ export function buildWorkerProfile(
       if (!lane) continue
       if (shiftLoadFamily(shift.shiftType) === family) {
         sameDayDelta +=
-          shiftBalanceDelta(lane.intensity, shift.shiftType) * placement.weight
+          placementBalancePoints(
+            lane.intensity,
+            shift.shiftType,
+            continuesFromMorning,
+          ) * placement.weight
       }
       if (seenLanes.has(lane.id)) continue
       seenLanes.add(lane.id)
@@ -1338,17 +1381,40 @@ function compareForLane(
   const pa = profiles.get(a.id)!
   const pb = profiles.get(b.id)!
 
+  const objective = opts.objective ?? 'standard'
+
   if (lane.afternoonHandoff && currentShiftType === 'afternoon') {
     const ta = afternoonHandoffTier(a.id, lane.id, morning)
     const tb = afternoonHandoffTier(b.id, lane.id, morning)
     if (ta !== tb) return ta - tb
-    // Strong rotation inside the same tier: whoever was LAST at this exact
-    // seat wins, decided before any convenience preference (recovery,
-    // short-return heuristic, load) — so the algorithm does not just place
-    // whoever is comfortable.
+    // Inside the same handoff tier, the person away from this seat longer wins.
     const handoffRa = rotationScoreFor(pa, lane.id).rawScore
     const handoffRb = rotationScoreFor(pb, lane.id).rawScore
     if (Math.abs(handoffRa - handoffRb) > 1) return handoffRb - handoffRa
+  }
+
+  // Same order as isBoardBetter: do not send the last person back to a hard
+  // lane, then prefer someone who rested and whose load is lower.
+  if (!relaxRotation && objective === 'standard') {
+    const aLast =
+      lane.intensity === 'hard' &&
+      isLastLaneOccupant(a.id, lane.id, lastSeatings)
+        ? 1
+        : 0
+    const bLast =
+      lane.intensity === 'hard' &&
+      isLastLaneOccupant(b.id, lane.id, lastSeatings)
+        ? 1
+        : 0
+    if (aLast !== bLast) return aLast - bLast
+  }
+
+  if (objective === 'standard' && lane.intensity === 'hard') {
+    const idleA = isIdleForHardLane(pa)
+    const idleB = isIdleForHardLane(pb)
+    if (idleA !== idleB) return idleA ? -1 : 1
+    const loadGap = pa.load - pb.load
+    if (Math.abs(loadGap) >= IDLE_HARD_LOAD_GAP) return loadGap
   }
 
   const applyRecovery =
@@ -1371,12 +1437,7 @@ function compareForLane(
     if (aShort !== bShort) return aShort - bShort
   }
 
-  const objective = opts.objective ?? 'standard'
-
-  // Explicit match against the last person on THIS lane. Runs before comfort
-  // preferences (idle, load) so a rested person is not sent back to the seat
-  // they just left when someone else is qualified.
-  if (!relaxRotation && objective === 'standard') {
+  if (!relaxRotation && objective === 'standard' && lane.intensity !== 'hard') {
     const aLast = isLastLaneOccupant(a.id, lane.id, lastSeatings) ? 1 : 0
     const bLast = isLastLaneOccupant(b.id, lane.id, lastSeatings) ? 1 : 0
     if (aLast !== bLast) return aLast - bLast
@@ -1389,14 +1450,8 @@ function compareForLane(
   if (objective === 'hardExperience' && lane.intensity === 'hard') {
     if (pa.hardCount !== pb.hardCount) return pb.hardCount - pa.hardCount
     const aRate = pa.hardCount / Math.max(1, pa.shiftsSeen)
-    const bRate = pb.hardCount / Math.max(1, pb.shiftsSeen)
+    const bRate = pb.hardCount / Math.max(1, pa.shiftsSeen)
     if (Math.abs(aRate - bRate) > 1e-9) return bRate - aRate
-  } else if (lane.intensity === 'hard') {
-    const idleA = isIdleForHardLane(pa)
-    const idleB = isIdleForHardLane(pb)
-    if (idleA !== idleB) return idleA ? -1 : 1
-    const loadGap = pa.load - pb.load
-    if (Math.abs(loadGap) >= IDLE_HARD_LOAD_GAP) return loadGap
   }
 
   if (!relaxRotation) {
@@ -1814,7 +1869,11 @@ export function evaluateBoard(
     const projectedLoad = Math.max(
       LOAD_BALANCE_FLOOR,
       profile.load +
-        shiftBalanceDelta(lane.intensity, ctx.currentShiftType),
+        placementBalancePoints(
+          lane.intensity,
+          ctx.currentShiftType,
+          profile.continuesFromMorning,
+        ),
     )
     loads.push(projectedLoad)
     hardCounts.push(
@@ -2015,32 +2074,35 @@ export function isBoardBetter(
   if (!next.legal) return false
   if (!current.legal) return next.legal
 
-  // Primary: maximize legal staffing (הוגנות רק בין לוחות עם אותו מילוי)
+  // One list, shared with compareForLane:
+  // 1) fill every seat
+  // 2) do not send the last person back onto a hard lane
+  // 3) keep rested people on hard seats, then the more even load
+  // Later checks only break remaining ties.
   if (next.understaffedSlots !== current.understaffedSlots) {
     return next.understaffedSlots < current.understaffedSlots
   }
 
-  // Hard short-return beats idle preference; easy short-return does not.
-  if (next.shortReturnOnHard !== current.shortReturnOnHard) {
-    return next.shortReturnOnHard < current.shortReturnOnHard
-  }
-
-  // Near-equal fill — a night worker on a hard afternoon lane loses to a lighter placement.
-  if (next.recoveryOnHard !== current.recoveryOnHard) {
-    return next.recoveryOnHard < current.recoveryOnHard
-  }
-
-  // Do not send the last person on a hard lane back there to chase rest.
   if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
     return next.lastOccupantOnHard < current.lastOccupantOnHard
   }
 
-  // Keep rested people on hard seats through multi-pass swaps.
   if (next.idleOnHard !== current.idleOnHard) {
     return next.idleOnHard > current.idleOnHard
   }
 
-  // Then avoid repeating the last person on the remaining lanes.
+  if (next.components.workload !== current.components.workload) {
+    return next.components.workload > current.components.workload
+  }
+
+  if (next.recoveryOnHard !== current.recoveryOnHard) {
+    return next.recoveryOnHard < current.recoveryOnHard
+  }
+
+  if (next.shortReturnOnHard !== current.shortReturnOnHard) {
+    return next.shortReturnOnHard < current.shortReturnOnHard
+  }
+
   if (next.lastOccupantRepeats !== current.lastOccupantRepeats) {
     return next.lastOccupantRepeats < current.lastOccupantRepeats
   }
@@ -3583,7 +3645,14 @@ function summarizePlacedBoard(
       if (!workerId) continue
       const profile = profiles.get(workerId)
       if (!profile) continue
-      loads.push(profile.load + shiftBalanceDelta(lane.intensity, shiftType))
+      loads.push(
+        profile.load +
+          placementBalancePoints(
+            lane.intensity,
+            shiftType,
+            profile.continuesFromMorning,
+          ),
+      )
       if (lane.intensity !== 'hard') continue
       hardSeats += 1
       if (profile.hardCount > 0 && profile.hardCount >= medianHard) {

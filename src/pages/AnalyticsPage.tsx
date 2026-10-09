@@ -238,7 +238,7 @@ function LoadOverview({
         dir="ltr"
         className="relative h-16 overflow-hidden rounded-xl bg-surface/80 px-3 ring-1 ring-line/70"
         role="img"
-        aria-label={`התפלגות עומס מ־2− עד ${formatLoadOneDecimal(max)}, ממוצע ${formatLoadOneDecimal(avgLoad)}`}
+        aria-label={`התפלגות עומס מ־0 עד ${formatLoadOneDecimal(max)}, ממוצע ${formatLoadOneDecimal(avgLoad)}`}
       >
         {/* mean band */}
         <div

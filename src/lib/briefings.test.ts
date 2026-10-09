@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyBriefingStar,
   normalizeBriefingSections,
   normalizeQuestionBank,
   reindexOrders,
@@ -14,6 +15,32 @@ describe('briefings helpers', () => {
     ])
     expect(list.map((s) => s.id)).toEqual(['a', 'b'])
     expect(list[0]!.body).toBe('x')
+  })
+
+  it('keeps starred sections at the top', () => {
+    const list = normalizeBriefingSections([
+      { id: 'b', title: 'ב', body: '', order: 0, updatedAt: '1' },
+      { id: 'a', title: 'א', body: '', order: 1, updatedAt: '1', starred: true },
+      { id: 'c', title: 'ג', body: '', order: 2, updatedAt: '1', starred: true },
+    ])
+    expect(list.map((s) => s.id)).toEqual(['a', 'c', 'b'])
+    expect(list[0]!.starred).toBe(true)
+    expect(list[2]!.starred).toBeUndefined()
+  })
+
+  it('moves a newly starred section to the front and drops it when cleared', () => {
+    const list = normalizeBriefingSections([
+      { id: 'a', title: 'א', body: '', order: 0, updatedAt: '1', starred: true },
+      { id: 'b', title: 'ב', body: '', order: 1, updatedAt: '1' },
+      { id: 'c', title: 'ג', body: '', order: 2, updatedAt: '1' },
+    ])
+    const starred = applyBriefingStar(list, 'c', true)
+    expect(starred.map((s) => s.id)).toEqual(['c', 'a', 'b'])
+    expect(starred.map((s) => s.order)).toEqual([0, 1, 2])
+    const cleared = applyBriefingStar(starred, 'c', false)
+    expect(cleared.map((s) => s.id)).toEqual(['a', 'c', 'b'])
+    expect(cleared[0]!.starred).toBe(true)
+    expect(cleared[1]!.starred).toBeUndefined()
   })
 
   it('normalizes verbal answers and migrates legacy MCQ', () => {

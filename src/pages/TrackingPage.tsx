@@ -261,8 +261,8 @@ function DayEasyTip() {
         role="tooltip"
         className="pointer-events-none absolute end-0 top-full z-[70] mt-1.5 hidden w-56 rounded-lg border border-line bg-card px-2.5 py-2 text-start text-[11px] font-normal leading-relaxed text-ink shadow-[var(--shadow-panel-hover)] group-focus-within:block group-hover:block"
       >
-        כמה פעמים האדם ישב בנתיב קל בבוקר או בצהריים. כל משמרת כזאת מורידה
-        נקודה אחת מהמאזן. נתיב קל בלילה לא נספר כאן.
+        כמה פעמים האדם ישב בנתיב קל בבוקר או בצהריים. נתיב קל בבוקר מוסיף 1.5,
+        ונתיב קל בצהריים מוסיף 0.5. נתיב קל בלילה לא נספר כאן.
       </span>
     </span>
   )

@@ -4,6 +4,7 @@ import {
   HARD_EXPERIENCE_BOARD_WEIGHTS,
   LOAD_FAIR_BOARD_WEIGHTS,
   accumulateLoadBalance,
+  placementBalancePoints,
   shiftBalanceDelta,
   buildLaneLastSeatings,
   buildWorkerProfile,
@@ -915,8 +916,10 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     )
     expect(p.lastWasHard).toBe(true)
     expect(p.hardCount).toBe(1)
-    // Morning load is its own balance. Afternoon stays on the floor.
-    expect(p.load).toBe(-2)
+    expect(p.continuesFromMorning).toBe(true)
+    // Morning points stay on the morning balance. Afternoon does not drop
+    // on a day the person already worked.
+    expect(p.load).toBe(0)
   })
 
   it('rest days decay cumulative load vs continuous work', () => {
@@ -965,12 +968,12 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       '2026-03-10',
       14,
     )
-    // Days before the shifts sit on the floor (−2).
-    // One hard morning (+3.5) then a rest day (−2) ends at −0.5.
-    // Two hard mornings end at +5.
-    expect(pRest.load).toBe(-0.5)
+    // Days off before the first shift stay at 0.
+    // One hard morning (+3.5) then a rest day (−2) ends at 1.5.
+    // Two hard mornings end at 7.
+    expect(pRest.load).toBe(1.5)
     expect(pCont.load).toBeGreaterThan(pRest.load)
-    expect(pCont.load).toBe(5)
+    expect(pCont.load).toBe(7)
   })
   it('day-easy credit and easy-only day decay lower load vs hard day', () => {
     const easyLane = lane('easy', 'קל', { intensity: 'easy' })
@@ -1010,19 +1013,19 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       '2026-03-09',
       14,
     )
-    // Rest days before the shift fill the floor (−2).
-    // Hard morning (+3.5) ends at 1.5. Easy morning (+1) ends at −1.
-    expect(pHard.load).toBe(1.5)
-    expect(pEasy.load).toBe(-1)
+    // Days off before the shift stay at 0.
+    // Hard morning (+3.5) ends at 3.5. Easy morning (+1.5) ends at 1.5.
+    expect(pHard.load).toBe(3.5)
+    expect(pEasy.load).toBe(1.5)
     expect(pEasy.load).toBeLessThan(pHard.load)
   })
 })
 
 describe('accumulateLoadBalance', () => {
   it('scores morning heavier than afternoon and leaves night unchanged', () => {
-    expect(shiftBalanceDelta('easy', 'morning')).toBe(1)
+    expect(shiftBalanceDelta('easy', 'morning')).toBe(1.5)
     expect(shiftBalanceDelta('easy', 'afternoon')).toBe(0.5)
-    expect(shiftBalanceDelta('medium', 'morning')).toBe(2)
+    expect(shiftBalanceDelta('medium', 'morning')).toBe(2.5)
     expect(shiftBalanceDelta('medium', 'afternoon')).toBe(1)
     expect(shiftBalanceDelta('hard', 'morning')).toBe(3.5)
     expect(shiftBalanceDelta('hard', 'afternoon')).toBe(2)
@@ -1030,6 +1033,11 @@ describe('accumulateLoadBalance', () => {
     expect(shiftBalanceDelta('easy', 'night')).toBe(1)
     expect(shiftBalanceDelta('medium', 'night')).toBe(2)
     expect(shiftBalanceDelta('hard', 'night')).toBe(4)
+    expect(placementBalancePoints('hard', 'afternoon', true)).toBe(2.4)
+    expect(placementBalancePoints('medium', 'afternoon', true)).toBe(1.2)
+    expect(placementBalancePoints('easy', 'afternoon', true)).toBe(0.6)
+    expect(placementBalancePoints('hard', 'afternoonA', true)).toBe(2.4)
+    expect(placementBalancePoints('hard', 'morning', true)).toBe(3.5)
   })
 
   const hardLane = lane('hard', 'קשה', {
@@ -1068,8 +1076,8 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
       '2026-03-11',
     )
-    expect(floored.net).toBe(-2)
-    expect(floored.fell).toBe(5.5)
+    expect(floored.net).toBe(0)
+    expect(floored.fell).toBe(3.5)
   })
 
   it('weighs a hard morning more than a hard afternoon, and stacks them the same day', () => {
@@ -1166,8 +1174,8 @@ describe('accumulateLoadBalance', () => {
       { family: 'afternoon' },
     )
     expect(morning.net).toBe(3.5)
-    expect(afternoon.net).toBe(2)
-    expect(both.net).toBe(5.5)
+    expect(afternoon.net).toBe(2.4)
+    expect(both.net).toBe(5.9)
   })
 
   it('counts an easy day as a small drop and a hard night as two hard days', () => {
@@ -1207,7 +1215,7 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
       '2026-03-08',
     )
-    expect(easy.net).toBe(1)
+    expect(easy.net).toBe(1.5)
     expect(night.net).toBe(4)
   })
 
@@ -1250,7 +1258,7 @@ describe('accumulateLoadBalance', () => {
     expect(balance.net).toBe(2)
   })
 
-  it('treats present-only day as rest (−2), not as on-duty with zero points', () => {
+  it('treats present-only as not working, and does not fall below 0', () => {
     const laneMap = new Map([['hard', hardLane]])
     const byDate = groupShiftsByDate([
       shift('m1', '2026-03-08', 'morning', [], ['a'], ['hard']),
@@ -1262,9 +1270,33 @@ describe('accumulateLoadBalance', () => {
       '2026-03-08',
       '2026-03-08',
     )
-    expect(balance.net).toBe(-2)
+    expect(balance.net).toBe(0)
     expect(balance.rose).toBe(0)
-    expect(balance.fell).toBe(2)
+    expect(balance.fell).toBe(0)
+  })
+
+  it('does not drop load on a day the inspector worked another shift', () => {
+    const laneMap = new Map([['hard', hardLane]])
+    const shifts = groupShiftsByDate([
+      shift(
+        'm',
+        '2026-03-08',
+        'morning',
+        [{ laneId: 'hard', workerIds: ['a'] }],
+        ['a'],
+        ['hard'],
+      ),
+    ])
+    const afternoon = accumulateLoadBalance(
+      'a',
+      shifts,
+      laneMap,
+      '2026-03-08',
+      '2026-03-08',
+      { family: 'afternoon' },
+    )
+    expect(afternoon.net).toBe(0)
+    expect(afternoon.fell).toBe(0)
   })
 
   it('still counts gate manager as on duty without lane points', () => {

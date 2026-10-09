@@ -4,6 +4,7 @@ import {
   ChevronUp,
   Pencil,
   Plus,
+  Star,
   Trash2,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -28,6 +29,7 @@ export function BriefingsPage() {
     upsertBriefingSection,
     deleteBriefingSection,
     reorderBriefingSections,
+    setBriefingSectionStarred,
     upsertInspectorQuestion,
     deleteInspectorQuestion,
     reorderInspectorQuestions,
@@ -150,8 +152,8 @@ export function BriefingsPage() {
               <div className="mb-4">
                 <SectionEditor
                   onCancel={() => setAddingSection(false)}
-                  onSave={(title, body) => {
-                    upsertBriefingSection({ title, body })
+                  onSave={(title, body, starred) => {
+                    upsertBriefingSection({ title, body, starred })
                     setAddingSection(false)
                     notify.success('הסעיף נוסף')
                   }}
@@ -175,8 +177,19 @@ export function BriefingsPage() {
                 }
               />
             ) : (
-              <ul className="divide-y divide-line/80">
-                {sections.map((s, idx) => (
+              <>
+                <p className="mb-3 text-[12px] text-ink-soft">
+                  כוכבית מעלה את הסעיף לראש הרשימה.
+                </p>
+                <ul className="divide-y divide-line/80">
+                {sections.map((s, idx) => {
+                  const prev = sections[idx - 1]
+                  const next = sections[idx + 1]
+                  const sameAsPrev =
+                    Boolean(prev) && Boolean(prev?.starred) === Boolean(s.starred)
+                  const sameAsNext =
+                    Boolean(next) && Boolean(next?.starred) === Boolean(s.starred)
+                  return (
                   <li
                     key={s.id}
                     className="py-3 first:pt-0 last:pb-0 sm:py-3.5"
@@ -185,16 +198,47 @@ export function BriefingsPage() {
                       <SectionEditor
                         initialTitle={s.title}
                         initialBody={s.body}
+                        initialStarred={Boolean(s.starred)}
                         onCancel={() => setEditingSectionId(null)}
-                        onSave={(title, body) => {
-                          upsertBriefingSection({ id: s.id, title, body })
+                        onSave={(title, body, starred) => {
+                          upsertBriefingSection({ id: s.id, title, body, starred })
                           setEditingSectionId(null)
                           notify.success('הסעיף עודכן')
                         }}
                       />
                     ) : (
-                      <div className="flex gap-3">
-                        <span className="mt-0.5 w-6 shrink-0 text-center text-sm font-bold tabular-nums text-ink-soft">
+                      <div className="flex gap-2 sm:gap-3">
+                        <button
+                          type="button"
+                          aria-pressed={Boolean(s.starred)}
+                          aria-label={
+                            s.starred ? 'הסרת כוכבית' : 'סימון בכוכבית'
+                          }
+                          title={
+                            s.starred
+                              ? 'הסרת כוכבית'
+                              : 'כוכבית — הסעיף עולה לראש הרשימה'
+                          }
+                          onClick={() => {
+                            setBriefingSectionStarred(s.id, !s.starred)
+                            notify.success(
+                              s.starred
+                                ? 'הכוכבית הוסרה'
+                                : 'הסעיף עלה לראש הרשימה',
+                            )
+                          }}
+                          className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                            s.starred
+                              ? 'text-accent'
+                              : 'text-ink-soft hover:text-ink'
+                          }`}
+                        >
+                          <Star
+                            className={`size-4 ${s.starred ? 'fill-current' : ''}`}
+                            aria-hidden
+                          />
+                        </button>
+                        <span className="mt-1 w-6 shrink-0 text-center text-sm font-bold tabular-nums text-ink-soft">
                           {idx + 1}.
                         </span>
                         <div className="min-w-0 flex-1">
@@ -215,8 +259,8 @@ export function BriefingsPage() {
                         <ItemActions
                           onUp={() => moveSection(s.id, -1)}
                           onDown={() => moveSection(s.id, 1)}
-                          canUp={idx > 0}
-                          canDown={idx < sections.length - 1}
+                          canUp={sameAsPrev}
+                          canDown={sameAsNext}
                           onEdit={() => {
                             setEditingSectionId(s.id)
                             setAddingSection(false)
@@ -229,8 +273,10 @@ export function BriefingsPage() {
                       </div>
                     )}
                   </li>
-                ))}
-              </ul>
+                  )
+                })}
+                </ul>
+              </>
             )}
           </>
         ) : (
@@ -378,16 +424,19 @@ function IconBtn({
 function SectionEditor({
   initialTitle = '',
   initialBody = '',
+  initialStarred = false,
   onSave,
   onCancel,
 }: {
   initialTitle?: string
   initialBody?: string
-  onSave: (title: string, body: string) => void
+  initialStarred?: boolean
+  onSave: (title: string, body: string, starred: boolean) => void
   onCancel: () => void
 }) {
   const [title, setTitle] = useState(initialTitle)
   const [body, setBody] = useState(initialBody)
+  const [starred, setStarred] = useState(initialStarred)
   const [touched, setTouched] = useState(false)
   const err = touched && !title.trim() ? 'נא להזין כותרת' : null
 
@@ -416,6 +465,19 @@ function SectionEditor({
           rows={3}
         />
       </div>
+      <button
+        type="button"
+        aria-pressed={starred}
+        onClick={() => setStarred((value) => !value)}
+        className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold ring-1 ring-line transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+          starred
+            ? 'bg-card text-accent'
+            : 'bg-card text-ink-soft hover:text-ink'
+        }`}
+      >
+        <Star className={`size-4 ${starred ? 'fill-current' : ''}`} aria-hidden />
+        כוכבית — לראש הרשימה
+      </button>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -423,7 +485,7 @@ function SectionEditor({
           onClick={() => {
             setTouched(true)
             if (!title.trim()) return
-            onSave(title.trim(), body.trim())
+            onSave(title.trim(), body.trim(), starred)
           }}
         >
           שמירה
