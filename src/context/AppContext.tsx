@@ -15,6 +15,7 @@ import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import {
   runAssignmentAlgorithm,
+  runAssignmentAlgorithmWithProgress,
   type AssignmentResult,
   type PlacementExplanation,
 } from '../algorithm'
@@ -296,7 +297,12 @@ interface AppContextValue {
   setGateManager: (workerId: string | null) => void
   setAllActiveLanes: (on: boolean) => void
   setAllActiveWorkers: (on: boolean) => void
-  runAutoAssign: () => void
+  /** Async: shows assigning/assignProgress while the multi-start search runs. */
+  runAutoAssign: () => Promise<void>
+  /** True while the automatic assignment search is running. */
+  assigning: boolean
+  /** 0–100 progress of the running automatic assignment. */
+  assignProgress: number
   /** Two boards for the open single-placement shift: load fairness and hard-lane experience. */
   previewBoardOptions: () => {
     loadFair: AssignmentResult
@@ -549,6 +555,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(() => !initialCache)
   const [refreshing, setRefreshing] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [assigning, setAssigning] = useState(false)
+  const [assignProgress, setAssignProgress] = useState(0)
+  const assignProgressRef = useRef(0)
+  const assigningRef = useRef(false)
+  const setProgress = useCallback((value: number) => {
+    const next = Math.max(0, Math.min(100, Math.round(value)))
+    assignProgressRef.current = next
+    setAssignProgress(next)
+  }, [])
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<SessionUser | null>(() => loadSession())
   const [assignmentModes, setAssignmentModes] = useState<AssignmentModes>(
@@ -1721,6 +1736,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workers: present,
         overrides: d.staffingOverrides,
         workerWindows: d.workerWindows,
+        history: data.history,
+        date: d.date,
+        roster: data.workers,
       })
       return withGateManagerSync(
         {
@@ -1730,7 +1748,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           assignments: [],
           rounds: result.rounds,
           warnings: result.warnings,
-          explanations: [],
+          explanations: result.explanations,
         },
         data.lanes,
       )
@@ -1772,6 +1790,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workers: present,
           overrides: d.staffingOverrides,
           workerWindows,
+          history: data.history,
+          date: d.date,
+          roster: data.workers,
         })
         return withGateManagerSync(
           {
@@ -1780,6 +1801,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             assignmentMode: 'rounds',
             rounds: result.rounds,
             warnings: result.warnings,
+            explanations: result.explanations,
           },
           data.lanes,
         )
@@ -1943,9 +1965,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [data.lanes])
 
-  const runAutoAssign = useCallback(() => {
-    setDraft((d) => {
-      if (!d) return d
+  const runAutoAssign = useCallback(async () => {
+    const d0 = draft
+    if (!d0) return
+    if (assigningRef.current) return
+    assigningRef.current = true
+    setAssigning(true)
+    setProgress(0)
+    const startedAt = Date.now()
+    const compute = async (): Promise<ShiftDraft | undefined> => {
+      const d = d0
       if (!usesRounds(d)) {
         const activeLanes = data.lanes
           .filter(
@@ -1962,12 +1991,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             worker.id !== d.gateManagerWorkerId &&
             worker.status === 'active',
         )
-        const placed = runAssignmentAlgorithm(
+        // Multi-start search with real progress: thousands of board checks,
+        // painted through the assigning loader instead of an instant result.
+        const placed = await runAssignmentAlgorithmWithProgress(
           activeLanes,
           presentWorkers,
           data.history,
           data.lanes,
-          { date: d.date, shiftType: d.shiftType },
+          { date: d.date, shiftType: d.shiftType, roster: data.workers },
+          {
+            onProgress: (p) => setProgress(p.percent),
+          },
         )
         const filled = placed.assignments.reduce(
           (count, row) => count + row.workerIds.filter(Boolean).length,
@@ -2022,6 +2056,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workers: present,
         overrides: d.staffingOverrides,
         workerWindows: d.workerWindows,
+        history: data.history,
+        date: d.date,
+        roster: data.workers,
       })
       const filled = result.rounds.reduce(
         (n, r) =>
@@ -2046,13 +2083,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
           assignments: [],
           rounds: result.rounds,
           warnings: result.warnings,
-          explanations: [],
+          explanations: result.explanations,
         },
         data.lanes,
       )
-    })
-    setShiftStep('board')
-  }, [data.history, data.lanes, data.shiftModels, data.workers, user?.module])
+    }
+    try {
+      // Let the progress loader paint before the heavy search starts.
+      await new Promise<void>((resolve) => setTimeout(resolve, 40))
+      if (assignProgressRef.current < 4) setProgress(4)
+      const nextDraft = await compute()
+      if (nextDraft) {
+        const applied = nextDraft
+        setDraft((prev) =>
+          prev && prev.id === applied.id && !prev.signOff?.signedAt
+            ? applied
+            : prev,
+        )
+      }
+      setShiftStep('board')
+    } catch (err) {
+      console.error('auto assign failed', err)
+      toast.error('השיבוץ האוטומטי נכשל — נסו שוב')
+    } finally {
+      // Keep the loader visible long enough that the result never feels instant.
+      const elapsed = Date.now() - startedAt
+      const from = assignProgressRef.current
+      if (from < 100) {
+        const steps = 8
+        const gap = Math.max(45, Math.floor(Math.max(0, 900 - elapsed) / steps))
+        for (let step = 1; step <= steps; step += 1) {
+          setProgress(from + ((100 - from) * step) / steps)
+          await new Promise<void>((resolve) => setTimeout(resolve, gap))
+        }
+      } else if (elapsed < 900) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 900 - elapsed))
+      }
+      setProgress(100)
+      await new Promise<void>((resolve) => setTimeout(resolve, 320))
+      assigningRef.current = false
+      setAssigning(false)
+    }
+  }, [
+    draft,
+    data.history,
+    data.lanes,
+    data.shiftModels,
+    data.workers,
+    setProgress,
+    setShiftStep,
+    user?.module,
+  ])
 
   const previewBoardOptions = useCallback(() => {
     if (!draft || draft.signOff?.signedAt || usesRounds(draft)) return null
@@ -2072,7 +2153,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         worker.status === 'active',
     )
     if (activeLanes.length === 0 || presentWorkers.length === 0) return null
-    const shared = { date: draft.date, shiftType: draft.shiftType }
+    const shared = {
+      date: draft.date,
+      shiftType: draft.shiftType,
+      roster: data.workers,
+    }
     return {
       loadFair: runAssignmentAlgorithm(
         activeLanes,
@@ -3326,6 +3411,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       syncing,
       error,
       user,
+      assigning,
+      assignProgress,
       module: user?.module === 'inspectors' ? 'inspectors' : 'selectors',
       setModule,
       assignmentModes,
@@ -3427,6 +3514,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       orgProfile,
       saveOrgProfile,
       setModule,
+      assigning,
+      assignProgress,
       login,
       checkLogin,
       requestPasswordReset,

@@ -11,6 +11,9 @@ export function SelectorRoundTable({
   workers,
   overrides,
   ramashName,
+  managerOptions,
+  managerId,
+  onManagerChange,
   editable = false,
   onChange,
   onRemoveLane,
@@ -21,6 +24,10 @@ export function SelectorRoundTable({
   overrides?: StaffingOverrides | null
   /** Shift manager shown above the round table. */
   ramashName?: string
+  /** Active managers who can be chosen while editing the board. */
+  managerOptions?: { id: string; fullName: string }[]
+  managerId?: string
+  onManagerChange?: (workerId: string | null) => void
   editable?: boolean
   onChange?: (
     roundIndex: number,
@@ -44,11 +51,31 @@ export function SelectorRoundTable({
   return (
     <div className="space-y-2">
       {ramashName !== undefined ? (
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-ink">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[13px] font-semibold text-ink">
           <Shield className="size-4 text-brand" aria-hidden />
           <span>מנהל משמרת</span>
-          <span>{ramashName.trim() || 'לא סומן'}</span>
-        </p>
+          {editable && onManagerChange ? (
+            <select
+              className="ui-field min-w-40 py-1.5 text-sm font-semibold"
+              aria-label="בחירת מנהל משמרת"
+              value={managerId ?? ''}
+              onChange={(event) => onManagerChange(event.target.value || null)}
+            >
+              <option value="">
+                {(managerOptions?.length ?? 0) === 0
+                  ? 'אין מנהל שהוא גם בודק'
+                  : 'בחרו מנהל משמרת'}
+              </option>
+              {(managerOptions ?? []).map((manager) => (
+                <option key={manager.id} value={manager.id}>
+                  {manager.fullName}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span>{ramashName.trim() || 'לא סומן'}</span>
+          )}
+        </div>
       ) : null}
     <div className="max-w-full overflow-hidden rounded-2xl border border-line/70 bg-card shadow-[var(--shadow-panel)]">
       <div className="max-w-full overflow-x-auto overscroll-x-contain">

@@ -130,6 +130,8 @@ export function ShiftPage() {
     dismissSelfHeal,
     healing,
     healPlan,
+    assigning,
+    assignProgress,
     previewBoardOptions,
     applyBoardOption,
     startShift,
@@ -446,7 +448,8 @@ export function ShiftPage() {
     applyPresentSelection(ids, { workerWindows })
   }, [draft, data.history, applyPresentSelection])
 
-  const handleAutoAssign = () => {
+  const handleAutoAssign = async () => {
+    if (assigning) return
     if (
       (draft && usesRounds(draft)
         ? selectorRoundsHavePlacements(draft.rounds ?? [])
@@ -460,8 +463,18 @@ export function ShiftPage() {
     setExtraAskedOnce(false)
     setExtraFlow('closed')
     setSaveFlash(false)
+    const preAssign = draftRef.current
+    const snapshot =
+      preAssign && !preAssign.signOff?.signedAt
+        ? (JSON.parse(JSON.stringify(preAssign)) as typeof preAssign)
+        : null
+    // The multi-start search runs behind the assigning loader; undo toast and
+    // the explanations modal only appear once the new board actually landed.
+    await runAutoAssign()
+    if (snapshot) {
+      notify.undoable('שיבוץ אוטומטי', () => restoreDraftSnapshot(snapshot))
+    }
     setRequestExplainModal(true)
-    runWithUndo('שיבוץ אוטומטי', () => runAutoAssign())
     setBoardBaselineKey((k) => k + 1)
   }
 
@@ -1515,7 +1528,7 @@ export function ShiftPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={!attendanceAdvance.ok}
+                    disabled={assigning || !attendanceAdvance.ok}
                     title={
                       attendanceAdvance.reason ??
                       'יחליף את כל השיבוצים בלוח'
@@ -1551,7 +1564,7 @@ export function ShiftPage() {
                                   </button>
                                   <button
                                     type="button"
-                    disabled={!attendanceAdvance.ok}
+                    disabled={assigning || !attendanceAdvance.ok}
                     title={attendanceAdvance.reason ?? undefined}
                     onClick={handleAutoAssign}
                     className="ui-btn ui-btn-primary !py-2 disabled:opacity-40"
@@ -1714,6 +1727,7 @@ export function ShiftPage() {
               </button>
               <button
                 type="button"
+                disabled={assigning}
                 onClick={handleAutoAssign}
                 className="ui-btn ui-btn-secondary gap-2"
               >
@@ -1762,6 +1776,22 @@ export function ShiftPage() {
                 ? data.workers.find((w) => w.id === draft.gateManagerWorkerId)
                     ?.fullName ?? ''
                 : ''
+            }
+            managerId={draft.gateManagerWorkerId}
+            managerOptions={data.workers
+              .filter(
+                (worker) =>
+                  worker.status === 'active' &&
+                  worker.isManager &&
+                  worker.isInspector,
+              )
+              .sort((a, b) => a.fullName.localeCompare(b.fullName, 'he'))
+              .map((worker) => ({ id: worker.id, fullName: worker.fullName }))}
+            onManagerChange={(workerId) =>
+              runWithUndo(
+                workerId ? 'נבחר מנהל משמרת' : 'הוסר מנהל משמרת',
+                () => setGateManager(workerId),
+              )
             }
             editable={!draft.signOff?.signedAt}
             onChange={(...args) =>
@@ -2050,6 +2080,37 @@ export function ShiftPage() {
             document.body,
           )
         : null}
+      {assigning ? (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-ink/45 p-4">
+          <div
+            className="w-full max-w-sm rounded-2xl border border-line bg-card px-5 py-5 shadow-xl"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={assignProgress}
+            aria-label="התקדמות יצירת השיבוץ"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="flex items-center gap-2 text-sm font-bold text-ink">
+                <span className="page-loader page-loader--sm" aria-hidden />
+                יוצר שיבוץ
+              </p>
+              <p className="font-display text-2xl font-bold tabular-nums text-brand">
+                {assignProgress}%
+              </p>
+            </div>
+            <div className="mt-3 h-3 w-full overflow-hidden rounded-full bg-surface ring-1 ring-line">
+              <div
+                className="h-full rounded-full bg-brand transition-[width] duration-200"
+                style={{ width: `${assignProgress}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-ink-soft">
+              הבדיקות רצות עד שהפס מגיע ל־100 והלוח מוצג.
+            </p>
+          </div>
+        </div>
+      ) : null}
       {healing ? (
         <p className="fixed bottom-24 start-1/2 z-[210] -translate-x-1/2 rounded-full bg-ink px-3 py-1.5 text-[13px] font-semibold text-white shadow-lg">
           מחשב שיבוץ חליפי אופטימלי...

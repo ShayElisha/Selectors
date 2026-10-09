@@ -5,6 +5,7 @@ import {
   LOAD_FAIR_BOARD_WEIGHTS,
   accumulateLoadBalance,
   shiftBalanceDelta,
+  buildLaneLastSeatings,
   buildWorkerProfile,
   calculateShiftWeightedRotationScore,
   computeWorkerLaneStats,
@@ -15,7 +16,9 @@ import {
   isQualified,
   needsAfternoonNightRecovery,
   runAssignmentAlgorithm,
+  runAssignmentAlgorithmWithProgress,
   runMultiPassOptimization,
+  type AssignmentProgress,
   type EvaluateBoardContext,
 } from './algorithm'
 import type { Lane, ShiftSchedule, Worker } from './types'
@@ -1370,5 +1373,371 @@ describe('benchmark smoke', () => {
 
     expect(fEval.score + 1e-6).toBeGreaterThanOrEqual(gEval.score)
     expect(tFull - t0).toBeLessThan(30_000)
+  })
+})
+
+describe('afternoon handoff — swap seat stays with the morning occupant', () => {
+  const customs = lane('customs', 'מכס', {
+    intensity: 'medium',
+    afternoonHandoff: true,
+  })
+  const easy = lane('easy', 'קל', { intensity: 'easy' })
+  const hard = lane('hard', 'קשה', {
+    intensity: 'hard',
+    requiredCertifications: ['forklift'],
+  })
+
+  it('keeps the morning occupant on the swap seat when no certified arrival came', () => {
+    const occupant = worker('c', 'Continuer')
+    const otherMorning = worker('x', 'OtherMorning')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [
+          { laneId: 'customs', workerIds: ['c'] },
+          { laneId: 'easy', workerIds: ['x'] },
+        ],
+        ['c', 'x'],
+        ['customs', 'easy'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs, easy],
+      [occupant, otherMorning],
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 21 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    const easyIds =
+      result.assignments.find((a) => a.laneId === 'easy')?.workerIds ?? []
+    // The optimizer must not pull the other morning worker onto the swap seat.
+    expect(customsIds).toEqual(['c'])
+    expect(easyIds).toEqual(['x'])
+    expect(result.warnings.join(' ')).toContain('ממשיך מבוקר')
+  })
+
+  it('still prefers a certified afternoon arrival over the morning occupant', () => {
+    const occupant = worker('c', 'Continuer')
+    const arrival = worker('o', 'AfternoonOnly')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['c'] }],
+        ['c'],
+        ['customs'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs, easy],
+      [occupant, arrival],
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 23 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    expect(customsIds).toEqual(['o'])
+  })
+
+  it('ranks same-tier candidates by whoever sat at the seat longest ago', () => {
+    const recent = worker('r', 'Recent')
+    const far = worker('f', 'Far')
+    const morningWorker = worker('m', 'Morning')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'easy', workerIds: ['m'] }],
+        ['m'],
+        ['easy'],
+      ),
+      shift(
+        's1',
+        '2026-03-07',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['r'] }],
+        ['r'],
+        ['customs'],
+      ),
+      shift(
+        's2',
+        '2026-02-28',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['f'] }],
+        ['f'],
+        ['customs'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs, easy],
+      [recent, far, morningWorker],
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 24 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    expect(customsIds[0]).toBe('f')
+  })
+
+  it('reads the latest selector round as the last person on the lane', () => {
+    const history: ShiftSchedule[] = [
+      {
+        ...shift('s', '2026-03-15', 'morning', [], ['early', 'late'], ['hard']),
+        rounds: [
+          {
+            startMinutes: 360,
+            endMinutes: 480,
+            label: '06:00–08:00',
+            assignments: [{ laneId: 'hard', workerIds: ['early'] }],
+          },
+          {
+            startMinutes: 480,
+            endMinutes: 600,
+            label: '08:00–10:00',
+            assignments: [{ laneId: 'hard', workerIds: ['late'] }],
+          },
+        ],
+      },
+    ]
+    const seating = buildLaneLastSeatings(history, '2026-03-16', 'morning')
+    expect(seating.get('hard')?.workerIds).toEqual(['late'])
+    expect(seating.get('hard')?.roundLabel).toBe('08:00–10:00')
+    const profile = buildWorkerProfile(
+      'late',
+      history,
+      [hard],
+      'morning',
+      '2026-03-16',
+    )
+    expect(profile.rotationLaneCounts.get('hard')).toBe(1)
+    expect(profile.daysSinceLastVisit.get('hard')).toBe(1)
+  })
+
+  it('does not return the last occupant just because they rested longer', () => {
+    const dana = worker('dana', 'דנה', ['forklift'])
+    const yossi = worker('yossi', 'יוסי', ['forklift'])
+    const history = [
+      shift(
+        'd',
+        '2026-03-11',
+        'night',
+        [{ laneId: 'hard', workerIds: ['dana'] }],
+        ['dana'],
+        ['hard'],
+      ),
+      shift(
+        'y',
+        '2026-03-15',
+        'morning',
+        [{ laneId: 'easy', workerIds: ['yossi'] }],
+        ['yossi'],
+        ['easy'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [hard, easy],
+      [dana, yossi],
+      history,
+      [hard, easy],
+      {
+        date: '2026-03-16',
+        shiftType: 'morning',
+        rngSeed: 31,
+        roster: [dana, yossi],
+      },
+    )
+    expect(result.assignments.find((row) => row.laneId === 'hard')?.workerIds[0]).toBe(
+      'yossi',
+    )
+    const note = result.explanations.find(
+      (item) => item.workerId === 'yossi' && item.laneId === 'hard',
+    )
+    expect(note?.reasons.some((reason) => reason.includes('נבדק מי ישב אחרון'))).toBe(
+      true,
+    )
+    expect(note?.reasons.some((reason) => reason.includes('דנה'))).toBe(true)
+    expect(
+      note?.reasons.some((reason) => reason.includes('אינו האדם האחרון')),
+    ).toBe(true)
+    expect(note?.reasons.some((reason) => reason.includes('מספרים מול'))).toBe(true)
+    expect(note?.reasons.some((reason) => reason.includes('לילה'))).toBe(true)
+  })
+
+  it('still seats the last occupant when they are the only qualified person', () => {
+    const dana = worker('dana', 'דנה', ['forklift'])
+    const other = worker('other', 'אחר')
+    const history = [
+      shift(
+        'd',
+        '2026-03-15',
+        'morning',
+        [{ laneId: 'hard', workerIds: ['dana'] }],
+        ['dana'],
+        ['hard'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [hard, easy],
+      [dana, other],
+      history,
+      [hard, easy],
+      { date: '2026-03-16', shiftType: 'morning', rngSeed: 32, roster: [dana, other] },
+    )
+    expect(result.assignments.find((row) => row.laneId === 'hard')?.workerIds).toEqual([
+      'dana',
+    ])
+    const note = result.explanations.find((item) => item.workerId === 'dana')
+    expect(note?.reasons.some((reason) => reason.includes('האדם האחרון בנתיב'))).toBe(
+      true,
+    )
+  })
+
+  it('optimizer replaces a repeated last occupant with someone who was not there', () => {
+    const last = worker('last', 'אחרון')
+    const fresh = worker('fresh', 'חדש')
+    const lanes = [easy]
+    const people = [last, fresh]
+    const history = [
+      shift(
+        'prev',
+        '2026-03-12',
+        'afternoon',
+        [{ laneId: 'easy', workerIds: ['last'] }],
+        ['last'],
+        ['easy'],
+      ),
+    ]
+    const profiles = profilesFor(people, lanes, history, 'morning', '2026-03-16')
+    const opt = runMultiPassOptimization({
+      assignments: [{ laneId: 'easy', workerIds: ['last'] }],
+      unassignedWorkerIds: ['fresh'],
+      lanes,
+      workersById: new Map(people.map((person) => [person.id, person])),
+      profiles,
+      maxPasses: 8,
+      currentShiftType: 'morning',
+      lastSeatings: buildLaneLastSeatings(history, '2026-03-16', 'morning'),
+    })
+    expect(opt.assignments[0]?.workerIds).toEqual(['fresh'])
+    expect(opt.swapsPerformed).toBeGreaterThan(0)
+  })
+})
+
+describe('progress runner — multi-start search with real progress', () => {
+  function scenario() {
+    const lanes: Lane[] = []
+    for (let i = 0; i < 8; i++) {
+      lanes.push(
+        lane(`L${i}`, `Lane ${i}`, {
+          intensity: i % 3 === 0 ? 'hard' : i % 3 === 1 ? 'medium' : 'easy',
+          requiredCertifications: i % 4 === 0 ? ['forklift'] : [],
+          staffingStandard: i % 5 === 0 ? 2 : 1,
+        }),
+      )
+    }
+    const workers: Worker[] = []
+    for (let i = 0; i < 30; i++) {
+      workers.push(
+        worker(`W${i}`, `Worker ${i}`, i % 3 === 0 ? ['forklift'] : []),
+      )
+    }
+    const history: ShiftSchedule[] = []
+    for (let d = 1; d <= 6; d++) {
+      const date = `2026-02-${String(d).padStart(2, '0')}`
+      history.push(
+        shift(
+          `h-${d}`,
+          date,
+          d % 2 === 1 ? 'morning' : 'afternoon',
+          lanes.slice(0, 6).map((l, idx) => ({
+            laneId: l.id,
+            workerIds: [`W${(d + idx) % 30}`],
+          })),
+          workers.map((w) => w.id),
+          lanes.map((l) => l.id),
+        ),
+      )
+    }
+    return { lanes, workers, history }
+  }
+
+  const ctx = {
+    date: '2026-03-01',
+    shiftType: 'morning' as const,
+    rngSeed: 'progress',
+  }
+
+  it('runs several starts, reports progress, and performs many board checks', async () => {
+    const { lanes, workers, history } = scenario()
+    const ticks: AssignmentProgress[] = []
+    const result = await runAssignmentAlgorithmWithProgress(
+      lanes,
+      workers,
+      history,
+      lanes,
+      ctx,
+      {
+        searchStarts: 4,
+        yieldToUi: async () => {},
+        onProgress: (p) => ticks.push({ ...p }),
+      },
+    )
+
+    expect(result.searchStats?.starts).toBe(4)
+    expect(result.searchStats?.evaluations).toBeGreaterThan(500)
+    expect(ticks).toHaveLength(4)
+    expect(ticks[3]?.percent).toBe(100)
+    expect(ticks.every((t) => t.startsTotal === 4)).toBe(true)
+    expect(ticks.every((t) => t.evaluations > 0)).toBe(true)
+
+    // Deterministic: same inputs → same board.
+    const again = await runAssignmentAlgorithmWithProgress(
+      lanes,
+      workers,
+      history,
+      lanes,
+      ctx,
+      { searchStarts: 4, yieldToUi: async () => {} },
+    )
+    expect(again.assignments).toEqual(result.assignments)
+
+    // Multi-start is never worse than the classic single run.
+    const single = runAssignmentAlgorithm(lanes, workers, history, lanes, ctx)
+    const profiles = profilesFor(
+      workers,
+      lanes,
+      history,
+      'morning',
+      '2026-03-01',
+    )
+    const evalCtx: EvaluateBoardContext = {
+      lanes,
+      workersById: new Map(workers.map((w) => [w.id, w])),
+      profiles,
+      recoveringIds: new Set(),
+      morning: null,
+      currentShiftType: 'morning',
+      baselineAssignments: single.assignments,
+    }
+    const singleEval = evaluateBoard(single.assignments, evalCtx)
+    const multiEval = evaluateBoard(result.assignments, evalCtx)
+    expect(multiEval.score + 1e-6).toBeGreaterThanOrEqual(singleEval.score)
+    expect(result.searchStats?.passes).toBeGreaterThan(0)
+    expect(result.warnings.some((warning) => warning.includes('נבדקו'))).toBe(true)
+  })
+
+  it('single sync run exposes search telemetry too', () => {
+    const { lanes, workers, history } = scenario()
+    const single = runAssignmentAlgorithm(lanes, workers, history, lanes, ctx)
+    expect(single.searchStats?.starts).toBe(1)
+    expect(single.searchStats?.evaluations).toBeGreaterThan(0)
   })
 })
