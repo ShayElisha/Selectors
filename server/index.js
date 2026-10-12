@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
+import { createActiveUserMiddleware } from './activeUser.js'
 import {
   appendClientAuditEvent,
   listAuditLogs,
@@ -26,7 +27,7 @@ import {
 import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -45,14 +46,14 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
+        fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         workerSrc: ["'self'", 'blob:'],
         upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
       },
@@ -102,19 +103,7 @@ function sendError(res, err) {
   res.status(status).json(body)
 }
 
-app.use('/api', async (req, res, next) => {
-  const tokenUser = verifySessionToken(getBearerToken(req))
-  if (tokenUser?.role !== 'org_manager') {
-    next()
-    return
-  }
-  try {
-    req.activeUser = await refreshManagerSession(tokenUser)
-    next()
-  } catch (err) {
-    sendError(res, err)
-  }
-})
+app.use('/api', createActiveUserMiddleware(sendError))
 
 function assertCronAuth(req) {
   const secret = process.env.CRON_SECRET?.trim()

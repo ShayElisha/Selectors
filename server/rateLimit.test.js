@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getDb, findOneAndUpdate } = vi.hoisted(() => ({
+const { getDb, findOneAndUpdate, createIndex, updateMany } = vi.hoisted(() => ({
   getDb: vi.fn(),
   findOneAndUpdate: vi.fn(),
+  createIndex: vi.fn(),
+  updateMany: vi.fn(),
 }))
 
 vi.mock('./db.js', () => ({ getDb }))
@@ -13,8 +15,10 @@ describe('assertRateLimit', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getDb.mockResolvedValue({
-      collection: () => ({ findOneAndUpdate }),
+      collection: () => ({ findOneAndUpdate, createIndex, updateMany }),
     })
+    createIndex.mockResolvedValue('expiresAt_1')
+    updateMany.mockResolvedValue({ modifiedCount: 0 })
   })
 
   it('increments the limit in one atomic MongoDB operation', async () => {
@@ -29,6 +33,13 @@ describe('assertRateLimit', () => {
     expect(findOneAndUpdate.mock.calls[0]?.[2]).toMatchObject({
       upsert: true,
       returnDocument: 'after',
+    })
+    expect(createIndex).toHaveBeenCalledWith(
+      { expiresAt: 1 },
+      { expireAfterSeconds: 0 },
+    )
+    expect(findOneAndUpdate.mock.calls[0]?.[1][0].$set.expiresAt).toMatchObject({
+      $toDate: expect.any(Object),
     })
   })
 
