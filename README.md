@@ -17,11 +17,8 @@ npm run dev
 
 ## פריסה ל-Vercel
 
-1. חברו את הריפו ל-[Vercel](https://vercel.com).
-2. הוסיפו Environment Variable:
-   - `MONGODB_URI` = מחרוזת החיבור ל-Atlas (כולל שם DB, למשל `.../shibutzon?retryWrites=true&w=majority`)
-3. ב-Atlas → Network Access אפשרו גישה מ-`0.0.0.0/0` (נדרש ל-Serverless).
-4. Deploy.
+להוראות פריסה מלאות, כולל כל משתני הסביבה והגדרות MongoDB Atlas, עיינו ב-[DEPLOY.md](./DEPLOY.md).
+אל תפתחו גישה ל-MongoDB לכל כתובות ה-IP. הגדירו allowlist מצומצם בהתאם ל-egress IPs של סביבת הפריסה.
 
 ה-API רץ כפונקציית שרת אחת (`api/index.js`) שמעבירה כל נתיב `/api/*` לאפליקציית Express. הפרונט נבנה מ-Vite ל-`dist`.
 
