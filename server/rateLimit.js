@@ -1,6 +1,24 @@
 import { createHash } from 'node:crypto'
 import { getDb } from './db.js'
 
+let indexPromise
+
+async function ensureRateLimitIndexes(collection) {
+  if (!indexPromise) {
+    indexPromise = (async () => {
+      await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+      await collection.updateMany(
+        { expiresAt: { $exists: false }, resetAt: { $exists: true } },
+        [{ $set: { expiresAt: { $toDate: '$resetAt' } } }],
+      )
+    })().catch((error) => {
+      indexPromise = null
+      throw error
+    })
+  }
+  await indexPromise
+}
+
 /**
  * Sliding-window login rate limit (Mongo-backed for Vercel).
  * @param {{ key: string, limit?: number, windowMs?: number }} opts
@@ -8,6 +26,7 @@ import { getDb } from './db.js'
 export async function assertRateLimit({ key, limit = 10, windowMs = 15 * 60_000 }) {
   const db = await getDb()
   const col = db.collection('rate_limits')
+  await ensureRateLimitIndexes(col)
   const now = Date.now()
   const _id = `rl:${createHash('sha256').update(key).digest('hex')}`
   const resetWindow = { $lte: [{ $ifNull: ['$resetAt', 0] }, now] }
@@ -24,6 +43,9 @@ export async function assertRateLimit({ key, limit = 10, windowMs = 15 * 60_000 
             ],
           },
           resetAt: { $cond: [resetWindow, now + windowMs, '$resetAt'] },
+          expiresAt: {
+            $toDate: { $cond: [resetWindow, now + windowMs, '$resetAt'] },
+          },
         },
       },
     ],

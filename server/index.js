@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
+import { createActiveUserMiddleware } from './activeUser.js'
 import {
   appendClientAuditEvent,
   listAuditLogs,
@@ -26,7 +27,7 @@ import {
 import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -102,19 +103,7 @@ function sendError(res, err) {
   res.status(status).json(body)
 }
 
-app.use('/api', async (req, res, next) => {
-  const tokenUser = verifySessionToken(getBearerToken(req))
-  if (tokenUser?.role !== 'org_manager') {
-    next()
-    return
-  }
-  try {
-    req.activeUser = await refreshManagerSession(tokenUser)
-    next()
-  } catch (err) {
-    sendError(res, err)
-  }
-})
+app.use('/api', createActiveUserMiddleware(sendError))
 
 function assertCronAuth(req) {
   const secret = process.env.CRON_SECRET?.trim()

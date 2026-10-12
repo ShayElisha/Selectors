@@ -548,13 +548,44 @@ async function loadModelDocs(db, name, session, scope) {
   return query.toArray();
 }
 
-async function assembleState(revision, session, scope, target = "selectors") {
+async function loadCompleteHistory(scope, historyRevision, target) {
+  const key = stateCacheKey(scope);
+  const cached = historyCache.get(key);
+  if (cached?.revision === Number(historyRevision)) return cached.promise;
+
+  const promise = (async () => {
+    const items = [];
+    let offset = 0;
+    let total = 0;
+    do {
+      const page = await listHistoryPage(scope, { limit: 60, offset });
+      items.push(...page.items);
+      total = page.total;
+      offset += page.items.length;
+    } while (offset < total);
+    return items;
+  })();
+  historyCache.set(key, { revision: Number(historyRevision), promise });
+  try {
+    return await promise;
+  } catch (error) {
+    if (historyCache.get(key)?.promise === promise) historyCache.delete(key);
+    throw error;
+  }
+}
+
+async function assembleState(
+  revision,
+  session,
+  scope,
+  target = "selectors",
+  historyRevision = revision,
+) {
   const db = await getDb(target);
   const read = (name) => loadModelDocs(db, name, session, scope);
   const [
     workers,
     lanes,
-    history,
     certifications,
     briefingSections,
     questionBank,
@@ -563,13 +594,15 @@ async function assembleState(revision, session, scope, target = "selectors") {
   ] = await Promise.all([
     read(MODEL_COLLECTIONS.workers),
     read(MODEL_COLLECTIONS.lanes),
-    read(MODEL_COLLECTIONS.shifts),
     read(MODEL_COLLECTIONS.certifications),
     read(MODEL_COLLECTIONS.briefingSections),
     read(MODEL_COLLECTIONS.questionBank),
     read(MODEL_COLLECTIONS.customsBrokers),
     read(MODEL_COLLECTIONS.shiftModels),
   ]);
+  const history = scope?.orgId
+    ? await loadCompleteHistory(scope, historyRevision, target)
+    : await read(MODEL_COLLECTIONS.shifts);
   return normalizeData(
     {
       workers: fromOrderedDocs(workers),
@@ -599,6 +632,8 @@ async function replaceModels(
   session,
   scope = null,
   target = "selectors",
+  historyRevision = revision,
+  writeHistory = true,
 ) {
   const db = await getDb(target);
   const certPrefix = scope ? `${scope.orgId}:${scope.module}:cert` : "cert";
@@ -655,6 +690,7 @@ async function replaceModels(
   ];
   const opts = session ? { session } : {};
   for (const [name, rawDocs] of models) {
+    if (name === MODEL_COLLECTIONS.shifts && !writeHistory) continue;
     const col = db.collection(name);
     const docs = dedupeById(rawDocs);
     const ids = docs.map((d) => d._id);
@@ -678,6 +714,7 @@ async function replaceModels(
       $set: {
         schema: "collections",
         revision,
+        historyRevision,
         updatedAt: new Date(),
       },
     },
@@ -962,15 +999,25 @@ export async function importUnscopedInspectorModels(scope) {
   }
   if (!sawUnscoped) inspectorsUnscopedEmpty = true;
   if (imported > 0) {
+    const meta = await metaCol.findOne({ _id: metaIdFor(scope) });
+    const revision = Number(meta?.revision ?? 0);
+    const historyRevision = Number(meta?.historyRevision ?? revision) + imported;
     await metaCol.updateOne(
       { _id: metaIdFor(scope) },
-      { $inc: { revision: imported }, $set: { updatedAt: new Date() } },
+      {
+        $set: {
+          revision: revision + imported,
+          historyRevision,
+          updatedAt: new Date(),
+        },
+      },
     );
   }
   return imported;
 }
 
 const stateCache = new Map();
+const historyCache = new Map();
 /** Soft TTL only used for logging/metrics; matching revision always hits. */
 const STATE_CACHE_MS = 120_000;
 
@@ -1010,6 +1057,7 @@ async function claimRevision(scope, current) {
       $set: {
         schema: "collections",
         revision: nextRevision,
+        historyRevision: nextRevision,
         updatedAt: new Date(),
       },
     },
@@ -1053,7 +1101,13 @@ export async function readState(scope) {
       cached.at = Date.now();
       return cached.state;
     }
-    const state = await assembleState(meta.revision, undefined, scope, target);
+    const state = await assembleState(
+      meta.revision,
+      undefined,
+      scope,
+      target,
+      meta.historyRevision ?? meta.revision,
+    );
     stateCache.set(key, { at: Date.now(), revision, state });
     return state;
   }
@@ -1166,6 +1220,9 @@ export async function writeState(data, options = {}) {
     customsBrokers: payload.customsBrokers ?? [],
     shiftModels: payload.shiftModels ?? [],
   };
+  const historyChanged =
+    options.action === "data_reset" ||
+    JSON.stringify(toStore.history) !== JSON.stringify(prev?.history || []);
 
   const target = targetForScope(scope);
   await withDbTransaction(async (session) => {
@@ -1173,6 +1230,9 @@ export async function writeState(data, options = {}) {
     const opts = session ? { session } : {};
     const meta = await metaCol.findOne({ _id: metaIdFor(scope) }, opts);
     const liveRevision = Number(meta?.revision ?? 0);
+    const historyRevision = historyChanged
+      ? nextRevision
+      : Number(meta?.historyRevision ?? liveRevision);
     if (
       options.expectedRevision != null &&
       Number(options.expectedRevision) !== liveRevision
@@ -1184,7 +1244,15 @@ export async function writeState(data, options = {}) {
       err.current = publicData(prev);
       throw err;
     }
-    await replaceModels(toStore, nextRevision, session, scope, target);
+    await replaceModels(
+      toStore,
+      nextRevision,
+      session,
+      scope,
+      target,
+      historyRevision,
+      historyChanged,
+    );
   }, target);
 
   const result = { ...payload, revision: nextRevision };
