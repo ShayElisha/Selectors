@@ -236,12 +236,20 @@ export async function sendOrganizationApprovedEmail({
   })
 }
 
-export async function sendTestEmail() {
-  const to = String(process.env.SMTP_USER || process.env.SMTP_FROM || '')
+export async function sendTestEmail({ to: requestedTo } = {}) {
+  const to = String(
+    requestedTo ||
+      process.env.SUPER_ADMIN_EMAIL ||
+      process.env.SMTP_USER ||
+      process.env.SMTP_FROM ||
+      '',
+  )
     .replace(/.*<([^>]+)>.*/, '$1')
     .trim()
-  if (!to) {
-    const err = new Error('SMTP_USER לא מוגדר — אין יעד לבדיקה')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    const err = new Error(
+      'יש להגדיר כתובת יעד תקינה באמצעות SUPER_ADMIN_EMAIL או SMTP_USER',
+    )
     err.status = 400
     throw err
   }

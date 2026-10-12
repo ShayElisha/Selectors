@@ -22,6 +22,8 @@
   - `BUG_REPORT_EMAIL` — destination for user bug reports
 - `LOAD_REST_CRON=0` disables the local nightly scheduler; Vercel Cron remains protected by `CRON_SECRET`.
 - Set production values in Vercel Project Settings → Environment Variables for every deployed environment. Never commit `.env`.
+- Email verification is mandatory; there is no emergency bypass. A broken SMTP service or missing/invalid account email prevents login.
+- Before deployment, run `npm run mail:test -- <SUPER_ADMIN_EMAIL>` with the production SMTP settings and confirm delivery. Ensure every active manager account has a valid, accessible email address.
 
 ## Atlas network
 
@@ -53,7 +55,8 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 
 1. Set all required values above in Vercel project env for Production and Preview, including the super-admin email and SMTP settings for verification codes
 2. Redeploy
-3. Existing sessions issued before email verification was enabled must log in again
+3. Confirm the super-admin can sign in and receive the code at `SUPER_ADMIN_EMAIL`; then send a test with the authenticated `/api/mail-test` endpoint
+4. Existing sessions issued before email verification was enabled must log in again
 
 ## Nightly load rest (02:00 Israel)
 
