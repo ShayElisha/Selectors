@@ -26,7 +26,7 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 - Login rate-limit: 10 attempts / 15 minutes per IP+phone and per phone (Mongo `rate_limits`)
 - Manager account status is checked on each organization API request; inactive managers lose access immediately
 - Cron authorization uses the `Authorization: Bearer <CRON_SECRET>` header only
-- CORS allows the configured app origin; production pages receive a CSP and security headers
+- CORS allows the configured app origin; production CSP permits Google Fonts and loads the early theme initializer as a same-origin script
 - Seed requires body `{ "confirm": "RESET" }` plus auth
 - Optimistic locking via `revision` — concurrent writes return `409`
 
