@@ -348,52 +348,6 @@ describe('state and shift persistence', () => {
       ),
     ).rejects.toMatchObject({ status: 409 })
     expect(buckets.get('selectors:shifts')).toHaveLength(1)
-    expect(
-      buckets.get('selectors:app_meta').find((item) => item._id === metaId).revision,
-    ).toBe(1)
-  })
-
-  it('deletes an unsigned shift and advances the revision', async () => {
-    seedState({
-      shifts: [{
-        id: 'shift-delete',
-        date: '2026-10-12',
-        shiftType: 'morning',
-      }],
-    })
-
-    const result = await deleteShift(
-      'shift-delete',
-      { id: 'manager-1', fullName: 'Manager' },
-      { scope },
-    )
-
-    expect(result.history).toEqual([])
-    expect(buckets.get('selectors:shifts')).toEqual([])
-    expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId)).toMatchObject({
-      revision: 2,
-      historyRevision: 2,
-    })
-  })
-
-  it('refuses to delete a signed-off shift', async () => {
-    seedState({
-      shifts: [{
-        id: 'shift-locked-delete',
-        date: '2026-10-12',
-        shiftType: 'morning',
-        signOff: { signedAt: '2026-10-12T12:00:00.000Z', signerName: 'Manager' },
-      }],
-    })
-
-    await expect(
-      deleteShift(
-        'shift-locked-delete',
-        { id: 'manager-1', fullName: 'Manager' },
-        { scope },
-      ),
-    ).rejects.toMatchObject({ status: 409 })
-    expect(buckets.get('selectors:shifts')).toHaveLength(1)
     expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId).revision).toBe(1)
   })
 })

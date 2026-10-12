@@ -54,7 +54,7 @@ app.use(
         frameAncestors: ["'none'"],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         objectSrc: ["'none'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", 'https://vercel.live'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         workerSrc: ["'self'", 'blob:'],
         upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
