@@ -402,6 +402,47 @@ export function fetchAuditLogs(limit = 150): Promise<AuditLogEntry[]> {
   return request<AuditLogEntry[]>(`/api/audit?limit=${limit}`)
 }
 
+export interface SystemErrorEntry {
+  id: string
+  at: string
+  source: 'server' | 'client'
+  status: number
+  method: string
+  path: string
+  message: string
+  stack: string
+  actor: { id: string; role: string } | null
+  orgId?: string
+  module?: string
+}
+
+export interface SystemErrorPage {
+  total: number
+  offset: number
+  limit: number
+  items: SystemErrorEntry[]
+}
+
+export function fetchSystemErrorsRemote(
+  limit = 50,
+  offset = 0,
+): Promise<SystemErrorPage> {
+  return request<SystemErrorPage>(
+    `/api/admin/errors?limit=${limit}&offset=${offset}`,
+  )
+}
+
+export function postClientErrorRemote(error: {
+  message: string
+  stack?: string
+  path: string
+}): Promise<{ id: string }> {
+  return request('/api/client-errors', {
+    method: 'POST',
+    body: JSON.stringify(error),
+  })
+}
+
 export type ClientAuditAction =
   | 'auto_assign'
   | 'manual_assign'

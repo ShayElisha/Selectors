@@ -128,8 +128,8 @@ describe('historyDayLabel / monthKey', () => {
 
 describe('search / filter / counts', () => {
   const workers = new Map([
-    ['w1', worker('w1', '[REDACTED]')],
-    ['w2', worker('w2', '[REDACTED]')],
+    ['w1', worker('w1', 'עובד א')],
+    ['w2', worker('w2', 'עובד ב')],
   ])
 
   it('matches inspector names', () => {
@@ -137,8 +137,8 @@ describe('search / filter / counts', () => {
       present: ['w1'],
       assignments: [{ laneId: 'l1', workerIds: ['w1'] }],
     })
-    expect(shiftMatchesSearch(s, 'שי', workers)).toBe(true)
-    expect(shiftMatchesSearch(s, 'לאון', workers)).toBe(false)
+    expect(shiftMatchesSearch(s, 'עובד א', workers)).toBe(true)
+    expect(shiftMatchesSearch(s, 'עובד ב', workers)).toBe(false)
   })
 
   it('filters day cards by shift type', () => {

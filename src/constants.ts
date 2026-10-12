@@ -160,13 +160,4 @@ export function getCurrentShiftContext(now = new Date()): {
   }
 }
 
-export const DEFAULT_CERTIFICATIONS = [
-  'בדיקת דרכונים',
-  'בידוק ביטחוני',
-  'נתיב מהיר',
-  'כבודה',
-  'ראיון',
-  'מפקד נתיב',
-]
-
 export const STORAGE_KEY = 'shibutzon-v2'

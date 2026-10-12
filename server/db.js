@@ -2,13 +2,11 @@ import { MongoClient } from 'mongodb'
 import { setDefaultResultOrder } from 'node:dns'
 import { createSecureContext } from 'node:tls'
 
-// Vercel’s OpenSSL talks to Atlas over IPv6 and gets "tlsv1 alert internal error"
-// (alert 80). Force IPv4 and a TLS 1.2 context Atlas accepts.
+// Prefer IPv4 because Atlas connections from Vercel have failed over IPv6.
 setDefaultResultOrder('ipv4first')
 
 const atlasTls = createSecureContext({
   minVersion: 'TLSv1.2',
-  ciphers: 'DEFAULT:@SECLEVEL=0',
 })
 
 const clientOptions = {
@@ -68,6 +66,11 @@ export async function getMetaCollection(target = 'selectors') {
 export async function getAuditCollection(target = 'selectors') {
   const db = await getDb(target)
   return db.collection('audit_logs')
+}
+
+export async function getSystemErrorCollection() {
+  const db = await getDb('selectors')
+  return db.collection('system_errors')
 }
 
 /** Run writes together so a save does not leave half the models updated. */
