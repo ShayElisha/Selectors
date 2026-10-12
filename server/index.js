@@ -4,6 +4,7 @@ import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
 import { createActiveUserMiddleware } from './activeUser.js'
+import { assertClientErrorRateLimit } from './clientErrorLimit.js'
 import {
   appendClientAuditEvent,
   listAuditLogs,
@@ -229,11 +230,7 @@ app.post('/api/bug-reports', async (req, res) => {
 
 app.post('/api/client-errors', async (req, res) => {
   try {
-    await assertRateLimit({
-      key: `client-error:${clientKey(req)}`,
-      limit: 20,
-      windowMs: 10 * 60_000,
-    })
+    await assertClientErrorRateLimit(req)
     const { message, stack, path } = req.body || {}
     if (
       typeof message !== 'string' ||
