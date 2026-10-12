@@ -221,13 +221,8 @@ export async function sendOrganizationApprovedEmail({
   })
 }
 
-/**
- * @param {{ to?: string }} [opts]
- */
-export async function sendTestEmail(opts = {}) {
-  const to = String(
-    opts.to || process.env.SMTP_USER || process.env.SMTP_FROM || '',
-  )
+export async function sendTestEmail() {
+  const to = String(process.env.SMTP_USER || process.env.SMTP_FROM || '')
     .replace(/.*<([^>]+)>.*/, '$1')
     .trim()
   if (!to) {

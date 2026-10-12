@@ -23,9 +23,6 @@ import {
   upsertManagerAccount,
 } from "./orgs.js";
 
-// אין נתוני ברירת מחדל בקוד. כל הנתונים מגיעים מה-DB בלבד.
-export const DEFAULT_CERTIFICATIONS = [];
-
 export function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }

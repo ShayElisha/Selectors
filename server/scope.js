@@ -1,4 +1,4 @@
-import { getOrganization } from './orgs.js'
+import { getOrganization, refreshManagerSession } from './orgs.js'
 import { requireUser } from './session.js'
 
 function requestedModule(req) {
@@ -16,12 +16,13 @@ function requestedModule(req) {
  * Super admin does not read or write scheduling data.
  */
 export async function scopeForRequest(req) {
-  const actor = requireUser(req)
-  if (actor.role !== 'org_manager' || !actor.orgId) {
+  const tokenUser = req.activeUser || requireUser(req)
+  if (tokenUser.role !== 'org_manager' || !tokenUser.orgId) {
     const err = new Error('אין הרשאה לנתוני ארגון')
     err.status = 403
     throw err
   }
+  const actor = req.activeUser || await refreshManagerSession(tokenUser)
   const org = await getOrganization(actor.orgId)
   if (!org) {
     const err = new Error('הארגון נמחק. יש להתחבר מחדש.')

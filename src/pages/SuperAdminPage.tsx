@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   createSystemMessageRemote,
   deleteOrganizationRemote,
@@ -532,6 +533,9 @@ export function SuperAdminPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/admin/errors" className="ui-btn ui-btn-secondary">
+            יומן שגיאות
+          </Link>
           <ThemeToggle />
           <button type="button" className="ui-btn ui-btn-secondary" onClick={logout}>יציאה</button>
         </div>

@@ -58,8 +58,8 @@ describe('inclusiveRangeDays', () => {
 describe('normalizeHeSearch / workerMatchesSearch', () => {
   it('strips nikud and matches substrings', () => {
     expect(normalizeHeSearch('שַׁי')).toContain('שי')
-    expect(workerMatchesSearch('[REDACTED]', 'שי')).toBe(true)
-    expect(workerMatchesSearch('[REDACTED]', 'דני')).toBe(false)
+    expect(workerMatchesSearch('עובד א', 'עובד')).toBe(true)
+    expect(workerMatchesSearch('עובד א', 'עובד ב')).toBe(false)
   })
 })
 

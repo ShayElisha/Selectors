@@ -70,7 +70,6 @@ import {
   shiftSlotConflictMessage,
 } from '../constants'
 import { isAppPath, pathForView, viewFromPath } from '../routes'
-import { createSeedData, isDefaultManager } from '../storage'
 import {
   clampStaffingStandard,
   DEFAULT_SHIFT_STAFFING,
@@ -176,7 +175,7 @@ function fixTagForSeats(
 }
 
 function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector'): Worker {
-  const isManager = Boolean(w.isManager) || isDefaultManager(w)
+  const isManager = Boolean(w.isManager)
   const hasInspector = Object.prototype.hasOwnProperty.call(w, 'isInspector')
   let isInspector = hasInspector ? Boolean(w.isInspector) : !isManager
   if (!isInspector && !isManager) isInspector = true
@@ -753,8 +752,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [navigate])
 
   /**
-   * Serialized persist with fresh revision on each attempt.
-   * Fixes false 409s when debounced saves overlap (same user, stale expectedRevision).
+   * Serialize full-state saves; a 409 is surfaced instead of replaying a stale snapshot.
    */
   const drainPersist = useCallback(async () => {
     if (persistInFlightRef.current) {
@@ -772,8 +770,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncing(true)
     let failed: unknown = null
     try {
-      let retries409 = 0
-      const MAX_409_RETRIES = 3
       while (pendingSaveRef.current) {
         const snapshot = pendingSaveRef.current
         pendingSaveRef.current = null
@@ -788,7 +784,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setData(saved)
           saveAppDataCache(saved)
           setError(null)
-          retries409 = 0
         } catch (e) {
           if (e instanceof ApiError && e.status === 401) {
             handleAuthFailure()
@@ -799,23 +794,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
               e.current,
               loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
             )
-            const merged: AppData = {
-              ...snapshot,
-              revision: server.revision ?? 0,
-            }
+            pendingSaveRef.current = null
             skipNextSync.current = true
-            dataRef.current = merged
-            setData(merged)
-            saveAppDataCache(merged)
-            retries409 += 1
-            if (retries409 <= MAX_409_RETRIES) {
-              pendingSaveRef.current = merged
-              continue
-            }
             dataRef.current = server
             setData(server)
             saveAppDataCache(server)
-            setError(e.message)
+            const conflictMessage =
+              'השמירה בוטלה כי הנתונים השתנו בשרת. הטעינה העדכנית הוצגה; יש לחזור על השינוי.'
+            setError(conflictMessage)
+            toast.error(conflictMessage)
             throw e
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
@@ -941,9 +928,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return
       }
       setError(e instanceof Error ? e.message : 'לא ניתן להתחבר לשרת')
-      if (dataRef.current.workers.length === 0) {
-        setData(createSeedData())
-      }
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -1181,12 +1165,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!user && !isPublic) {
       navigate('/login', { replace: true })
     }
-    if (user?.role === 'super_admin' && path !== '/admin' && !isPublic) {
+    if (
+      user?.role === 'super_admin' &&
+      path !== '/admin' &&
+      path !== '/admin/errors' &&
+      !isPublic
+    ) {
       navigate('/admin', { replace: true })
     }
     if (
       user?.role === 'org_manager' &&
-      (path === '/login' || path === '/register' || path === '/admin')
+      (path === '/login' ||
+        path === '/register' ||
+        path === '/admin' ||
+        path === '/admin/errors')
     ) {
       navigate('/', { replace: true })
     }
