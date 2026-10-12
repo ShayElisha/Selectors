@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { pathToFileURL } from 'node:url'
 import cors from 'cors'
 import express from 'express'
+import helmet from 'helmet'
 import {
   appendClientAuditEvent,
   listAuditLogs,
@@ -23,6 +24,7 @@ import {
   writeState,
 } from './data.js'
 import { getDb } from './db.js'
+import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
 import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
@@ -35,7 +37,48 @@ import { runDailyLoadRest, scheduleLocalLoadRestCron } from './loadRest.js'
 const PORT = Number(process.env.PORT || 3001)
 
 const app = express()
-app.use(cors())
+app.set('trust proxy', 1)
+app.use(
+  helmet({
+    xFrameOptions: { action: 'deny' },
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", 'data:'],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        workerSrc: ["'self'", 'blob:'],
+        upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }),
+)
+const allowedOrigins = new Set(
+  [
+    process.env.APP_URL,
+    process.env.PUBLIC_APP_URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
+    ...(process.env.NODE_ENV === 'production'
+      ? []
+      : ['http://localhost:5173', 'http://127.0.0.1:5173']),
+  ]
+    .map((origin) => String(origin || '').replace(/\/+$/, ''))
+    .filter(Boolean),
+)
+app.use(
+  cors({
+    origin(origin, callback) {
+      callback(null, !origin || allowedOrigins.has(origin))
+    },
+  }),
+)
 app.use((req, res, next) => {
   if (req.body != null && typeof req.body === 'object') {
     next()
@@ -46,13 +89,32 @@ app.use((req, res, next) => {
 
 function sendError(res, err) {
   const status = err.status || 500
-  if (status >= 500) console.error(err?.message || err)
+  if (status >= 500) {
+    console.error(err?.message || err)
+    void recordServerError(res.req, err, status).catch((logError) => {
+      console.error('[system-errors] failed to persist server error', logError?.message || logError)
+    })
+  }
   const body = { error: err.message || 'שגיאת שרת' }
   if (err.current) body.current = err.current
   if (err.retryAfterSec) body.retryAfterSec = err.retryAfterSec
   if (err.code) body.code = err.code
   res.status(status).json(body)
 }
+
+app.use('/api', async (req, res, next) => {
+  const tokenUser = verifySessionToken(getBearerToken(req))
+  if (tokenUser?.role !== 'org_manager') {
+    next()
+    return
+  }
+  try {
+    req.activeUser = await refreshManagerSession(tokenUser)
+    next()
+  } catch (err) {
+    sendError(res, err)
+  }
+})
 
 function assertCronAuth(req) {
   const secret = process.env.CRON_SECRET?.trim()
@@ -65,8 +127,7 @@ function assertCronAuth(req) {
   const bearer = header.toLowerCase().startsWith('bearer ')
     ? header.slice(7).trim()
     : ''
-  const query = String(req.query?.secret || '')
-  if (bearer !== secret && query !== secret) {
+  if (bearer !== secret) {
     const err = new Error('אין הרשאה')
     err.status = 401
     throw err
@@ -124,6 +185,14 @@ app.post('/api/login', async (req, res) => {
       limit: 10,
       windowMs: 15 * 60_000,
     })
+    const phoneKey = phone.replace(/\D/g, '')
+    if (phoneKey) {
+      await assertRateLimit({
+        key: `login-phone:${phoneKey}`,
+        limit: 10,
+        windowMs: 15 * 60_000,
+      })
+    }
     const result = await loginByPhone(phone, {
       password: req.body?.password,
       passwordConfirm: req.body?.passwordConfirm,
@@ -164,6 +233,41 @@ app.post('/api/bug-reports', async (req, res) => {
     })
     const user = verifySessionToken(getBearerToken(req))
     res.status(201).json(await submitBugReport({ ...(req.body || {}), user }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/client-errors', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `client-error:${clientKey(req)}`,
+      limit: 20,
+      windowMs: 10 * 60_000,
+    })
+    const { message, stack, path } = req.body || {}
+    if (
+      typeof message !== 'string' ||
+      message.trim().length === 0 ||
+      message.length > 1000 ||
+      (stack != null && (typeof stack !== 'string' || stack.length > 6000)) ||
+      (path != null && (typeof path !== 'string' || path.length > 200))
+    ) {
+      const err = new Error('דיווח השגיאה אינו תקין')
+      err.status = 400
+      throw err
+    }
+    const item = await recordClientError({ message, stack, path }, req)
+    res.status(201).json({ id: item.id })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/admin/errors', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    res.json(await listSystemErrors(req.query))
   } catch (err) {
     sendError(res, err)
   }
@@ -213,6 +317,14 @@ app.post('/api/password-reset', async (req, res) => {
       limit: 5,
       windowMs: 15 * 60_000,
     })
+    const phoneKey = phone.replace(/\D/g, '')
+    if (phoneKey) {
+      await assertRateLimit({
+        key: `reset-phone:${phoneKey}`,
+        limit: 5,
+        windowMs: 15 * 60_000,
+      })
+    }
     res.json(await requestPasswordReset(phone))
   } catch (err) {
     sendError(res, err)
@@ -234,7 +346,7 @@ app.post('/api/register', async (req, res) => {
 
 app.get('/api/session', async (req, res) => {
   try {
-    const user = requireUser(req)
+    const user = req.activeUser || requireUser(req)
     if (user.role === 'super_admin') {
       res.json({ ...user, token: createSessionToken(user) })
       return
@@ -589,12 +701,8 @@ app.post('/api/resend-temp-password', async (req, res) => {
 
 app.post('/api/mail-test', async (req, res) => {
   try {
-    requireUser(req)
-    const to =
-      typeof req.body?.to === 'string' && req.body.to.trim()
-        ? req.body.to.trim()
-        : undefined
-    const result = await sendTestEmail({ to })
+    requireSuperAdmin(req)
+    const result = await sendTestEmail()
     res.json({
       ok: true,
       queued: result.queued,

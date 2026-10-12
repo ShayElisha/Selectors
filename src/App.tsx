@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Toaster } from 'sonner'
+import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
+import { postClientErrorRemote } from './api'
 import { AppProvider, useApp } from './context/AppContext'
 import { ThemeProvider, useTheme } from './lib/theme'
 import { Shell } from './components/Shell'
@@ -21,6 +23,7 @@ import { LoginPage } from './pages/LoginPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SuperAdminPage } from './pages/SuperAdminPage'
+import { AdminErrorsPage } from './pages/AdminErrorsPage'
 import { WorkerProfilePage } from './pages/WorkerProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
@@ -81,19 +84,92 @@ export default function App() {
     <ThemeProvider>
       <AppProvider>
         <AppToaster />
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/admin" element={<SuperAdminPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="/help" element={<HelpPage />} />
-          <Route path="/report" element={<ReportPage />} />
-          <Route path="/algorithm" element={<AlgorithmPage />} />
-          <Route path="/*" element={<ProtectedShell />} />
-        </Routes>
+        <ErrorReporter />
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/admin" element={<SuperAdminPage />} />
+            <Route path="/admin/errors" element={<AdminErrorsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/help" element={<HelpPage />} />
+            <Route path="/report" element={<ReportPage />} />
+            <Route path="/algorithm" element={<AlgorithmPage />} />
+            <Route path="/*" element={<ProtectedShell />} />
+          </Routes>
+        </ErrorBoundary>
       </AppProvider>
     </ThemeProvider>
   )
+}
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    void postClientErrorRemote({
+      message: error.message,
+      stack: `${error.stack || ''}\n${info.componentStack || ''}`,
+      path: window.location.pathname,
+    }).catch((reportError) => {
+      console.warn('client render error report failed', reportError)
+    })
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <main className="grid min-h-dvh place-items-center px-4 text-center">
+          <div>
+            <h1 className="font-display text-xl font-bold text-ink">אירעה שגיאה בטעינת המסך</h1>
+            <button
+              type="button"
+              className="ui-btn ui-btn-primary mt-4"
+              onClick={() => window.location.reload()}
+            >
+              טעינה מחדש
+            </button>
+          </div>
+        </main>
+      )
+    }
+    return this.props.children
+  }
+}
+
+function ErrorReporter() {
+  useEffect(() => {
+    const report = (error: unknown) => {
+      const value = error instanceof Error ? error : new Error(String(error))
+      void postClientErrorRemote({
+        message: value.message,
+        stack: value.stack,
+        path: window.location.pathname,
+      }).catch((reportError) => {
+        console.warn('client error report failed', reportError)
+      })
+    }
+    const onError = (event: ErrorEvent) => {
+      if (event.error) report(event.error)
+      else if (event.message) report(event.message)
+    }
+    const onRejection = (event: PromiseRejectionEvent) => report(event.reason)
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
+
+  return null
 }
 
 function AppToaster() {

@@ -30,7 +30,7 @@ describe('buildHandoverText', () => {
       date: '2026-09-27',
       shiftType: 'morning',
       lanes: [lane('a', 'מוביליות'), lane('b', 'מכס')],
-      workers: [worker('stay', 'אוריה כהן'), worker('done', 'אדיר דאי')],
+      workers: [worker('stay', 'עובד א'), worker('done', 'עובד ב')],
       activeLaneIds: ['a', 'b'],
       presentWorkerIds: ['stay', 'done'],
       workerWindows: { stay: '0600-1830', done: '0600-1500' },
@@ -56,7 +56,7 @@ describe('buildHandoverText', () => {
     expect(text).toContain('• מכס')
     expect(text).not.toContain('מוביליות')
     expect(text).toContain('ממשיכים לצהריים א')
-    expect(text).toContain('אוריה כהן')
-    expect(text).not.toContain('אדיר דאי')
+    expect(text).toContain('עובד א')
+    expect(text).not.toContain('עובד ב')
   })
 })
