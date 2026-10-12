@@ -6,9 +6,9 @@
   - `MONGODB_URI` — Atlas connection string for selectors, organizations, and accounts
   - `SESSION_SECRET` — unique random secret (32+ chars) for signing session tokens
   - `CRON_SECRET` — unique random secret for `/api/cron/load-rest`; Vercel Cron sends it in the `Authorization` header
-  - `SUPER_ADMIN_PHONE` and `SUPER_ADMIN_PASSWORD` — super-admin credentials; use a dedicated phone and a strong password
+  - `SUPER_ADMIN_PHONE`, `SUPER_ADMIN_PASSWORD`, and `SUPER_ADMIN_EMAIL` — super-admin credentials and destination for its sign-in verification codes; use a dedicated phone and a strong password
   - `APP_URL` — exact public production origin (for example `https://app.example.com`); required for production CORS and email links
-  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` — SMTP delivery for manager invitations, temporary passwords, password resets, and organization emails
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` — SMTP delivery for sign-in verification codes, manager invitations, temporary passwords, password resets, and organization emails
 - Required only when enabling the inspectors module:
   - `MONGODB_URI_INSPECTORS` — separate Atlas connection string for inspectors data
 - Optional:
@@ -16,7 +16,6 @@
   - `SMTP_FROM` — sender address; defaults to the authenticated SMTP mailbox
   - `SMTP_PASSWORD` — alias for `SMTP_PASS`
   - `MAIL_FROM` — alias for `SMTP_FROM`
-  - `SUPER_ADMIN_EMAIL` — destination for super-admin notifications; defaults to `SMTP_USER`
   - `APP_NAME` — application name used in emails
   - `PUBLIC_APP_URL` — fallback public app origin if `APP_URL` is not set
   - `ADMIN_EMAIL` — optional default manager email for data reset
@@ -41,6 +40,7 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 
 - Bearer token required for data / shifts / seed / audit
 - Login rate-limit: 10 attempts / 15 minutes per IP+phone and per phone (Mongo `rate_limits`)
+- Every successful password login requires a single-use email code, valid for 10 minutes and limited to 5 attempts
 - Rate-limit rows expire at the end of their configured window; system error records are retained for 90 days with MongoDB TTL indexes
 - Client error reports have a per-IP limit and a global cap of 5,000 reports per 24-hour window
 - Manager account status is checked on each organization API request; inactive managers lose access immediately
@@ -51,9 +51,9 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 
 ## After deploy
 
-1. Set all required values above in Vercel project env for Production and Preview
+1. Set all required values above in Vercel project env for Production and Preview, including the super-admin email and SMTP settings for verification codes
 2. Redeploy
-3. Log in once — old localStorage sessions without `token` must log in again
+3. Existing sessions issued before email verification was enabled must log in again
 
 ## Nightly load rest (02:00 Israel)
 

@@ -204,6 +204,58 @@ function superAdminIdentity(phone) {
   }
 }
 
+export async function loginEmailForIdentity(identity) {
+  if (identity?.role === 'super_admin') {
+    const email = normalizeEmail(process.env.SUPER_ADMIN_EMAIL)
+    if (isValidEmail(email)) return email
+    throw httpError('SUPER_ADMIN_EMAIL לא הוגדר ככתובת מייל תקינה בשרת', 503)
+  }
+
+  const account = await findAccountByPhone(identity?.phone)
+  if (!account || account.status !== 'active') {
+    throw httpError('מספר הטלפון או הסיסמה אינם נכונים', 401)
+  }
+  const email = normalizeEmail(account.email)
+  if (!isValidEmail(email)) {
+    throw httpError('לא הוגדרה כתובת מייל תקינה לאימות. פנו למנהל המערכת.', 503)
+  }
+  return email
+}
+
+export async function refreshLoginIdentity(identity) {
+  if (identity?.role === 'super_admin') {
+    const refreshed = superAdminIdentity(identity.phone)
+    if (!refreshed) throw httpError('נדרשת התחברות', 401)
+    return refreshed
+  }
+
+  const refreshed = await refreshManagerSession(identity)
+  const org = await getOrganization(refreshed.orgId)
+  const blocked = orgGate(org, refreshed.modules)
+  if (blocked) throw httpError(blocked.message, 401)
+  return refreshed
+}
+
+export async function recordSuccessfulLogin(
+  identity,
+  { passwordChanged = false } = {},
+) {
+  await appendAuditLog({
+    action: 'login',
+    actor: identity,
+    ...(identity.role === 'org_manager'
+      ? { orgId: identity.orgId, module: identity.module }
+      : {}),
+    details:
+      identity.role === 'super_admin'
+        ? 'התחברות סופר אדמין לאחר אימות דו־שלבי'
+        : passwordChanged
+          ? 'הגדרת סיסמה קבועה והתחברות לאחר אימות דו־שלבי'
+          : 'התחברות למערכת לאחר אימות דו־שלבי',
+  })
+  if (identity.role === 'org_manager') await touchOrgLogin(identity.orgId)
+}
+
 export async function registerOrganization(body) {
   const name = String(body?.organizationName || '').trim()
   const fullName = String(body?.fullName || '').trim()
@@ -582,11 +634,7 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
   if (superAdmin) {
     const expected = process.env.SUPER_ADMIN_PASSWORD || ''
     if (!passwordsMatch(password, expected)) throw httpError('סיסמה שגויה', 401)
-    await appendAuditLog({
-      action: 'login',
-      actor: identity,
-      details: 'התחברות סופר אדמין',
-    })
+    if (!credentials.deferLoginAudit) await recordSuccessfulLogin(identity)
     return identity
   }
 
@@ -622,25 +670,13 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
         $unset: { passwordExpiresAt: '' },
       },
     )
-    await appendAuditLog({
-      action: 'login',
-      actor: identity,
-      orgId: identity.orgId,
-      module: identity.module,
-      details: 'הגדרת סיסמה קבועה והתחברות',
-    })
-    await touchOrgLogin(identity.orgId)
+    if (!credentials.deferLoginAudit) {
+      await recordSuccessfulLogin(identity, { passwordChanged: true })
+    }
     return identity
   }
 
-  await appendAuditLog({
-    action: 'login',
-    actor: identity,
-    orgId: identity.orgId,
-    module: identity.module,
-    details: 'התחברות למערכת',
-  })
-  await touchOrgLogin(identity.orgId)
+  if (!credentials.deferLoginAudit) await recordSuccessfulLogin(identity)
   return identity
 }
 

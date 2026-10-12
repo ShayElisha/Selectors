@@ -58,6 +58,7 @@ export function createSessionToken(user) {
     module: user.module || null,
     isOrgManager: Boolean(user.isOrgManager),
     staffKind: user.staffKind || null,
+    mfa: true,
     exp: Date.now() + SESSION_TTL_MS,
   }
   const body = b64url(JSON.stringify(payload))
@@ -93,6 +94,7 @@ export function verifySessionToken(token) {
   try {
     const payload = JSON.parse(fromB64url(body).toString('utf8'))
     if (!payload?.id || !payload?.phone || !payload?.exp || !payload?.role) return null
+    if (payload.mfa !== true) return null
     if (payload.role !== 'super_admin' && payload.role !== 'org_manager') return null
     if (Date.now() > Number(payload.exp)) return null
     const module =

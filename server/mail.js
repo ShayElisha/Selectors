@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer'
 import {
   appDisplayName,
   buildModulesOpenedEmail,
+  buildLoginCodeEmail,
   buildNewOrganizationAdminEmail,
   buildOrganizationApprovedEmail,
   buildOrganizationCreatedEmail,
@@ -141,6 +142,20 @@ export async function sendTempPasswordEmail({
   reason,
 }) {
   const built = buildTempPasswordEmail({ fullName, tempPassword, reason })
+  return sendMail({
+    to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    attachments: withLogoAttachments(),
+  })
+}
+
+/**
+ * @param {{ to: string, fullName: string, code: string }} opts
+ */
+export async function sendLoginCodeEmail({ to, fullName, code }) {
+  const built = buildLoginCodeEmail({ fullName, code })
   return sendMail({
     to,
     subject: built.subject,

@@ -285,6 +285,43 @@ export function buildTempPasswordEmail({ fullName, tempPassword, reason }) {
   }
 }
 
+/**
+ * @param {{ fullName: string, code: string }} opts
+ */
+export function buildLoginCodeEmail({ fullName, code }) {
+  const title = 'קוד אימות להתחברות'
+  const bodyHtml = `
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:${BRAND.soft};">
+      השתמשו בקוד הבא כדי להשלים את ההתחברות. הקוד תקף למשך 10 דקות.
+    </p>
+    ${infoCard('קוד אימות — 6 ספרות', code)}
+    <p style="margin:0;padding:12px 14px;background:${BRAND.okSoft};border-radius:10px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:${BRAND.ok};">
+      אם לא ניסיתם להתחבר, התעלמו מהמייל ושנו את הסיסמה.
+    </p>
+  `
+  return {
+    subject: `${appDisplayName()} — ${title}`,
+    text: [
+      `שלום ${fullName || ''},`,
+      '',
+      'השתמשו בקוד הבא כדי להשלים את ההתחברות:',
+      '',
+      code,
+      '',
+      'הקוד תקף למשך 10 דקות וניתן להשתמש בו פעם אחת בלבד.',
+      'אם לא ניסיתם להתחבר, התעלמו מהמייל ושנו את הסיסמה.',
+      '',
+      appDisplayName(),
+    ].join('\n'),
+    html: renderBrandedEmail({
+      preheader: 'קוד חד-פעמי להשלמת התחברות',
+      title,
+      greeting: fullName || '',
+      bodyHtml,
+    }),
+  }
+}
+
 function infoCard(label, value) {
   return `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;background:${BRAND.surface};border:1px solid ${BRAND.line};border-radius:12px;">
