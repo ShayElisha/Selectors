@@ -38,14 +38,14 @@ function w(partial: Partial<Worker> & Pick<Worker, 'id' | 'fullName'>): Worker {
 describe('israeli phone', () => {
   it('validates mobile', () => {
     expect(isValidIsraeliMobile('050-867-6524')).toBe(true)
-    expect(isValidIsraeliMobile('[REDACTED]')).toBe(true)
+    expect(isValidIsraeliMobile('050-123-4567')).toBe(true)
     expect(isValidIsraeliMobile('03-1234567')).toBe(false)
     expect(isValidIsraeliMobile('050123')).toBe(false)
   })
 
   it('formats', () => {
-    expect(formatIsraeliMobile('[REDACTED]')).toBe('050-867-6524')
-    expect(digitsOnlyPhone('050-867-6524')).toBe('[REDACTED]')
+    expect(formatIsraeliMobile('0501234567')).toBe('050-123-4567')
+    expect(digitsOnlyPhone('050-123-4567')).toBe('0501234567')
   })
 })
 
@@ -236,7 +236,7 @@ describe('validation and history', () => {
     expect(
       validateWorkerForm({
         fullName: 'אביב',
-        phone: '[REDACTED]',
+        phone: '050-123-4567',
         certifications: [],
         status: 'active',
         isInspector: true,
@@ -247,7 +247,7 @@ describe('validation and history', () => {
     expect(
       validateWorkerForm({
         fullName: 'מנהל',
-        phone: '[REDACTED]',
+        phone: '050-123-4567',
         certifications: [],
         status: 'active',
         isInspector: false,

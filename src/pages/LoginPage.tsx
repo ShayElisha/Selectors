@@ -17,6 +17,7 @@ type Step =
   | 'phone'
   | 'login'
   | 'change_password'
+  | 'verify_email'
   | 'await_email'
   | 'reset'
   | 'reset_sent'
@@ -83,12 +84,15 @@ function PasswordField({
 }
 
 export function LoginPage() {
-  const { login, checkLogin, requestPasswordReset } = useApp()
+  const { login, verifyLoginCode, checkLogin, requestPasswordReset } = useApp()
   const [step, setStep] = useState<Step>('phone')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('')
+  const [challengeId, setChallengeId] = useState('')
+  const [emailHint, setEmailHint] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -113,9 +117,26 @@ export function LoginPage() {
     setPassword('')
     setNewPassword('')
     setNewPasswordConfirm('')
+    setChallengeId('')
+    setEmailHint('')
+    setVerificationCode('')
     setShowPassword(false)
     setShowNewPassword(false)
     setShowConfirm(false)
+  }
+
+  const beginEmailVerification = (result: {
+    challengeId: string
+    emailHint: string
+  }) => {
+    setPassword('')
+    setNewPassword('')
+    setNewPasswordConfirm('')
+    setChallengeId(result.challengeId)
+    setEmailHint(result.emailHint)
+    setVerificationCode('')
+    setInfo(null)
+    setStep('verify_email')
   }
 
   const submitPhone = async () => {
@@ -172,6 +193,10 @@ export function LoginPage() {
         return
       }
       if (next && typeof next === 'object') {
+        if (next.next === 'verify_email') {
+          beginEmailVerification(next)
+          return
+        }
         setInfo(next.message || null)
         setStep(next.next)
       }
@@ -195,12 +220,34 @@ export function LoginPage() {
     setBusy(true)
     setError(null)
     try {
-      await login(phoneTrimmed, password, {
+      const result = await login(phoneTrimmed, password, {
         newPassword,
         newPasswordConfirm,
       })
+      if (result && typeof result === 'object' && result.next === 'verify_email') {
+        beginEmailVerification(result)
+      } else if (result && typeof result === 'object') {
+        setInfo(result.message || null)
+        setStep(result.next)
+      }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'שמירת הסיסמה נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitVerificationCode = async () => {
+    if (!challengeId || !/^\d{6}$/.test(verificationCode)) {
+      setError('נא להזין קוד אימות בן 6 ספרות')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await verifyLoginCode(challengeId, verificationCode)
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'אימות הקוד נכשל')
     } finally {
       setBusy(false)
     }
@@ -240,29 +287,28 @@ export function LoginPage() {
       await submitChangePassword()
       return
     }
+    if (step === 'verify_email') {
+      await submitVerificationCode()
+      return
+    }
     if (step === 'reset') {
       await submitReset()
     }
   }
 
-  const subtitle =
-    step === 'phone' || step === 'login'
-      ? 'התחברות עם מספר הטלפון והסיסמה הקיימת'
-      : step === 'change_password'
-          ? 'הסיסמה הזו זמנית. יש להגדיר סיסמה קבועה חדשה'
-          : step === 'await_email'
-            ? 'לחשבון הזה עדיין אין סיסמה'
-            : step === 'pending_approval'
-              ? 'הארגון עדיין לא אושר'
-            : step === 'rejected'
-              ? 'בקשת הארגון נדחתה'
-              : step === 'suspended'
-                ? 'הגישה לארגון מושעית'
-                : step === 'no_modules'
-                  ? 'הארגון אושר, והמודולים עדיין סגורים'
-            : step === 'reset'
-              ? 'איפוס סיסמה — נשלח מייל עם קוד זמני'
-              : 'בדקו את תיבת המייל'
+  const subtitle = {
+    phone: 'התחברות עם מספר הטלפון והסיסמה הקיימת',
+    login: 'התחברות עם מספר הטלפון והסיסמה הקיימת',
+    change_password: 'הסיסמה הזו זמנית. יש להגדיר סיסמה קבועה חדשה',
+    verify_email: 'השלימו את ההתחברות עם קוד חד־פעמי',
+    await_email: 'לחשבון הזה עדיין אין סיסמה',
+    reset: 'איפוס סיסמה — נשלח מייל עם קוד זמני',
+    reset_sent: 'בדקו את תיבת המייל',
+    pending_approval: 'הארגון עדיין לא אושר',
+    rejected: 'בקשת הארגון נדחתה',
+    suspended: 'הגישה לארגון מושעית',
+    no_modules: 'הארגון אושר, והמודולים עדיין סגורים',
+  }[step]
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10 sm:py-12">
@@ -386,6 +432,38 @@ export function LoginPage() {
             </>
           )}
 
+          {step === 'verify_email' && (
+            <>
+              <div className="rounded-xl border border-line bg-surface/80 px-3 py-3 text-xs text-ink-soft sm:text-sm">
+                <p className="flex items-start gap-2">
+                  <Mail className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+                  הזינו את הקוד בן 6 הספרות שנשלח לכתובת {emailHint}. הקוד תקף
+                  ל־10 דקות וניתן להשתמש בו פעם אחת בלבד.
+                </p>
+              </div>
+              <div>
+                <FieldLabel htmlFor="login-verification-code">קוד אימות</FieldLabel>
+                <input
+                  id="login-verification-code"
+                  className="ui-field text-center font-mono text-lg tracking-[0.35em]"
+                  type="text"
+                  value={verificationCode}
+                  onChange={(event) => {
+                    setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    if (error) setError(null)
+                  }}
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  pattern="[0-9]{6}"
+                  disabled={busy}
+                  required
+                />
+              </div>
+            </>
+          )}
+
           {step === 'await_email' && (
             <div className="rounded-xl border border-line bg-surface/80 px-3 py-3 text-xs text-ink-soft sm:text-sm">
               <p className="flex items-start gap-2">
@@ -432,7 +510,8 @@ export function LoginPage() {
                 busy ||
                 (step === 'change_password' &&
                   (!passwordMeetsAllRules(newPassword) ||
-                    newPassword !== newPasswordConfirm))
+                    newPassword !== newPasswordConfirm)) ||
+                (step === 'verify_email' && verificationCode.length !== 6)
               }
               className="ui-btn ui-btn-primary w-full py-2.5 sm:py-3"
             >
@@ -441,7 +520,9 @@ export function LoginPage() {
                   <span className="page-loader page-loader--sm" aria-hidden />
                   {step === 'reset' || (step === 'phone' && !password)
                     ? 'שולח…'
-                    : 'מתחבר…'}
+                    : step === 'verify_email'
+                      ? 'מאמת…'
+                      : 'מתחבר…'}
                 </>
               ) : step === 'phone' && !password ? (
                 'המשך'
@@ -454,6 +535,11 @@ export function LoginPage() {
                 <>
                   <LogIn className="size-4" aria-hidden />
                   שמירת סיסמה והתחברות
+                </>
+              ) : step === 'verify_email' ? (
+                <>
+                  <LogIn className="size-4" aria-hidden />
+                  אימות והתחברות
                 </>
               ) : (
                 <>

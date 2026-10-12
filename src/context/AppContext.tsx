@@ -37,6 +37,7 @@ import {
   selfHealShiftRemote,
   saveShiftRemote,
   seedAppDataRemote,
+  verifyLoginCodeRemote,
   type LoginNextStep,
 } from '../api'
 import { notify } from '../lib/notify'
@@ -272,8 +273,14 @@ interface AppContextValue {
   ) => Promise<
     | void
     | 'change_password'
+    | {
+        next: 'verify_email'
+        challengeId: string
+        emailHint: string
+      }
     | { next: 'pending_approval' | 'rejected' | 'suspended' | 'no_modules' | 'await_email'; message?: string }
   >
+  verifyLoginCode: (challengeId: string, code: string) => Promise<void>
   /** Phone-only probe: which login UI to show next. */
   checkLogin: (
     phone: string,
@@ -948,6 +955,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const session = await loginRemote(phone, password, opts)
       if ('next' in session && session.next) {
         if (session.next === 'change_password') return 'change_password'
+        if (session.next === 'verify_email') {
+          if (!session.challengeId || !session.emailHint) {
+            throw new Error('לא התקבלו פרטי אימות דו־שלבי')
+          }
+          return {
+            next: 'verify_email' as const,
+            challengeId: session.challengeId,
+            emailHint: session.emailHint,
+          }
+        }
         if (
           session.next === 'pending_approval' ||
           session.next === 'rejected' ||
@@ -965,6 +982,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : 'לא התקבל טוקן התחברות',
         )
       }
+      saveSession(session)
+      setUser(session)
+      navigate(session.role === 'super_admin' ? '/admin' : '/', { replace: true })
+    },
+    [navigate],
+  )
+
+  const verifyLoginCode = useCallback(
+    async (challengeId: string, code: string) => {
+      const session = await verifyLoginCodeRemote(challengeId, code)
       saveSession(session)
       setUser(session)
       navigate(session.role === 'super_admin' ? '/admin' : '/', { replace: true })
@@ -3513,6 +3540,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       orgProfile,
       saveOrgProfile,
       login,
+      verifyLoginCode,
       checkLogin,
       requestPasswordReset,
       resendManagerTempPassword,
@@ -3607,6 +3635,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       assigning,
       assignProgress,
       login,
+      verifyLoginCode,
       checkLogin,
       requestPasswordReset,
       resendManagerTempPassword,

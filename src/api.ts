@@ -127,6 +127,16 @@ export type LoginNextStep =
   | 'suspended'
   | 'no_modules'
 
+export type LoginResponse =
+  | (SessionUser & { token: string })
+  | {
+      next: LoginNextStep | 'verify_email'
+      phone?: string
+      message?: string
+      challengeId?: string
+      emailHint?: string
+    }
+
 export function checkLoginRemote(
   phone: string,
 ): Promise<{ next: LoginNextStep; phone: string; message?: string }> {
@@ -146,11 +156,8 @@ export function loginRemote(
     newPassword?: string
     newPasswordConfirm?: string
   },
-): Promise<
-  | (SessionUser & { token: string })
-  | { next: LoginNextStep; phone: string; message?: string }
-> {
-  return request('/api/login', {
+): Promise<LoginResponse> {
+  return request<LoginResponse>('/api/login', {
     method: 'POST',
     body: JSON.stringify({
       phone,
@@ -162,6 +169,16 @@ export function loginRemote(
           }
         : {}),
     }),
+  })
+}
+
+export function verifyLoginCodeRemote(
+  challengeId: string,
+  code: string,
+): Promise<SessionUser & { token: string }> {
+  return request('/api/login/verify', {
+    method: 'POST',
+    body: JSON.stringify({ challengeId, code }),
   })
 }
 

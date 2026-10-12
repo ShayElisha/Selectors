@@ -28,10 +28,11 @@ import {
 import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, loginEmailForIdentity, purgeOrganization, readOrgAssignmentSettings, recordSuccessfulLogin, refreshLoginIdentity, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
+import { createLoginChallenge, verifyLoginChallenge } from './loginChallenge.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 import { listSystemMessages, createSystemMessage } from './messages.js'
 import { runDailyLoadRest, scheduleLocalLoadRestCron } from './loadRest.js'
@@ -188,13 +189,41 @@ app.post('/api/login', async (req, res) => {
       passwordConfirm: req.body?.passwordConfirm,
       newPassword: req.body?.newPassword,
       newPasswordConfirm: req.body?.newPasswordConfirm,
+      deferLoginAudit: true,
     })
     if (result.next) {
       res.json(result)
       return
     }
-    const token = createSessionToken(result)
-    res.json({ ...result, token })
+    const email = await loginEmailForIdentity(result)
+    res.json(
+      await createLoginChallenge(result, {
+        email,
+        passwordChanged: Boolean(req.body?.newPassword),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/login/verify', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `login-code:${clientKey(req)}`,
+      limit: 30,
+      windowMs: 15 * 60_000,
+    })
+    const challenge = await verifyLoginChallenge(
+      req.body?.challengeId,
+      req.body?.code,
+    )
+    const user = await refreshLoginIdentity(challenge.identity)
+    await recordSuccessfulLogin(user, {
+      passwordChanged: challenge.passwordChanged,
+    })
+    const token = createSessionToken(user)
+    res.json({ ...user, token })
   } catch (err) {
     sendError(res, err)
   }
