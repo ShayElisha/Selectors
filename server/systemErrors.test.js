@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { collection } = vi.hoisted(() => ({
-  collection: { insertOne: vi.fn() },
+  collection: {
+    insertOne: vi.fn(),
+    createIndex: vi.fn(),
+    updateMany: vi.fn(),
+  },
 }))
 
 vi.mock('./db.js', () => ({
@@ -13,6 +17,8 @@ import { recordSystemError } from './systemErrors.js'
 describe('system error logging', () => {
   beforeEach(() => {
     collection.insertOne.mockReset()
+    collection.createIndex.mockResolvedValue('expiresAt_1')
+    collection.updateMany.mockResolvedValue({ modifiedCount: 0 })
   })
 
   it('stores bounded records while redacting credentials and personal contact details', async () => {
@@ -33,5 +39,11 @@ describe('system error logging', () => {
     expect(result.message).not.toContain('050-1234567')
     expect(result.actor).toEqual({ id: 'user-1', role: 'org_manager' })
     expect(collection.insertOne).toHaveBeenCalledWith(result)
+    expect(collection.createIndex).toHaveBeenCalledWith(
+      { expiresAt: 1 },
+      { expireAfterSeconds: 0 },
+    )
+    expect(result.expiresAt).toBeInstanceOf(Date)
+    expect(collection.updateMany).toHaveBeenCalled()
   })
 })

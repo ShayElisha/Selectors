@@ -24,6 +24,7 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 
 - Bearer session token required for data / shifts / seed / audit
 - Login rate-limit: 10 attempts / 15 minutes per IP+phone and per phone (Mongo `rate_limits`)
+- Rate-limit rows expire at the end of their configured window; system error records are retained for 90 days with MongoDB TTL indexes
 - Manager account status is checked on each organization API request; inactive managers lose access immediately
 - Cron authorization uses the `Authorization: Bearer <CRON_SECRET>` header only
 - CORS allows the configured app origin; production CSP permits Google Fonts and loads the early theme initializer as a same-origin script

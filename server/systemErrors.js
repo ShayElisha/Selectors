@@ -7,6 +7,43 @@ const SENSITIVE_PATTERNS = [
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
   /\b(?:\+?\d[\d\s().-]{7,}\d)\b/g,
 ]
+const RETENTION_DAYS = 90
+let indexPromise
+
+async function ensureSystemErrorIndexes(collection) {
+  if (!indexPromise) {
+    indexPromise = (async () => {
+      await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+      await collection.updateMany(
+        { expiresAt: { $exists: false } },
+        [
+          {
+            $set: {
+              expiresAt: {
+                $dateAdd: {
+                  startDate: {
+                    $convert: {
+                      input: '$at',
+                      to: 'date',
+                      onError: new Date(),
+                      onNull: new Date(),
+                    },
+                  },
+                  unit: 'day',
+                  amount: RETENTION_DAYS,
+                },
+              },
+            },
+          },
+        ],
+      )
+    })().catch((error) => {
+      indexPromise = null
+      throw error
+    })
+  }
+  await indexPromise
+}
 
 function cleanText(value, maxLength) {
   let text = String(value || '')
@@ -36,11 +73,13 @@ export async function recordSystemError({
   module,
 }) {
   const col = await getSystemErrorCollection()
+  await ensureSystemErrorIndexes(col)
   const message = cleanText(error?.message || error || 'Unknown error', 1000)
   const stack = cleanText(error?.stack || '', 6000)
   const doc = {
     id: randomUUID(),
     at: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + RETENTION_DAYS * 24 * 60 * 60 * 1000),
     source,
     status: Number.isFinite(Number(status)) ? Number(status) : 500,
     method: cleanText(method, 12),
@@ -90,6 +129,7 @@ export async function listSystemErrors(query = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100)
   const offset = Math.max(Number(query.offset) || 0, 0)
   const col = await getSystemErrorCollection()
+  await ensureSystemErrorIndexes(col)
   const [total, items] = await Promise.all([
     col.countDocuments(),
     col
