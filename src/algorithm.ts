@@ -3228,8 +3228,12 @@ export function runAssignmentAlgorithm(
     activeLanes.some((l) => l.afternoonHandoff) &&
     !morningCtx?.found
   ) {
+    const handoffNames = activeLanes
+      .filter((l) => l.afternoonHandoff)
+      .map((l) => l.name)
+      .join(', ')
     warnings.push(
-      'אין שיבוץ בוקר שמור להיום — כללי החלפת צהריים (מכס) פועלים חלקית בלבד',
+      `אין שיבוץ בוקר שמור להיום — כללי החלפת צהריים (${handoffNames}) פועלים חלקית בלבד`,
     )
   }
 

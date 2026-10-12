@@ -1603,6 +1603,117 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
     expect(note?.reasons.some((reason) => reason.includes('לילה'))).toBe(true)
   })
 
+  it('falls back to another morning continuer only when the occupant does not continue', () => {
+    // Rule 3: no certified afternoon arrival AND the lane's own morning
+    // occupant is not working the afternoon → only then pull a different
+    // morning worker (tier 2) onto the swap seat.
+    const otherMorning = worker('x', 'OtherMorning')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [
+          { laneId: 'customs', workerIds: ['c'] }, // occupant 'c' went home
+          { laneId: 'easy', workerIds: ['x'] },
+        ],
+        ['c', 'x'],
+        ['customs', 'easy'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs, easy],
+      [otherMorning], // only the other morning worker came for the afternoon
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 41 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    expect(customsIds).toEqual(['x'])
+  })
+
+  it('reclassifies an afternoon arrival who is listed in the morning presentWorkerIds', () => {
+    // Root-cause documentation: a worker is "afternoon-only" (tier 0) ONLY when
+    // they are NOT in the morning shift's presentWorkerIds / assignments.
+    // If the morning board lists them as present (even unseated), they become a
+    // morning worker (tier 2) and the morning occupant (tier 1) wins מכס.
+    // Fix on the data side: do NOT mark afternoon-only staff as present in the
+    // morning board — "present" means present for THAT shift.
+    const occupant = worker('c', 'Occupant')
+    const freshArrival = worker('o', 'AfternoonOnly')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['c'] }],
+        ['c', 'o'], // 'o' is (incorrectly) marked present in the morning
+        ['customs'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs],
+      [occupant, freshArrival],
+      history,
+      [customs],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 55 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    // The occupant wins because the arrival was reclassified as a morning worker.
+    expect(customsIds).toEqual(['c'])
+  })
+
+  it('warns and disables tier logic when no morning board is saved', () => {
+    const occupant = worker('c', 'Occupant')
+    const freshArrival = worker('o', 'AfternoonOnly')
+    // No history at all: morningCtx.found === false → everyone is tier 0.
+    const result = runAssignmentAlgorithm(
+      [customs],
+      [occupant, freshArrival],
+      [], // empty history
+      [customs],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 56 },
+    )
+    // Without a morning board the handoff rules cannot run at all — the
+    // algorithm warns and treats everyone as an afternoon arrival.
+    expect(result.warnings.some((w) => w.includes('אין שיבוץ בוקר'))).toBe(true)
+  })
+
+  it('keeps the occupant when certified arrivals are absent but uncertified arrivals exist', () => {
+    // Rule 1 (with certifications): the lane requires a certification, so a
+    // fresh afternoon arrival WITHOUT it is not a candidate at all — the
+    // morning occupant (certified, continuing) must stay.
+    const customsCert = lane('customs', 'מכס', {
+      intensity: 'medium',
+      afternoonHandoff: true,
+      requiredCertifications: ['customs'],
+    })
+    const occupant = worker('c', 'Continuer', ['customs'])
+    const freshNoCert = worker('f', 'FreshNoCert', [])
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['c'] }],
+        ['c'],
+        ['customs'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customsCert],
+      [occupant, freshNoCert],
+      history,
+      [customsCert],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 42 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    expect(customsIds).toEqual(['c'])
+  })
+
   it('still seats the last occupant when they are the only qualified person', () => {
     const dana = worker('dana', 'דנה', ['forklift'])
     const other = worker('other', 'אחר')

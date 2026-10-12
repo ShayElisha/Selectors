@@ -1,5 +1,6 @@
 import {
   buildLaneLastSeatings,
+  buildSameDayMorningContext,
   buildWorkerProfile,
   isQualified,
   placementBalancePoints,
@@ -240,6 +241,14 @@ function planLaneRemoval(
     args.draft.date,
     args.draft.shiftType,
   )
+  // Afternoon handoff lanes (e.g. מכס) must keep their morning→afternoon
+  // rules during a real-time refill: prefer a certified afternoon arrival,
+  // else let the lane's own morning occupant stay, else pull another morning
+  // worker. Without this context every candidate looks like a fresh arrival.
+  const morningCtx =
+    args.draft.shiftType === 'afternoon'
+      ? buildSameDayMorningContext(args.history, args.draft.date)
+      : null
   const end =
     args.endMinutes <= args.startMinutes ? args.endMinutes + 24 * 60 : args.endMinutes
   const span = Math.max(1, end - args.startMinutes)
@@ -290,7 +299,7 @@ function planLaneRemoval(
       profiles,
       otherOpen: [],
       currentShiftType: args.draft.shiftType,
-      morning: null,
+      morning: morningCtx,
       recoveringIds: new Set(),
       lastSeatings,
     })
@@ -313,7 +322,7 @@ function planLaneRemoval(
         profiles,
         otherOpen: [],
         currentShiftType: args.draft.shiftType,
-        morning: null,
+        morning: morningCtx,
         lastSeatings,
         recoveringIds: new Set(),
       })
