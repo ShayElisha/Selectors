@@ -28,7 +28,7 @@ import {
 import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, purgeOrganization, readOrgAssignmentSettings, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -337,7 +337,7 @@ app.get('/api/session', async (req, res) => {
       res.json({ ...user, token: createSessionToken(user) })
       return
     }
-    const fresh = await refreshManagerSession(user)
+    const fresh = req.activeUser || await refreshManagerSession(user)
     const requested = String(req.headers['x-app-module'] || '')
     if (
       (requested === 'selectors' || requested === 'inspectors') &&
