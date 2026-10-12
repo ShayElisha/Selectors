@@ -114,35 +114,6 @@ function modulesForAccount(account, org) {
   return { selectors: enabled.selectors, inspectors: false }
 }
 
-function isLegacySiteManager(account) {
-  const phone = normalizePhone(account?.phone)
-  return account?.fullName === 'שי אלישע' || phone === '0537171884'
-}
-
-/** The original inspectors manager is an organization manager and sees every open module. */
-async function recognizeModuleOrgManager(account, org) {
-  if (!account || account.isOrgManager || !isLegacySiteManager(account)) return account
-  if (account.staffKind !== 'inspector') return account
-  if (!process.env.MONGODB_URI_INSPECTORS?.trim()) return account
-  const db = await getDb('inspectors')
-  const phone = normalizePhone(account.phone)
-  const workers = await db
-    .collection('workers')
-    .find({ orgId: String(org._id), module: 'inspectors' })
-    .toArray()
-  const worker = workers.find((item) => normalizePhone(item.phone) === phone)
-  if (!worker) return account
-  if (worker && !worker.isOrgManager) {
-    await db.collection('workers').updateOne(
-      { _id: worker._id },
-      { $set: { isOrgManager: true, isManager: true } },
-    )
-  }
-  const accountCol = await accounts()
-  await accountCol.updateOne({ _id: account._id }, { $set: { isOrgManager: true } })
-  return { ...account, isOrgManager: true }
-}
-
 export async function refreshManagerSession(user) {
   if (!user?.orgId || user.role !== 'org_manager') {
     throw httpError('נדרשת התחברות', 401)
@@ -156,10 +127,9 @@ export async function refreshManagerSession(user) {
       phone: normalizePhone(user.phone),
       orgId: String(user.orgId),
     }))
-  if (!account || account.status === 'inactive') {
-    throw httpError('אין הרשאת מנהל למספר זה', 401)
+  if (!account || (account.status && account.status !== 'active')) {
+    throw httpError('החשבון אינו זמין. בדקו את פרטי הכניסה או פנו למנהל המערכת.', 401)
   }
-  account = await recognizeModuleOrgManager(account, org)
   const session = sessionFromAccount(account, org)
   if (user.module && session.modules[user.module]) session.module = user.module
   return session
@@ -584,19 +554,22 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
 
   const superAdmin = superAdminIdentity(phone)
   let account = superAdmin ? null : await findAccountByPhone(phone)
-  if (!superAdmin && !account) throw httpError('אין הרשאת מנהל למספר זה', 401)
+  const password = typeof credentials.password === 'string' ? credentials.password : ''
+  if (!password) return { next: 'login', phone }
+
+  if (!superAdmin && !account) {
+    throw httpError('מספר הטלפון או הסיסמה אינם נכונים', 401)
+  }
 
   const org = account ? await getOrganization(account.orgId) : null
-  if (account && org) account = await recognizeModuleOrgManager(account, org)
   if (account && !org) throw httpError('הארגון לא נמצא', 401)
-  if (account && account.status === 'inactive') {
-    throw httpError('אין הרשאת מנהל למספר זה', 401)
+  if (account && account.status !== 'active') {
+    throw httpError('מספר הטלפון או הסיסמה אינם נכונים', 401)
   }
 
   const identity = superAdmin || sessionFromAccount(account, org)
   const storedHash = superAdmin ? '' : account.passwordHash || ''
   const mustChangePassword = superAdmin ? false : Boolean(account.mustChangePassword)
-  const password = typeof credentials.password === 'string' ? credentials.password : ''
   const newPassword =
     typeof credentials.newPassword === 'string' ? credentials.newPassword : ''
   const newPasswordConfirm =
@@ -605,26 +578,6 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
       : typeof credentials.passwordConfirm === 'string'
         ? credentials.passwordConfirm
         : ''
-
-  if (!password) {
-    if (!superAdmin && !storedHash) {
-      return {
-        next: 'await_email',
-        phone,
-        message:
-          'טרם הוגדרה סיסמה. פנו למנהל שישלח סיסמה זמנית למייל, או השתמשו באיפוס סיסמה.',
-      }
-    }
-    if (!superAdmin) {
-      const blocked = orgGate(org, modulesForAccount(account, org))
-      if (blocked) return { ...blocked, phone }
-    }
-    return {
-      next: mustChangePassword ? 'change_password' : 'login',
-      phone,
-      mustChangePassword,
-    }
-  }
 
   if (superAdmin) {
     const expected = process.env.SUPER_ADMIN_PASSWORD || ''
@@ -644,7 +597,7 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
     )
   }
   const ok = await verifyPassword(password, storedHash)
-  if (!ok) throw httpError('סיסמה שגויה', 401)
+  if (!ok) throw httpError('מספר הטלפון או הסיסמה אינם נכונים', 401)
   if (mustChangePassword && tempPasswordExpired(account.passwordExpiresAt)) {
     throw httpError('הסיסמה הזמנית פגה אחרי 24 שעות. בקשו סיסמה חדשה.', 400)
   }

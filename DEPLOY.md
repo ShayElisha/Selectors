@@ -9,6 +9,8 @@
 
 ## Atlas network
 
+Set `APP_URL` to the exact public site origin so the API CORS allowlist matches it.
+
 1. Atlas → Network Access
 2. Prefer IP allowlist (Vercel egress / office IPs) instead of `0.0.0.0/0`
 3. Enable Atlas continuous backup / point-in-time restore for the cluster
@@ -21,7 +23,10 @@
 ## API protections (built-in)
 
 - Bearer session token required for data / shifts / seed / audit
-- Login rate-limit: 10 attempts / 15 minutes per IP+phone (Mongo `rate_limits`)
+- Login rate-limit: 10 attempts / 15 minutes per IP+phone and per phone (Mongo `rate_limits`)
+- Manager account status is checked on each organization API request; inactive managers lose access immediately
+- Cron authorization uses the `Authorization: Bearer <CRON_SECRET>` header only
+- CORS allows the configured app origin; production pages receive a CSP and security headers
 - Seed requires body `{ "confirm": "RESET" }` plus auth
 - Optimistic locking via `revision` — concurrent writes return `409`
 

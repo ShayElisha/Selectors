@@ -337,7 +337,7 @@ export function AuditPage() {
                     type="text"
                     value={actorName}
                     onChange={(e) => setActorName(e.target.value)}
-                    placeholder="למשל שי אלישע"
+                    placeholder="למשל שם עובד"
                     className="ui-field !py-2 text-sm"
                   />
                 </div>
