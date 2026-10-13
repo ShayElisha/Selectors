@@ -682,7 +682,7 @@ export function ShiftPage() {
         </p>
       ) : null}
       {shiftStep !== 'board' ? (
-      <div className="ui-panel-solid flex flex-wrap items-end gap-3 p-3.5 sm:rounded-2xl sm:p-4">
+      <div className="ui-panel-solid flex flex-wrap items-end gap-3 rounded-2xl border-brand/10 bg-gradient-to-l from-brand/[0.045] via-card to-card p-4 shadow-[var(--shadow-panel)] sm:p-5">
         <label className="text-xs sm:text-sm">
           <span className="mb-1.5 block text-[10px] font-medium text-ink-soft sm:text-xs">
             תאריך
@@ -820,12 +820,12 @@ export function ShiftPage() {
                 }}
                 className={`flex w-full flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-center transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:gap-1 sm:px-2 sm:py-2.5 ${
                   active
-                    ? 'bg-brand text-white shadow-sm'
+                    ? 'bg-brand text-white shadow-md ring-2 ring-brand/15 ring-offset-2 ring-offset-card'
                     : done
-                      ? 'bg-ok-soft text-ok'
+                      ? 'bg-ok-soft text-ok ring-1 ring-ok/15'
                       : blocked
-                        ? 'bg-card text-ink-soft/50 ring-1 ring-line'
-                      : 'bg-card text-ink-soft ring-1 ring-line'
+                        ? 'bg-card text-ink-soft/50 ring-1 ring-line/80'
+                      : 'bg-card text-ink-soft ring-1 ring-line/80 hover:border-brand/20 hover:text-ink'
                 }`}
               >
                 <span className="inline-flex items-center gap-1.5 text-[12px] font-bold sm:text-[13px]">
@@ -863,7 +863,7 @@ export function ShiftPage() {
       ) : null}
 
       {shiftStep === 'lanes' && (
-        <section className="ui-panel-solid p-4 sm:rounded-2xl sm:p-5">
+        <section className="ui-panel-solid rounded-2xl border-brand/10 p-4 shadow-[var(--shadow-panel)] sm:p-5">
           {selectableLanes.length === 0 ? (
             <div className="ui-empty">
               <p className="ui-empty-title">עדיין אין נתיבים</p>
@@ -878,7 +878,7 @@ export function ShiftPage() {
             </div>
           ) : (
             <>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line/70 pb-3">
             <div>
               <h2 className="ui-title">בחירת נתיבים פעילים</h2>
                   <p className="mt-1 text-[13px] text-ink-soft tabular-nums">
@@ -957,10 +957,10 @@ export function ShiftPage() {
               return (
                 <li key={lane.id}>
                       <div
-                        className={`flex min-h-14 w-full items-center gap-2 rounded-xl border px-2.5 py-1.5 transition sm:gap-3 sm:px-3 ${
+                        className={`flex min-h-[4.25rem] w-full items-center gap-3 rounded-2xl border px-3 py-2 transition duration-150 sm:gap-4 sm:px-4 ${
                           on
-                            ? 'border-brand bg-brand/5 ring-1 ring-brand/25'
-                            : 'border-line bg-card hover:border-brand/25'
+                            ? 'border-brand/35 bg-brand/[0.045] shadow-sm ring-1 ring-brand/15'
+                            : 'border-line/80 bg-card hover:border-brand/25 hover:shadow-sm'
                         }`}
                       >
                   <button
@@ -1029,7 +1029,7 @@ export function ShiftPage() {
                             on ? '' : 'opacity-40'
                           }`}
                         >
-                          <div className="inline-flex rounded-lg bg-surface p-0.5 ring-1 ring-line">
+                          <div className="inline-flex rounded-xl bg-surface p-1 ring-1 ring-line/80">
                             {staffingChoicesForLane(lane).map((n) => (
                               <button
                                 key={n}
@@ -1040,7 +1040,7 @@ export function ShiftPage() {
                                 onClick={() =>
                                   setLaneStaffingStandard(lane.id, n)
                                 }
-                                className={`min-h-9 min-w-9 rounded-md text-[13px] font-bold tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed ${
+                                className={`min-h-10 min-w-10 rounded-lg text-[13px] font-bold tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed ${
                                   std === n && on
                                     ? 'bg-brand text-white'
                                     : 'text-ink-soft'
@@ -1071,7 +1071,7 @@ export function ShiftPage() {
       )}
 
       {shiftStep === 'attendance' && (
-        <section className="ui-panel-solid p-4 sm:rounded-2xl sm:p-5">
+        <section className="ui-panel-solid rounded-2xl border-brand/10 p-4 shadow-[var(--shadow-panel)] sm:p-5">
           {attendanceWorkers.length === 0 ? (
             <div className="ui-empty">
               <p className="ui-empty-title">אין בודקים פעילים</p>
