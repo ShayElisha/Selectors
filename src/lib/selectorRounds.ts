@@ -16,6 +16,7 @@ import type {
   Worker,
 } from '../types'
 import { isGateManagerLane } from './gateManager'
+import { compareLaneNames } from './lanesCertHelpers'
 import {
   boardStartMinutes,
   laneOpenDuring,
@@ -84,7 +85,7 @@ export function selectorLanes(lanes: Lane[], activeLaneIds: string[]): Lane[] {
     if (!lane || isGateManagerLane(lane)) continue
     out.push(lane)
   }
-  return out
+  return out.sort(compareLaneNames)
 }
 
 function buildAssignmentWindows(args: {
