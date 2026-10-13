@@ -1494,8 +1494,8 @@ export function WorkersPage() {
                     return (
                       <li
                         key={w.id}
-                        className={`rounded-xl border border-line/70 bg-card p-3 ${
-                          inactive ? 'opacity-60' : ''
+                        className={`rounded-2xl border border-line/80 bg-card p-4 shadow-[var(--shadow-panel)] transition-shadow hover:shadow-[var(--shadow-panel-hover)] ${
+                          inactive ? 'bg-surface/60' : ''
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">

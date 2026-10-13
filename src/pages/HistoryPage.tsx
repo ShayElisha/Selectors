@@ -894,7 +894,7 @@ export function HistoryPage() {
                   הדגש חזרות לאותו נתיב
                 </label>
               </div>
-              <div className="-mx-1 min-w-0 overflow-x-auto overscroll-x-contain rounded-xl border border-line sm:mx-0">
+              <div className="-mx-1 min-w-0 overflow-x-auto overscroll-x-contain rounded-2xl border border-line/80 shadow-[var(--shadow-panel)] sm:mx-0">
                 <table className="w-max min-w-full border-collapse text-end text-xs">
                   <thead>
                     <tr className="bg-brand-deep text-white">

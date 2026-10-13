@@ -1159,7 +1159,7 @@ export function LanesPage() {
                 return (
                   <li
                     key={l.id}
-                    className="rounded-xl border border-line/70 bg-card p-3"
+                    className="rounded-2xl border border-line/80 bg-card p-4 shadow-[var(--shadow-panel)] transition-shadow hover:shadow-[var(--shadow-panel-hover)]"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
