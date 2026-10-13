@@ -7,6 +7,7 @@ import { SHIFT_TYPE_LABELS } from '../constants'
 import { isQualified } from '../algorithm'
 import { formatShiftDate } from '../lib/hebrew'
 import { isGateManagerLane } from '../lib/gateManager'
+import { avatarColor } from '../lib/avatarColor'
 import {
   formatIsraeliMobile,
   orderedCertifications,
@@ -100,7 +101,7 @@ export function WorkerProfilePage() {
         subtitle={`פרופיל ${noun}`}
         actions={
           <span
-            className="flex size-12 items-center justify-center rounded-full bg-brand text-sm font-bold text-white"
+            className={`flex size-12 items-center justify-center rounded-full text-sm font-bold ${avatarColor(worker.fullName)}`}
             aria-hidden
           >
             {personInitials(worker.fullName)}

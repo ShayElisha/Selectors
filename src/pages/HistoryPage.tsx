@@ -395,7 +395,7 @@ function ShiftAccordion({
                 type="button"
                 role="menuitem"
                 aria-label={deleteLabel}
-                className="flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium text-hard hover:bg-hard-soft"
+                className="ui-btn-danger-ghost flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium"
                 onClick={() => {
                   setMenuOpen(false)
                   onRequestDelete()
@@ -1089,7 +1089,7 @@ export function HistoryPage() {
                 <button
                   type="button"
                   role="menuitem"
-                  className="block w-full px-3 py-2 text-start text-[13px] font-semibold text-hard hover:bg-hard-soft"
+                  className="ui-btn-danger-ghost block w-full px-3 py-2 text-start text-[13px] font-semibold"
                   onClick={() => {
                     setDangerMenuOpen(false)
                     setResetTyped('')

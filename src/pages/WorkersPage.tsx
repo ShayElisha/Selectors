@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { avatarColor } from '../lib/avatarColor'
 import { AnchoredMenu } from '../components/AnchoredMenu'
 import {
   EmptyState,
@@ -228,7 +229,7 @@ function SegmentedTwo<T extends string>({
 function WorkerAvatar({ name }: { name: string }) {
   return (
     <span
-      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white"
+      className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${avatarColor(name)}`}
       aria-hidden
     >
       {personInitials(name)}
@@ -790,7 +791,7 @@ function RowMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold text-hard hover:bg-hard-soft"
+            className="ui-btn-danger-ghost flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold"
             onClick={() => {
               setOpen(false)
               onDelete()

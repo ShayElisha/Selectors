@@ -33,6 +33,7 @@ import {
 import { currentShiftModel, resolveShiftModels } from '../lib/shiftModels'
 import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
+import { avatarColor } from '../lib/avatarColor'
 import { ThemeToggle } from './ThemeToggle'
 
 type NavItem = { id: View; label: string; icon: typeof Home }
@@ -111,9 +112,9 @@ function NavButton({
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`relative inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+      className={`relative inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 ${
         active
-          ? 'bg-brand text-white shadow-sm'
+          ? 'bg-brand/10 font-semibold text-brand'
           : 'text-ink-soft hover:bg-surface/70 hover:text-ink'
       }`}
     >
@@ -335,7 +336,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="mb-1.5 flex items-center gap-2.5">
             <BrandMark className="size-11" />
             <div className="min-w-0">
-              <h1 className="font-display text-[1.65rem] font-bold leading-none tracking-tight text-ink sm:text-[2rem]">
+              <h1 className="ui-page-title font-display tracking-tight">
                 שיבוצון
               </h1>
               <p className="mt-1 flex flex-wrap items-center gap-1.5 break-words text-[13px] text-ink-soft sm:text-sm">
@@ -422,7 +423,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 aria-label="תפריט משתמש"
                 className="group inline-flex items-center gap-2 rounded-full border border-line/80 bg-card/90 py-1 pe-2.5 ps-1 shadow-sm backdrop-blur-md transition hover:border-brand/25 hover:bg-card"
               >
-                <span className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-deep text-[11px] font-bold tracking-wide text-white">
+                <span className={`flex size-8 items-center justify-center rounded-full text-[11px] font-bold tracking-wide ${avatarColor(user.fullName)}`}>
                   {initials(user.fullName)}
                 </span>
                 <span className="max-w-[7.5rem] truncate text-xs font-semibold text-ink sm:max-w-[9rem]">
@@ -643,7 +644,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     aria-current={active ? 'page' : undefined}
                     className={`flex items-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition ${
                       active
-                        ? 'border-brand/30 bg-brand/8 text-brand'
+                        ? 'border-brand/20 bg-brand/10 text-brand'
                         : 'border-line bg-surface text-ink hover:border-brand/20'
                     }`}
                   >
@@ -672,7 +673,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 onClick={() => go(item.id)}
                 aria-current={active ? 'page' : undefined}
                 className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 text-[11px] font-semibold tracking-wide transition ${
-                  active ? 'text-brand' : 'text-ink-soft hover:text-ink'
+                  active
+                    ? 'bg-brand/10 text-brand'
+                    : 'text-ink-soft hover:bg-surface/70 hover:text-ink'
                 }`}
               >
                 <Icon
