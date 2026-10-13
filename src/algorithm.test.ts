@@ -449,24 +449,24 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
         'recent-1',
         '2026-03-15',
         'morning',
-        [{ laneId: 'easy', workerIds: ['recent'] }],
+        [{ laneId: 'med', workerIds: ['recent'] }],
         ['recent'],
-        ['easy'],
+        ['med'],
       ),
       shift(
         'rested-1',
         '2026-03-11',
         'morning',
-        [{ laneId: 'easy', workerIds: ['rested'] }],
+        [{ laneId: 'med', workerIds: ['rested'] }],
         ['rested'],
-        ['easy'],
+        ['med'],
       ),
     ]
     const result = runAssignmentAlgorithm(
       [hard, easy],
       [recent, rested],
       history,
-      [hard, easy],
+      [hard, easy, medium],
       { date: '2026-03-16', shiftType: 'morning', rngSeed: 44 },
     )
     const hardAsg = result.assignments.find((a) => a.laneId === 'hard')
@@ -1824,6 +1824,62 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
     })
     expect(opt.assignments[0]?.workerIds).toEqual(['fresh'])
     expect(opt.swapsPerformed).toBeGreaterThan(0)
+  })
+
+  it('optimizer does not return yesterday’s lane occupant to balance workload', () => {
+    const yesterday = worker('yesterday', 'עבד אתמול', ['forklift'])
+    const alternative = worker('alternative', 'מחליף', ['forklift'])
+    const hardLane = lane('hard', 'קשה', {
+      intensity: 'hard',
+      requiredCertifications: ['forklift'],
+    })
+    const easyLane = lane('easy', 'קל', { intensity: 'easy' })
+    const lanes = [hardLane, easyLane]
+    const history = [
+      shift(
+        'prev',
+        '2026-03-15',
+        'afternoon',
+        [{ laneId: 'hard', workerIds: ['yesterday'] }],
+        ['yesterday'],
+        ['hard'],
+      ),
+    ]
+    const profiles = profilesFor(
+      [yesterday, alternative],
+      lanes,
+      history,
+      'morning',
+      '2026-03-16',
+    )
+    profiles.get('yesterday')!.load = 0
+    profiles.get('alternative')!.load = 10
+    profiles.get('alternative')!.daysSinceLastDuty = 1
+
+    const result = runMultiPassOptimization({
+      assignments: [
+        { laneId: 'hard', workerIds: ['alternative'] },
+        { laneId: 'easy', workerIds: ['yesterday'] },
+      ],
+      unassignedWorkerIds: [],
+      lanes,
+      workersById: new Map([
+        [yesterday.id, yesterday],
+        [alternative.id, alternative],
+      ]),
+      profiles,
+      maxPasses: 8,
+      currentShiftType: 'morning',
+      lastSeatings: buildLaneLastSeatings(history, '2026-03-16', 'morning'),
+    })
+
+    expect(
+      result.assignments.find((row) => row.laneId === 'hard')?.workerIds,
+    ).toEqual(['alternative'])
+    expect(
+      result.assignments.find((row) => row.laneId === 'easy')?.workerIds,
+    ).toEqual(['yesterday'])
+    expect(result.swapsPerformed).toBe(0)
   })
 })
 

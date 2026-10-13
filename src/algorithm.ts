@@ -239,6 +239,8 @@ export interface BoardEvaluation {
   understaffedSlots: number
   /** Same-day returns to a non-handoff lane; lower is better. */
   sameDayLaneRepeatCount: number
+  /** Returns to a lane occupied on the previous calendar day; lower is better. */
+  nextDayLaneRepeatCount: number
   /** Placements that return to the same lane within SHORT_RETURN_DAYS. */
   shortReturnCount: number
   /** Short returns specifically onto hard lanes (stronger than idle-on-hard). */
@@ -518,7 +520,7 @@ export function calculateShiftWeightedRotationScore(
   const volumePenalty = visits * ROTATION_VOLUME_PENALTY_PER_VISIT
 
   let timePenalty = 0
-  let D: number | null =
+  const D: number | null =
     daysSince == null || !Number.isFinite(daysSince) ? null : daysSince
 
   if (D != null && D > 0 && D <= ROTATION_LOOKBACK_DAYS) {
@@ -1401,6 +1403,10 @@ function compareForLane(
     if (aSameDay !== bSameDay) return aSameDay - bSameDay
   }
 
+  const aNextDay = pa.daysSinceLastVisit.get(lane.id) === 1 ? 1 : 0
+  const bNextDay = pb.daysSinceLastVisit.get(lane.id) === 1 ? 1 : 0
+  if (aNextDay !== bNextDay) return aNextDay - bNextDay
+
   // Same order as isBoardBetter: do not send the last person back to a hard
   // lane, then prefer someone who rested and whose load is lower.
   if (!relaxRotation && objective === 'standard') {
@@ -1838,6 +1844,7 @@ export function evaluateBoard(
   let shortReturnCount = 0
   let shortReturnOnHard = 0
   let sameDayLaneRepeatCount = 0
+  let nextDayLaneRepeatCount = 0
   let lastOccupantOnHard = 0
   let lastOccupantRepeats = 0
   const countLastOccupant =
@@ -1868,6 +1875,9 @@ export function evaluateBoard(
       profile.daysSinceLastVisit.get(lane.id) === 0.5
     ) {
       sameDayLaneRepeatCount += 1
+    }
+    if (profile.daysSinceLastVisit.get(lane.id) === 1) {
+      nextDayLaneRepeatCount += 1
     }
     if (isShortReturnToLane(profile, lane.id)) {
       shortReturnCount += 1
@@ -2001,6 +2011,7 @@ export function evaluateBoard(
     components,
     understaffedSlots,
     sameDayLaneRepeatCount,
+    nextDayLaneRepeatCount,
     shortReturnCount,
     shortReturnOnHard,
     lastOccupantOnHard,
@@ -2061,6 +2072,7 @@ function illegalBoardEval(): BoardEvaluation {
     components: zero,
     understaffedSlots: Number.POSITIVE_INFINITY,
     sameDayLaneRepeatCount: Number.POSITIVE_INFINITY,
+    nextDayLaneRepeatCount: Number.POSITIVE_INFINITY,
     shortReturnCount: Number.POSITIVE_INFINITY,
     shortReturnOnHard: Number.POSITIVE_INFINITY,
     lastOccupantOnHard: Number.POSITIVE_INFINITY,
@@ -2091,13 +2103,14 @@ export function isBoardBetter(
   if (!next.legal) return false
   if (!current.legal) return next.legal
 
-  // One list, shared with compareForLane:
-  // 1) fill every seat
-  // 2) do not send the last person back onto a hard lane
-  // 3) keep rested people on hard seats, then the more even load
-  // Later checks only break remaining ties.
+  // Staffing is the only priority above avoiding next-day lane repeats.
+  // Other safety and workload preferences are considered afterward.
   if (next.understaffedSlots !== current.understaffedSlots) {
     return next.understaffedSlots < current.understaffedSlots
+  }
+
+  if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
+    return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
   }
 
   if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
