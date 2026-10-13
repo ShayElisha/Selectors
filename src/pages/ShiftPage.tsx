@@ -1715,7 +1715,7 @@ export function ShiftPage() {
               <button
                 type="button"
                 onClick={() => setAddPicker('lane')}
-                className="ui-btn ui-btn-secondary"
+                className="ui-btn ui-btn-danger-ghost"
               >
                 הוספת נתיב
               </button>

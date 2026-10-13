@@ -32,6 +32,7 @@ function shift(
     present?: string[]
     assignments?: { laneId: string; workerIds: string[] }[]
     activeLaneIds?: string[]
+    audience?: ShiftSchedule['audience']
   } = {},
 ): ShiftSchedule {
   const assignments = opts.assignments ?? []
@@ -41,6 +42,7 @@ function shift(
     shiftType,
     activeLaneIds: opts.activeLaneIds ?? assignments.map((a) => a.laneId),
     presentWorkerIds: opts.present ?? [],
+    ...(opts.audience ? { audience: opts.audience } : {}),
     assignments,
     createdAt: '',
     updatedAt: id,
@@ -172,6 +174,17 @@ describe('search / filter / counts', () => {
     })
     expect(shiftCountsLabel(s)).toContain('נתיב אחד')
     expect(shiftCountsLabel(s)).not.toContain('1 נתיבים')
+  })
+
+  it('separates selector-round and shift counts with one separator each', () => {
+    const s = shift('x', '2026-09-20', 'morning', {
+      audience: 'selector',
+      activeLaneIds: ['l1'],
+      assignments: [{ laneId: 'l1', workerIds: ['w1'] }],
+    })
+    const label = shiftCountsLabel(s)
+    expect(label).toContain('סלקטורים · סבבים · נתיב אחד')
+    expect(label).not.toContain('· ·')
   })
 })
 

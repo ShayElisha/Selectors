@@ -40,10 +40,16 @@ function AuditChangeList({ details }: { details: string }) {
 
 function formatWhen(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('he-IL', {
-      dateStyle: 'short',
-      timeStyle: 'short',
+    const date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return iso
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString('he-IL', {
+      hour: '2-digit',
+      minute: '2-digit',
     })
+    return `${day}.${month}.${year} · ${time}`
   } catch {
     return iso
   }
@@ -416,7 +422,7 @@ export function AuditPage() {
                       {ACTION_LABELS[row.action] ?? row.action}
                     </span>
                     <span className="text-[11px] tabular-nums text-ink-soft">
-                      {formatWhen(row.at)}
+                      <bdi dir="ltr">{formatWhen(row.at)}</bdi>
                     </span>
                   </div>
                   <p className="text-sm font-semibold text-ink">
@@ -438,22 +444,22 @@ export function AuditPage() {
 
             <div className="hidden overflow-hidden rounded-xl border border-line/70 shadow-sm sm:block">
               <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-right text-xs sm:text-sm">
+                <table className="ui-table min-w-full border-collapse text-right text-xs sm:text-sm">
                   <thead>
                     <tr className="border-b border-line/70 bg-surface/90">
-                      <th className="px-3 py-2.5 text-[10px] font-semibold tracking-wide text-ink-soft uppercase sm:px-4 sm:text-[11px]">
+                      <th className="px-3 text-xs font-medium text-ink-soft sm:px-4">
                         זמן
                       </th>
-                      <th className="px-3 py-2.5 text-[10px] font-semibold tracking-wide text-ink-soft uppercase sm:px-4 sm:text-[11px]">
+                      <th className="px-3 text-xs font-medium text-ink-soft sm:px-4">
                         משתמש
                       </th>
-                      <th className="px-3 py-2.5 text-[10px] font-semibold tracking-wide text-ink-soft uppercase sm:px-4 sm:text-[11px]">
+                      <th className="px-3 text-xs font-medium text-ink-soft sm:px-4">
                         טלפון
                       </th>
-                      <th className="px-3 py-2.5 text-[10px] font-semibold tracking-wide text-ink-soft uppercase sm:px-4 sm:text-[11px]">
+                      <th className="px-3 text-xs font-medium text-ink-soft sm:px-4">
                         פעולה
                       </th>
-                      <th className="px-3 py-2.5 text-[10px] font-semibold tracking-wide text-ink-soft uppercase sm:px-4 sm:text-[11px]">
+                      <th className="px-3 text-xs font-medium text-ink-soft sm:px-4">
                         פרטים
                       </th>
                     </tr>
@@ -465,7 +471,7 @@ export function AuditPage() {
                         className="bg-card transition-colors hover:bg-surface/60"
                       >
                         <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-ink-soft sm:px-4">
-                          {formatWhen(row.at)}
+                          <bdi dir="ltr">{formatWhen(row.at)}</bdi>
                         </td>
                         <td className="px-3 py-2.5 font-medium text-ink sm:px-4">
                           {row.actor?.fullName || '—'}

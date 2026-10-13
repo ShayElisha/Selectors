@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react'
 import { INTENSITY_LABELS } from '../constants'
+import { avatarColor } from '../lib/avatarColor'
 import type { Intensity } from '../types'
 
 /** Isolate LTR spans (times, ratios) inside RTL layout. */
@@ -57,7 +58,7 @@ export function PersonChip({ name }: { name: string }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line/80 bg-surface/80 py-0.5 pe-2.5 ps-0.5 text-[11px] font-medium text-ink sm:text-xs">
       <span
-        className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-[9px] font-bold text-white sm:size-6 sm:text-[10px]"
+        className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold sm:size-6 sm:text-[10px] ${avatarColor(name)}`}
         aria-hidden
       >
         {initials(name)}
@@ -82,13 +83,13 @@ export function StaffingBadge({
         {assigned}/{standard}
       </Ltr>
       {over && (
-        <span className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-semibold text-warn ring-1 ring-warn/20 sm:text-[11px]">
+        <span className="inline-flex items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[10px] font-semibold text-warn ring-1 ring-warn/20 sm:text-[11px]">
           <AlertTriangle className="size-3" aria-hidden />
           מעל התקן
         </span>
       )}
       {under && (
-        <span className="inline-flex items-center gap-1 rounded-md bg-hard-soft px-1.5 py-0.5 text-[10px] font-semibold text-hard ring-1 ring-hard/20 sm:text-[11px]">
+        <span className="inline-flex items-center gap-1 rounded-full bg-hard-soft px-2 py-0.5 text-[10px] font-semibold text-hard ring-1 ring-hard/20 sm:text-[11px]">
           <AlertTriangle className="size-3" aria-hidden />
           חסר
         </span>
@@ -106,7 +107,7 @@ export function CertChips({ items }: { items: string[] }) {
       {items.map((c) => (
         <span
           key={c}
-          className="rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-soft ring-1 ring-line/80 sm:px-2 sm:text-xs"
+          className="rounded-full bg-surface px-2 py-0.5 text-[10px] font-medium text-ink-soft ring-1 ring-line/80 sm:px-2.5 sm:text-xs"
         >
           {c}
         </span>
@@ -132,7 +133,7 @@ export function SectionCard({
 }) {
   return (
     <section
-      className={`min-w-0 max-w-full rounded-xl border border-line/70 bg-card/95 p-4 shadow-sm sm:rounded-2xl sm:p-6 ${printRoot ? 'print-shift-root' : ''} ${className}`.trim()}
+      className={`min-w-0 max-w-full rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-panel)] sm:p-6 ${printRoot ? 'print-shift-root' : ''} ${className}`.trim()}
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-5">
         <div className="min-w-0">
@@ -182,7 +183,7 @@ export function FieldLabel({
   return (
     <label
       htmlFor={htmlFor}
-      className="mb-1.5 block text-xs font-medium text-ink-soft sm:text-sm"
+      className="mb-1.5 block text-xs font-medium text-ink-soft"
     >
       {children}
     </label>
