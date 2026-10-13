@@ -33,6 +33,7 @@ import { pluralizeHe } from '../lib/hebrew'
 import { isGateManagerLane, managedLanes } from '../lib/gateManager'
 import {
   QUALIFIED_THIN_MARGIN,
+  compareLaneNames,
   compareLanes,
   coverageTone,
   formsLaneEqual,
@@ -775,7 +776,7 @@ export function LanesPage() {
 
   const rows = useMemo(() => {
     const list = [...managed]
-    if (!sortKey) return list
+    if (!sortKey) return list.sort(compareLaneNames)
     return list.sort((a, b) =>
       compareLanes(a, b, sortKey, sortDir, qualifiedById),
     )

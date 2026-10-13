@@ -5,6 +5,7 @@ import {
   applyLaneActivityHours,
   assignSelectorRounds,
   buildRoundWindows,
+  selectorLanes,
   setSelectorCell,
 } from './selectorRounds'
 import { windowCoversRound } from './shiftCatalog'
@@ -30,6 +31,16 @@ function worker(id: string, fullName: string, certs: string[] = []): Worker {
     isManager: false,
   }
 }
+
+describe('selectorLanes', () => {
+  it('returns active lanes in Hebrew alphabetical order', () => {
+    const lanes = [lane('b', 'נתיב ב'), lane('a', 'נתיב א')]
+    expect(selectorLanes(lanes, ['b', 'a']).map((item) => item.id)).toEqual([
+      'a',
+      'b',
+    ])
+  })
+})
 
 describe('buildRoundWindows', () => {
   it('starts each shift on the window start and steps two hours', () => {

@@ -22,6 +22,13 @@ export type SortDir = 'asc' | 'desc'
 
 export type CoverageTone = 'ok' | 'warn' | 'error'
 
+export function compareLaneNames(
+  a: Pick<Lane, 'name'>,
+  b: Pick<Lane, 'name'>,
+): number {
+  return a.name.localeCompare(b.name, 'he')
+}
+
 export function normalizeCertName(name: string): string {
   return normalizeHeSearch(name.trim())
 }
@@ -165,7 +172,7 @@ export function compareLanes(
   qualifiedById: Map<string, number>,
 ): number {
   let cmp = 0
-  if (key === 'name') cmp = a.name.localeCompare(b.name, 'he')
+  if (key === 'name') cmp = compareLaneNames(a, b)
   else if (key === 'intensity') {
     cmp = INTENSITY_RANK[a.intensity] - INTENSITY_RANK[b.intensity]
   } else if (key === 'standard') {

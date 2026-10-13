@@ -72,6 +72,7 @@ import { exportBlockedReason } from '../lib/exportGate'
 import { postAuditEvent, reportShiftPresence } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
+import { compareLaneNames } from '../lib/lanesCertHelpers'
 import {
   attendanceStepSummary,
   canAdvanceFromAttendance,
@@ -220,7 +221,7 @@ export function ShiftPage() {
   }, [draft?.id])
 
   const selectableLanes = useMemo(
-    () => managedLanes(data.lanes),
+    () => managedLanes(data.lanes).sort(compareLaneNames),
     [data.lanes],
   )
 
@@ -245,7 +246,7 @@ export function ShiftPage() {
           notes: assignment?.notes?.trim() || undefined,
         },
       ]
-    })
+    }).sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
   }, [draft, data.lanes, data.workers])
 
   const unassignedNames = useMemo(() => {
@@ -2138,7 +2139,9 @@ export function ShiftPage() {
         <BoardCompareDialog
           loadFair={compareOptions.loadFair}
           hardExperience={compareOptions.hardExperience}
-          lanes={data.lanes.filter((lane) => draft.activeLaneIds.includes(lane.id))}
+          lanes={data.lanes
+            .filter((lane) => draft.activeLaneIds.includes(lane.id))
+            .sort(compareLaneNames)}
           workers={data.workers}
           onClose={() => setCompareOptions(null)}
           onChoose={chooseBoardOption}
@@ -2152,7 +2155,9 @@ export function ShiftPage() {
             </h3>
             <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
               {(addPicker === 'lane'
-                ? managedLanes(data.lanes).filter((lane) => !draft.activeLaneIds.includes(lane.id))
+                ? managedLanes(data.lanes)
+                    .filter((lane) => !draft.activeLaneIds.includes(lane.id))
+                    .sort(compareLaneNames)
                 : activeAttendanceWorkers(data.workers).filter(
                     (worker) => !draft.presentWorkerIds.includes(worker.id),
                   )
