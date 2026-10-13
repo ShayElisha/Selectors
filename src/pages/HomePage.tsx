@@ -206,7 +206,7 @@ export function HomePage() {
 
   const currentTableRows = useMemo(() => {
     if (!currentShift) return []
-    return currentShift.activeLaneIds
+    const rows = currentShift.activeLaneIds
       .map((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)
         if (!lane) return null
@@ -234,6 +234,7 @@ export function HomePage() {
       assigned: number
       workers: string[]
     }[]
+    return rows.sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
   }, [currentShift, data.lanes, data.workers])
 
   const currentUnassigned = useMemo(() => {
@@ -404,7 +405,7 @@ export function HomePage() {
             notes: assignment?.notes?.trim() || undefined,
           },
         ]
-      })
+      }).sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
       const assignedIds = new Set(
         shift.assignments.flatMap((a) => a.workerIds.filter(Boolean)),
       )

@@ -237,6 +237,8 @@ export interface BoardEvaluation {
   score: number
   components: Record<BoardWeightKey, number>
   understaffedSlots: number
+  /** Same-day returns to a non-handoff lane; lower is better. */
+  sameDayLaneRepeatCount: number
   /** Placements that return to the same lane within SHORT_RETURN_DAYS. */
   shortReturnCount: number
   /** Short returns specifically onto hard lanes (stronger than idle-on-hard). */
@@ -1393,6 +1395,12 @@ function compareForLane(
     if (Math.abs(handoffRa - handoffRb) > 1) return handoffRb - handoffRa
   }
 
+  if (!lane.afternoonHandoff) {
+    const aSameDay = pa.daysSinceLastVisit.get(lane.id) === 0.5 ? 1 : 0
+    const bSameDay = pb.daysSinceLastVisit.get(lane.id) === 0.5 ? 1 : 0
+    if (aSameDay !== bSameDay) return aSameDay - bSameDay
+  }
+
   // Same order as isBoardBetter: do not send the last person back to a hard
   // lane, then prefer someone who rested and whose load is lower.
   if (!relaxRotation && objective === 'standard') {
@@ -1829,6 +1837,7 @@ export function evaluateBoard(
 
   let shortReturnCount = 0
   let shortReturnOnHard = 0
+  let sameDayLaneRepeatCount = 0
   let lastOccupantOnHard = 0
   let lastOccupantRepeats = 0
   const countLastOccupant =
@@ -1854,6 +1863,12 @@ export function evaluateBoard(
   for (const { lane, workerId, profile } of placements) {
     const rot = rotationScoreFor(profile, lane.id)
     rotSum += rot.rawScore
+    if (
+      !lane.afternoonHandoff &&
+      profile.daysSinceLastVisit.get(lane.id) === 0.5
+    ) {
+      sameDayLaneRepeatCount += 1
+    }
     if (isShortReturnToLane(profile, lane.id)) {
       shortReturnCount += 1
       if (lane.intensity === 'hard') shortReturnOnHard += 1
@@ -1985,6 +2000,7 @@ export function evaluateBoard(
     score,
     components,
     understaffedSlots,
+    sameDayLaneRepeatCount,
     shortReturnCount,
     shortReturnOnHard,
     lastOccupantOnHard,
@@ -2044,6 +2060,7 @@ function illegalBoardEval(): BoardEvaluation {
     score: Number.NEGATIVE_INFINITY,
     components: zero,
     understaffedSlots: Number.POSITIVE_INFINITY,
+    sameDayLaneRepeatCount: Number.POSITIVE_INFINITY,
     shortReturnCount: Number.POSITIVE_INFINITY,
     shortReturnOnHard: Number.POSITIVE_INFINITY,
     lastOccupantOnHard: Number.POSITIVE_INFINITY,
@@ -2081,6 +2098,10 @@ export function isBoardBetter(
   // Later checks only break remaining ties.
   if (next.understaffedSlots !== current.understaffedSlots) {
     return next.understaffedSlots < current.understaffedSlots
+  }
+
+  if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
+    return next.sameDayLaneRepeatCount < current.sameDayLaneRepeatCount
   }
 
   if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
