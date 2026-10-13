@@ -319,6 +319,59 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(customsAsg?.workerIds[0]).toBe('o')
   })
 
+  it('avoids assigning a morning worker to the same regular lane in the afternoon', () => {
+    const morningWorker = worker('m', 'Morning')
+    const afternoonWorker = worker('a', 'Afternoon')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'easy', workerIds: ['m'] }],
+        ['m'],
+        ['easy'],
+      ),
+    ]
+
+    const result = runAssignmentAlgorithm(
+      [easy],
+      [morningWorker, afternoonWorker],
+      history,
+      [easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 41 },
+    )
+
+    expect(result.assignments[0]?.workerIds[0]).toBe('a')
+  })
+
+  it('preserves same-lane continuity on afternoon handoff lanes', () => {
+    const morningCustomsWorker = worker('c', 'Customs')
+    const otherMorningWorker = worker('x', 'Other')
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [
+          { laneId: 'customs', workerIds: ['c'] },
+          { laneId: 'easy', workerIds: ['x'] },
+        ],
+        ['c', 'x'],
+        ['customs', 'easy'],
+      ),
+    ]
+
+    const result = runAssignmentAlgorithm(
+      [customs],
+      [morningCustomsWorker, otherMorningWorker],
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 42 },
+    )
+
+    expect(result.assignments[0]?.workerIds[0]).toBe('c')
+  })
+
   it('Test 5 — hard workload balance prefers lower hard-count worker', () => {
     const heavy = worker('h', 'Heavy', ['forklift'])
     const light = worker('l', 'Light', ['forklift'])
