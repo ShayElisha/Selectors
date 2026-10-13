@@ -1088,10 +1088,10 @@ export function ShiftPage() {
             </div>
           ) : (
             <>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line/70 pb-3">
                 <div>
                   <h2 className="ui-title">סימון נוכחות</h2>
-                  <p className="mt-1 sticky top-0 z-10 text-[13px] font-semibold text-ink tabular-nums">
+                  <p className="mt-1 inline-flex rounded-full bg-brand/8 px-2.5 py-1 text-[13px] font-bold text-brand-deep tabular-nums">
                     נוכחים: {draft.presentWorkerIds.length} מתוך{' '}
                     {attendanceWorkers.length}
                     {draft.gateManagerWorkerId
@@ -1099,11 +1099,11 @@ export function ShiftPage() {
                       : ''}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 rounded-xl bg-surface/70 p-1 ring-1 ring-line/70">
                   <button
                     type="button"
                     onClick={() => setAllActiveWorkers(true)}
-                    className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+                    className="ui-btn ui-btn-secondary min-h-10 !py-1.5 text-xs"
                   >
                     כל הפעילים
                   </button>
@@ -1122,7 +1122,7 @@ export function ShiftPage() {
                           lastSameType.gateManagerWorkerId ?? null,
                       })
                     }}
-                    className="ui-btn ui-btn-ghost !py-1.5 text-xs disabled:opacity-40"
+                    className="ui-btn ui-btn-ghost min-h-10 !py-1.5 text-xs disabled:opacity-60"
                   >
                     כמו במשמרת הקודמת
                   </button>
@@ -1134,7 +1134,7 @@ export function ShiftPage() {
                       onClick={() =>
                         setGateManager(morningShift.gateManagerWorkerId!)
                       }
-                      className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+                      className="ui-btn ui-btn-secondary min-h-10 !py-1.5 text-xs"
                       title="המשך מנהל המשמרת מהבוקר"
                     >
                       מנהל משמרת מהבוקר
@@ -1143,13 +1143,13 @@ export function ShiftPage() {
                   <button
                     type="button"
                     onClick={() => setAllActiveWorkers(false)}
-                    className="ui-btn ui-btn-ghost !py-1.5 text-xs"
+                    className="ui-btn ui-btn-ghost min-h-10 !py-1.5 text-xs"
                   >
                     ניקוי
                   </button>
                 </div>
               </div>
-              <div className="relative mb-3">
+              <div className="relative mb-4">
                 <Search
                   className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
                   aria-hidden
@@ -1160,10 +1160,10 @@ export function ShiftPage() {
                   onChange={(e) => setAttendanceQuery(e.target.value)}
                   placeholder="חיפוש לפי שם"
                   aria-label="חיפוש בודקים"
-                  className="ui-field w-full pe-3 ps-10"
+                  className="ui-field min-h-11 w-full pe-3 ps-10"
                 />
               </div>
-              <ul className="grid items-start gap-1.5 sm:grid-cols-2">
+              <ul className="grid items-start gap-2 sm:grid-cols-2">
                 {filteredAttendance.map((w) => {
                   const on = draft.presentWorkerIds.includes(w.id)
                   const isGate = draft.gateManagerWorkerId === w.id
@@ -1187,13 +1187,13 @@ export function ShiftPage() {
                   return (
                     <li key={w.id} className="min-w-0">
                       <div
-                        className={`flex w-full flex-col rounded-xl border transition ${
+                        className={`flex w-full flex-col rounded-2xl border transition-colors duration-150 ${
                           on || isGate
-                            ? 'border-brand bg-brand/5 ring-1 ring-brand/30'
-                            : 'border-line bg-card'
+                            ? 'border-brand/40 bg-brand/[0.045] shadow-sm ring-2 ring-brand/10'
+                            : 'border-line/80 bg-card hover:border-brand/25 hover:shadow-sm'
                         }`}
                       >
-                        <div className="flex min-h-14 items-stretch gap-1 sm:gap-1.5">
+                        <div className="flex min-h-[4.25rem] items-stretch gap-1 sm:gap-1.5">
                         <button
                           type="button"
                           role="checkbox"
@@ -1215,14 +1215,14 @@ export function ShiftPage() {
                               toggleWorker(w.id)
                             }
                           }}
-                          className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-1.5 text-right focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:px-3 ${
+                          className={`flex min-h-11 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-right transition-colors hover:bg-brand/[0.025] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:px-4 ${
                             managerOnly ? 'cursor-default opacity-90' : ''
                           }`}
                         >
                           <span
-                            className={`flex size-5 shrink-0 items-center justify-center rounded-md border ${
+                            className={`flex size-6 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                               on || (managerOnly && isGate)
-                                ? 'border-brand bg-brand text-white'
+                                ? 'border-brand bg-brand text-white shadow-sm'
                                 : 'border-line bg-surface'
                             } ${managerOnly && !isGate ? 'opacity-40' : ''}`}
                             aria-hidden
@@ -1233,7 +1233,7 @@ export function ShiftPage() {
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-[13px] font-semibold text-ink sm:text-sm">
+                              <span className="text-sm font-bold text-ink sm:text-[15px]">
                                 {w.fullName}
                               </span>
                               {w.isManager ? (
@@ -1291,7 +1291,7 @@ export function ShiftPage() {
                               e.stopPropagation()
                               setGateManager(isGate ? null : w.id)
                             }}
-                            className={`m-1.5 flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                            className={`m-1.5 flex min-h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-2.5 py-1.5 text-[10px] font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                               isGate
                                 ? 'bg-brand text-white shadow-sm'
                                 : 'bg-surface text-ink-soft ring-1 ring-line hover:bg-brand/10 hover:text-brand'

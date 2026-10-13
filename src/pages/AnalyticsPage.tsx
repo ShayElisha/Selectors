@@ -616,7 +616,7 @@ export function AnalyticsPage() {
           </div>
         ) : (
           <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0 sm:grid-cols-4 sm:gap-3">
-            <div className="min-w-0 rounded-xl border border-line bg-surface/80 px-3 py-2.5">
+            <div className="min-w-0 rounded-2xl border border-line/80 bg-card px-3.5 py-3 shadow-[var(--shadow-panel)]">
               <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">משמרות בטווח</span>
                 <InfoTip label="הסבר משמרות בטווח">
@@ -630,7 +630,7 @@ export function AnalyticsPage() {
               <p className="mt-1 break-words text-[13px] text-ink-soft">{shiftMixSubtitle}</p>
             </div>
 
-            <div className="rounded-xl border border-line bg-surface/80 px-3 py-2.5">
+            <div className="rounded-2xl border border-line/80 bg-card px-3.5 py-3 shadow-[var(--shadow-panel)]">
               <div className="mb-1 flex items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">עומס ממוצע</span>
                 <InfoTip label="הסבר עומס ממוצע">
@@ -644,7 +644,7 @@ export function AnalyticsPage() {
               <p className="mt-1 text-[13px] text-ink-soft">נקודות עומס</p>
             </div>
 
-            <div className="rounded-xl border border-line bg-surface/80 px-3 py-2.5">
+            <div className="rounded-2xl border border-line/80 bg-card px-3.5 py-3 shadow-[var(--shadow-panel)]">
               <div className="mb-1 flex items-center gap-1 text-ink-soft">
                 <span className="text-[13px] font-medium">פער הוגנות</span>
                 <InfoTip label="הסבר פער הוגנות">
@@ -663,7 +663,7 @@ export function AnalyticsPage() {
               </span>
             </div>
 
-            <div className="relative rounded-xl border border-line bg-surface/80 px-3 py-2.5">
+            <div className="relative rounded-2xl border border-line/80 bg-card px-3.5 py-3 shadow-[var(--shadow-panel)]">
               <div className="mb-1 flex items-center gap-1 text-ink-soft">
                 <Moon className="size-3.5" aria-hidden />
                 <span className="text-[13px] font-medium">קשה אחרי לילה</span>
@@ -837,7 +837,7 @@ export function AnalyticsPage() {
             </div>
 
             {detailOpen ? (
-              <div className="mt-3 max-h-[min(50vh,28rem)] overflow-auto rounded-xl border border-line">
+              <div className="mt-3 max-h-[min(50vh,28rem)] overflow-auto rounded-2xl border border-line/80 shadow-[var(--shadow-panel)]">
                 <table className="min-w-full border-collapse text-end text-[13px]">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-brand-deep text-white">

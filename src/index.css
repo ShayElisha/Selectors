@@ -363,16 +363,18 @@ textarea {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-brand);
+  outline: 3px solid var(--color-brand);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-card);
 }
 
 button:focus-visible,
 a:focus-visible,
 [role='button']:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--color-brand);
+  outline: 3px solid var(--color-brand);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-card);
 }
 
 /* —— Feedback —— */
@@ -570,6 +572,15 @@ summary:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .animate-fade-up,
   .ui-skeleton,
   .page-loader::before,
@@ -799,4 +810,3 @@ summary:focus-visible {
     padding: 6px 8px !important;
   }
 }
-
