@@ -468,7 +468,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 sm:space-y-7">
       {systemMessages.length > 0 ? (
         <section className="rounded-xl border border-line/70 bg-card px-4 py-3">
           <h2 className="font-display text-base font-bold text-ink">הודעות מערכת</h2>
@@ -484,7 +484,7 @@ export function HomePage() {
       ) : null}
       {/* 1. Compact status bar */}
       <section
-        className="flex flex-col gap-3 rounded-xl border border-line/70 bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-4"
+        className="flex flex-col gap-3 rounded-2xl border border-brand/15 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 shadow-[var(--shadow-panel)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-5"
         style={{ minHeight: '5rem' }}
       >
         <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
@@ -495,7 +495,7 @@ export function HomePage() {
                 טיוטה פעילה
               </span>
               <div className="min-w-0">
-                <h2 className="font-display text-base font-bold tracking-tight text-ink sm:text-lg">
+                <h2 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
                   המשך שיבוץ · {draftSummary.shiftLabel} ·{' '}
                   <Ltr>{draftSummary.dateLabel}</Ltr>
                 </h2>
@@ -519,7 +519,7 @@ export function HomePage() {
                 {currentShift.signOff?.signedAt ? 'נסגרה' : 'משובץ'}
               </span>
               <div className="min-w-0">
-                <h2 className="font-display text-base font-bold tracking-tight text-ink sm:text-lg">
+                <h2 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
                   משמרת {statusTitle}
                 </h2>
                 <p className="mt-0.5 text-[13px] text-ink-soft">
@@ -533,7 +533,7 @@ export function HomePage() {
                 ממתין לשיבוץ
               </span>
               <div className="min-w-0">
-                <h2 className="font-display text-base font-bold tracking-tight text-ink sm:text-lg">
+                <h2 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
                   משמרת {statusTitle}
                 </h2>
                 <p className="mt-0.5 text-[13px] text-ink-soft">
@@ -645,6 +645,7 @@ export function HomePage() {
       {/* Current shift card */}
       <SectionCard
         printRoot
+        className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
         title={`משמרת נוכחית · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
         subtitle={
           <>
@@ -747,11 +748,11 @@ export function HomePage() {
           />
         ) : (
           <>
-            <div className="overflow-hidden rounded-xl border border-line/70">
+            <div className="overflow-hidden rounded-2xl border border-line shadow-sm">
               <div className="overflow-x-auto">
                 <table className="min-w-full border-collapse text-right text-[13px]">
                   <thead>
-                    <tr className="border-b border-line/70 bg-surface/90">
+                    <tr className="border-b border-line bg-brand/[0.045]">
                       <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                         נתיב
                       </th>
@@ -770,7 +771,7 @@ export function HomePage() {
                     {currentTableRows.map((row) => (
                       <tr
                         key={row.laneId}
-                        className="bg-card transition-colors hover:bg-surface/50"
+                        className="bg-card transition-colors hover:bg-brand/[0.025]"
                       >
                         <td className="px-3 py-2.5 font-semibold text-ink">
                           {row.laneName}
@@ -854,7 +855,7 @@ export function HomePage() {
         <button
           type="button"
           onClick={() => setView('workers')}
-          className="rounded-xl border border-line/70 bg-card p-4 text-right shadow-sm transition hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] sm:p-5"
+          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-brand/[0.035] via-card to-card p-4 text-right shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
         >
           <MetricIconBadge tone="brand">
             <Users className="size-[18px]" aria-hidden />
@@ -873,7 +874,7 @@ export function HomePage() {
         <button
           type="button"
           onClick={() => setView('lanes')}
-          className="rounded-xl border border-line/70 bg-card p-4 text-right shadow-sm transition hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] sm:p-5"
+          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-mid/[0.045] via-card to-card p-4 text-right shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
         >
           <MetricIconBadge tone="mid">
             <LayoutGrid className="size-[18px]" aria-hidden />
@@ -884,7 +885,7 @@ export function HomePage() {
           </p>
         </button>
 
-        <div className="rounded-xl border border-line/70 bg-card p-4 shadow-sm sm:p-5">
+        <div className="rounded-2xl border border-line/80 bg-gradient-to-bl from-warn/[0.045] via-card to-card p-4 shadow-[var(--shadow-panel)] sm:p-5">
           <MetricIconBadge tone="warn">
             <AlertTriangle className="size-[18px]" aria-hidden />
           </MetricIconBadge>
@@ -898,7 +899,7 @@ export function HomePage() {
         </div>
 
         <div
-          className="group relative rounded-xl border border-line/70 bg-card p-4 shadow-sm outline-none transition hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] sm:p-5"
+          className="group relative rounded-2xl border border-line/80 bg-gradient-to-bl from-accent/[0.045] via-card to-card p-4 shadow-[var(--shadow-panel)] outline-none transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] sm:p-5"
           tabIndex={0}
           aria-describedby="hard-gap-tooltip"
         >
@@ -962,7 +963,7 @@ export function HomePage() {
       </div>
 
       {/* Previous shifts timeline */}
-      <section className="rounded-xl border border-line/70 bg-card/95 p-4 shadow-sm sm:p-5 no-print">
+      <section className="rounded-2xl border border-line/80 bg-card/95 p-4 shadow-[var(--shadow-panel)] sm:p-5 no-print">
         <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-ink sm:text-sm">
           <span className="inline-flex size-8 items-center justify-center rounded-lg bg-accent-soft text-accent ring-1 ring-accent/15">
             <Clock className="size-4" aria-hidden />

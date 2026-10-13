@@ -936,8 +936,8 @@ export function BoardStep({
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-[1.35rem] border border-line/70 bg-card shadow-[var(--shadow-panel)]">
-        <div className="border-b border-line/70 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 sm:px-6 sm:py-5">
+      <div className="overflow-hidden rounded-[1.5rem] border border-brand/15 bg-card shadow-[var(--shadow-panel-hover)]">
+        <div className="border-b border-brand/10 bg-gradient-to-l from-brand/[0.095] via-brand/[0.025] to-card px-4 py-5 sm:px-6 sm:py-6">
           <p className="text-[11px] font-semibold tracking-[0.22em] text-brand/70">
             GATE OUT
           </p>
@@ -995,7 +995,7 @@ export function BoardStep({
               <div
                 key={laneId}
                 id={`board-lane-${laneId}`}
-                className={`scroll-mt-24 rounded-2xl border border-line/70 border-s-4 bg-card px-3 py-3 shadow-[var(--shadow-panel)] sm:px-4 ${
+                className={`scroll-mt-24 rounded-2xl border border-line/80 border-s-4 bg-card px-3.5 py-3.5 shadow-[var(--shadow-panel)] transition-shadow duration-150 hover:shadow-[var(--shadow-panel-hover)] sm:px-5 sm:py-4 ${
                   healedTone === 'filled'
                     ? 'ring-2 ring-ok'
                     : frozen || healedTone === 'frozen'
@@ -1014,7 +1014,7 @@ export function BoardStep({
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <h4 className="font-display text-base font-bold tracking-tight text-ink">
+                      <h4 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
                         {isGateLane ? (
                           <span className="inline-flex items-center gap-1.5">
                             <Shield className="size-4 text-brand" aria-hidden />
@@ -1042,12 +1042,12 @@ export function BoardStep({
                         </span>
                       ) : null}
                       <span
-                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
+                        className={`inline-flex min-h-7 items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold tabular-nums ring-1 ${
                           chipKind === 'ok'
-                            ? 'bg-surface text-ink-soft ring-1 ring-line'
+                            ? 'bg-surface text-ink-soft ring-line'
                             : chipKind === 'over'
-                              ? 'bg-warn-soft text-warn ring-1 ring-warn/20'
-                              : 'bg-hard-soft text-hard ring-1 ring-hard/20'
+                              ? 'bg-warn-soft text-warn ring-warn/20'
+                              : 'bg-hard-soft text-hard ring-hard/20'
                         }`}
                       >
                         <Ltr>
