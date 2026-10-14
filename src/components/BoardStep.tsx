@@ -1653,8 +1653,9 @@ export function BoardStep({
         onUndo={undoShiftDrop}
       />
 
-      <div className="fixed inset-x-4 bottom-4 z-40 mx-auto w-[calc(100%-32px)] max-w-[760px] rounded-2xl border border-line/80 bg-card/85 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print">
-        <div className="flex min-w-0 items-center justify-between gap-1 sm:gap-2">
+      <div className="fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-40 mx-auto w-auto max-w-[760px] rounded-2xl border border-line/80 bg-card/85 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print sm:inset-x-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 sm:flex-nowrap">
+          <div className="flex shrink-0 items-center gap-2">
           <div
             className={`flex shrink-0 items-center gap-1.5 transition-colors duration-200 ${
               isSaved ? 'text-ok' : 'text-warn'
@@ -1696,9 +1697,11 @@ export function BoardStep({
               שמירה
             </button>
           )}
+          </div>
 
-          <span className="h-7 w-px shrink-0 bg-line" aria-hidden />
+          <span className="hidden h-7 w-px shrink-0 bg-line sm:block" aria-hidden />
 
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-1 gap-y-1 sm:flex-nowrap sm:gap-2">
           <div className="relative shrink-0" ref={shareRootRef}>
             <button
               type="button"
@@ -1782,7 +1785,7 @@ export function BoardStep({
 
           {!locked && onSignOff ? (
             <>
-              <span className="h-7 w-px shrink-0 bg-line" aria-hidden />
+              <span className="hidden h-7 w-px shrink-0 bg-line sm:block" aria-hidden />
               <button
                 type="button"
                 onClick={trySignOff}
@@ -1802,6 +1805,7 @@ export function BoardStep({
               </button>
             </>
           ) : null}
+          </div>
         </div>
       </div>
 
