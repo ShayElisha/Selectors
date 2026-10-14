@@ -521,10 +521,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
       )}
 
       <nav
-        className="relative z-30 mb-6 hidden rounded-xl border border-line/70 bg-card/70 p-1 shadow-sm backdrop-blur-md lg:block no-print"
-        aria-label="ניווט ראשי"
+        className="relative z-30 mb-6 hidden overflow-x-auto overscroll-x-contain rounded-xl border border-line/70 bg-card/70 p-1 shadow-sm backdrop-blur-md lg:block no-print [scrollbar-width:thin]"
+        aria-label="ניווט ראשי — גלילה אופקית לפריטים נוספים"
+        tabIndex={0}
       >
-        <div className="flex flex-wrap items-center gap-0.5">
+        <div className="flex w-max min-w-full flex-nowrap items-center gap-0.5">
           {DAILY.map((item) => (
             <NavButton
               key={item.id}
