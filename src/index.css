@@ -758,6 +758,71 @@ summary:focus-visible {
   }
 }
 
+.board-lane-card {
+  --lane-accent: var(--primary);
+  animation: board-lane-enter var(--dur) var(--ease) both;
+}
+
+.board-lane-card::before {
+  content: '';
+  position: absolute;
+  inset-block: 12px;
+  inset-inline-end: 0;
+  width: 4px;
+  border-radius: 4px;
+  background: var(--lane-accent);
+  pointer-events: none;
+}
+
+.board-lane-card--gate {
+  --lane-accent: var(--primary);
+}
+
+.board-lane-card--easy {
+  --lane-accent: var(--ok);
+}
+
+.board-lane-card--medium {
+  --lane-accent: var(--warn);
+}
+
+.board-lane-card--hard {
+  --lane-accent: var(--bad);
+}
+
+.lane-card-action {
+  opacity: 1;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+@media (hover: hover) {
+  .board-lane-card:not(:hover):not(:focus-within) .lane-card-action {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-lane-card {
+    animation: none;
+  }
+
+  .lane-card-action {
+    transition: none;
+  }
+}
+
+@keyframes board-lane-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
