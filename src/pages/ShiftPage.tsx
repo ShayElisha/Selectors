@@ -2107,7 +2107,7 @@ export function ShiftPage() {
               />
             </div>
             <p className="mt-2 text-xs text-ink-soft">
-              הבדיקות רצות עד שהפס מגיע ל־100 והלוח מוצג.
+              נבדקים 1,000 שיבוצים מלאים. הלוח יוצג בסיום החיפוש.
             </p>
           </div>
         </div>

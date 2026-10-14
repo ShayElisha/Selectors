@@ -2050,7 +2050,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           data.lanes,
           { date: d.date, shiftType: d.shiftType, roster: data.workers },
           {
-            onProgress: (p) => setProgress(p.percent),
+            onProgress: (p) => {
+              if (p.startsDone % 10 === 0 || p.startsDone === p.startsTotal) {
+                setProgress(p.percent)
+              }
+            },
           },
         )
         const filled = placed.assignments.reduce(

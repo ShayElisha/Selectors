@@ -47,7 +47,7 @@ export interface AssignmentContext {
   shiftType: ShiftType
   /** Calendar days of history to consider (default 14) */
   lookbackDays?: number
-  /** Cap for multi-pass swap optimization (default 50) */
+  /** Cap for local improvement passes within each search start (default 320). */
   maxOptimizationPasses?: number
   /**
    * Seed for tie-break shuffle only (does not change ranking rules).
@@ -233,10 +233,17 @@ export type BoardWeightKey = keyof typeof DEFAULT_BOARD_WEIGHTS
 export interface BoardEvaluation {
   /** False if any HARD CONSTRAINT is violated */
   legal: boolean
+  objective: AssignmentObjective
   /** Weighted 0–100 (or -Infinity if illegal) */
   score: number
   components: Record<BoardWeightKey, number>
   understaffedSlots: number
+  /** Missing slots weighted by lane priority; lower is better. */
+  priorityUnderstaffingPenalty: number
+  /** Sum of afternoon handoff tiers; lower tiers are preferred. */
+  handoffTierPenalty: number
+  /** Placements returning to a lane visited within the rotation window. */
+  rotationRepeatCount: number
   /** Same-day returns to a non-handoff lane; lower is better. */
   sameDayLaneRepeatCount: number
   /** Returns to a lane occupied on the previous calendar day; lower is better. */
@@ -267,8 +274,8 @@ export interface BoardEvaluation {
 }
 
 const DEFAULT_LOOKBACK_DAYS = 14
-/** Rotation scoring window in calendar days (Maximum Distance Strategy). */
-export const ROTATION_LOOKBACK_DAYS = 14
+/** Lane rotation considers a wider history than workload balancing. */
+export const ROTATION_LOOKBACK_DAYS = 28
 /**
  * How many calendar days the workload balance looks back.
  * Older days leave the window, so the number cannot grow forever.
@@ -307,11 +314,9 @@ export const IDLE_HARD_REST_DAYS = 4
 /** Multi-pass local-search iteration cap. */
 const DEFAULT_MAX_OPTIMIZATION_PASSES = 320
 /**
- * Starts used by the async progress runner when the caller does not pass
- * `searchStarts` — several tie-break seeds, each fully optimized, so the UI
- * can honestly show thousands of board checks with progress.
+ * Full assignment starts used by the async progress runner unless overridden.
  */
-export const DEFAULT_PROGRESS_SEARCH_STARTS = 12
+export const DEFAULT_PROGRESS_SEARCH_STARTS = 1000
 /**
  * A person who sat a lane most recently stays "the last one" for this many
  * calendar days. Inside the window, another qualified person is preferred.
@@ -321,6 +326,13 @@ export const LAST_OCCUPANT_WINDOW_DAYS = ROTATION_LOOKBACK_DAYS
 const VERSATILITY_MIN_GAP = 2
 /** Per weighted day-visit in the rotation window (grows with repeat volume). */
 const ROTATION_VOLUME_PENALTY_PER_VISIT = 7
+
+/** Recent lane visits matter more, while older visits still contribute to rotation. */
+function rotationRecencyWeight(daysSince: number): number {
+  if (daysSince <= 7) return 1
+  if (daysSince <= 14) return 0.65
+  return 0.35
+}
 
 /**
  * Shift-weighted rotation impact (Morning > Noon > a night visit still counts).
@@ -501,7 +513,7 @@ export interface WorkerHistoryProfile {
 /**
  * Maximum Distance rotation score with exponential time decay + shift weighting.
  *
- * timePenalty = (100 / D^1.5) * shiftWeight   when 0 < D ≤ 14
+ * timePenalty = (100 / D^1.5) * shiftWeight   when 0 < D ≤ 28
  * volumePenalty = totalWeightedVisits * ROTATION_VOLUME_PENALTY_PER_VISIT
  * rawScore = 100 - timePenalty - volumePenalty  (may be negative)
  * score = max(0, rawScore) for display / soft-floor filters
@@ -1135,7 +1147,8 @@ function easyStaffingRemaining(otherOpen: Lane[]): number {
 
 /**
  * Build rotation + load profile. Includes:
- * - prior calendar days within lookback (all shift types for rotation)
+ * - prior 28 calendar days for lane rotation
+ * - prior 14 calendar days for workload, rest, and intensity balancing
  * - same-day earlier shifts → D = 0.5 for those lanes
  */
 export function buildWorkerProfile(
@@ -1182,7 +1195,8 @@ export function buildWorkerProfile(
     daysSince: number,
     shiftIndex: number,
   ) => {
-    const w = ROTATION_SHIFT_WEIGHT[shiftType]
+    const w =
+      ROTATION_SHIFT_WEIGHT[shiftType] * rotationRecencyWeight(daysSince)
     profile.laneCounts.set(lane.id, (profile.laneCounts.get(lane.id) ?? 0) + 1)
     profile.rotationLaneCounts.set(
       lane.id,
@@ -1206,10 +1220,12 @@ export function buildWorkerProfile(
   lookback.forEach((shift, shiftIndex) => {
     const placements: Lane[] = []
     const daysSince = daysBetweenLocal(shift.date, currentDate)
+    const withinBalanceWindow = daysSince <= LOAD_BALANCE_DAYS
 
     const workedDuty =
-      shift.gateManagerWorkerId?.trim() === workerId ||
-      shiftPlacements(shift).some((p) => p.workerId === workerId)
+      withinBalanceWindow &&
+      (shift.gateManagerWorkerId?.trim() === workerId ||
+        shiftPlacements(shift).some((p) => p.workerId === workerId))
     if (workedDuty) {
       if (
         profile.daysSinceLastDuty == null ||
@@ -1234,6 +1250,8 @@ export function buildWorkerProfile(
       // Lane rotation: every shift type and the latest selector round.
       recordLaneVisit(lane, shift.shiftType, daysSince, shiftIndex)
 
+      if (!withinBalanceWindow) continue
+
       if (lane.intensity === 'hard') {
         profile.hardCount += 1
         if (shift.shiftType === currentShiftType) {
@@ -1249,7 +1267,7 @@ export function buildWorkerProfile(
       }
     }
 
-    if (placements.length === 0) return
+    if (placements.length === 0 || !withinBalanceWindow) return
 
     profile.shiftsSeen += 1
     if (!capturedLastShift) {
@@ -1464,7 +1482,7 @@ function compareForLane(
   if (objective === 'hardExperience' && lane.intensity === 'hard') {
     if (pa.hardCount !== pb.hardCount) return pb.hardCount - pa.hardCount
     const aRate = pa.hardCount / Math.max(1, pa.shiftsSeen)
-    const bRate = pb.hardCount / Math.max(1, pa.shiftsSeen)
+    const bRate = pb.hardCount / Math.max(1, pb.shiftsSeen)
     if (Math.abs(aRate - bRate) > 1e-9) return bRate - aRate
   }
 
@@ -1735,6 +1753,35 @@ function requiredSlots(lanes: Lane[]): number {
   return lanes.reduce((n, l) => n + l.staffingStandard, 0)
 }
 
+function orderLanesForAssignment(
+  lanes: Lane[],
+  workers: Worker[],
+  shiftType: ShiftType,
+): Lane[] {
+  const intensityOrder: Record<Intensity, number> = {
+    hard: 0,
+    medium: 1,
+    easy: 2,
+  }
+  return [...lanes].sort((a, b) => {
+    if (shiftType === 'afternoon') {
+      const aHandoff = a.afternoonHandoff ? 0 : 1
+      const bHandoff = b.afternoonHandoff ? 0 : 1
+      if (aHandoff !== bHandoff) return aHandoff - bHandoff
+    }
+    const aOpen = a.requiredCertifications.length === 0 ? 1 : 0
+    const bOpen = b.requiredCertifications.length === 0 ? 1 : 0
+    if (aOpen !== bOpen) return aOpen - bOpen
+    const qualifiedA = workers.filter((worker) => isQualified(worker, a)).length
+    const qualifiedB = workers.filter((worker) => isQualified(worker, b)).length
+    if (qualifiedA !== qualifiedB) return qualifiedA - qualifiedB
+    if (intensityOrder[a.intensity] !== intensityOrder[b.intensity]) {
+      return intensityOrder[a.intensity] - intensityOrder[b.intensity]
+    }
+    return b.staffingStandard - a.staffingStandard
+  })
+}
+
 function understaffedSlotCount(
   assignments: LaneAssignment[],
   lanes: Lane[],
@@ -1813,14 +1860,14 @@ export function evaluateBoard(
   for (const a of assignments) {
     const lane = laneById.get(a.laneId)
     if (!lane) {
-      return illegalBoardEval()
+      return illegalBoardEval(ctx.objective)
     }
     for (const wid of a.workerIds) {
       if (!wid) continue
-      if (seenWorkers.has(wid)) return illegalBoardEval()
+      if (seenWorkers.has(wid)) return illegalBoardEval(ctx.objective)
       seenWorkers.add(wid)
       const w = ctx.workersById.get(wid)
-      if (!w || !isQualified(w, lane)) return illegalBoardEval()
+      if (!w || !isQualified(w, lane)) return illegalBoardEval(ctx.objective)
     }
   }
 
@@ -1840,11 +1887,28 @@ export function evaluateBoard(
   const required = Math.max(1, requiredSlots(ctx.lanes))
   const filled = countFilled(assignments)
   const staffing = clamp01to100((filled / required) * 100)
+  const assignmentByLane = new Map(assignments.map((a) => [a.laneId, a]))
+  const priorityLanes = orderLanesForAssignment(
+    ctx.lanes,
+    [...ctx.workersById.values()],
+    ctx.currentShiftType,
+  )
+  const priorityUnderstaffingPenalty = priorityLanes.reduce(
+    (penalty, lane, index) => {
+      const filledHere = (assignmentByLane.get(lane.id)?.workerIds ?? []).filter(
+        Boolean,
+      ).length
+      const missing = Math.max(0, lane.staffingStandard - filledHere)
+      return penalty + missing * (priorityLanes.length - index)
+    },
+    0,
+  )
 
   let shortReturnCount = 0
   let shortReturnOnHard = 0
   let sameDayLaneRepeatCount = 0
   let nextDayLaneRepeatCount = 0
+  let rotationRepeatCount = 0
   let lastOccupantOnHard = 0
   let lastOccupantRepeats = 0
   const countLastOccupant =
@@ -1853,13 +1917,14 @@ export function evaluateBoard(
   let recoveryOnHard = 0
   let idleOnHard = 0
   let handoffScoreSum = 0
+  let handoffTierPenalty = 0
   let handoffN = 0
   let versatilityPenalties = 0
   const loads: number[] = []
   const hardCounts: number[] = []
   const intensityLoads: number[] = []
+  const laneByWorker = new Map<string, Lane>()
 
-  const assignmentByLane = new Map(assignments.map((a) => [a.laneId, a]))
   const openLanes = ctx.lanes.filter((l) => {
     const filledHere = (assignmentByLane.get(l.id)?.workerIds ?? []).filter(
       Boolean,
@@ -1879,6 +1944,9 @@ export function evaluateBoard(
     if (profile.daysSinceLastVisit.get(lane.id) === 1) {
       nextDayLaneRepeatCount += 1
     }
+    if (profile.daysSinceLastVisit.has(lane.id)) {
+      rotationRepeatCount += 1
+    }
     if (isShortReturnToLane(profile, lane.id)) {
       shortReturnCount += 1
       if (lane.intensity === 'hard') shortReturnOnHard += 1
@@ -1891,23 +1959,7 @@ export function evaluateBoard(
       if (lane.intensity === 'hard') lastOccupantOnHard += 1
     }
 
-    const projectedLoad = Math.max(
-      LOAD_BALANCE_FLOOR,
-      profile.load +
-        placementBalancePoints(
-          lane.intensity,
-          ctx.currentShiftType,
-          profile.continuesFromMorning,
-        ),
-    )
-    loads.push(projectedLoad)
-    hardCounts.push(
-      profile.hardCount + (lane.intensity === 'hard' ? 1 : 0),
-    )
-    intensityLoads.push(
-      profile.hardCount * 3 +
-        (lane.intensity === 'hard' ? 3 : lane.intensity === 'medium' ? 2 : 1),
-    )
+    laneByWorker.set(workerId, lane)
 
     if (ctx.recoveringIds.has(workerId) && lane.intensity === 'hard') {
       recoveryOnHard += 1
@@ -1924,6 +1976,7 @@ export function evaluateBoard(
       const tier = afternoonHandoffTier(workerId, lane.id, ctx.morning ?? null)
       // tier 0 best → 100, tier 1 → 70, tier 2 → 35
       handoffScoreSum += tier === 0 ? 100 : tier === 1 ? 70 : 35
+      handoffTierPenalty += tier
       handoffN += 1
     }
 
@@ -1937,6 +1990,36 @@ export function evaluateBoard(
     ) {
       versatilityPenalties += 1 // mild: burning a generalist on open lane
     }
+  }
+
+  for (const [workerId, profile] of ctx.profiles) {
+    const assignedLane = laneByWorker.get(workerId)
+    loads.push(
+      Math.max(
+        LOAD_BALANCE_FLOOR,
+        profile.load +
+          (assignedLane
+            ? placementBalancePoints(
+                assignedLane.intensity,
+                ctx.currentShiftType,
+                profile.continuesFromMorning,
+              )
+            : 0),
+      ),
+    )
+    hardCounts.push(
+      profile.hardCount + (assignedLane?.intensity === 'hard' ? 1 : 0),
+    )
+    intensityLoads.push(
+      profile.hardCount * 3 +
+        (assignedLane?.intensity === 'hard'
+          ? 3
+          : assignedLane?.intensity === 'medium'
+            ? 2
+            : assignedLane?.intensity === 'easy'
+              ? 1
+              : 0),
+    )
   }
 
   const n = Math.max(1, placements.length)
@@ -2007,9 +2090,13 @@ export function evaluateBoard(
 
   return {
     legal: true,
+    objective: ctx.objective ?? 'standard',
     score,
     components,
     understaffedSlots,
+    priorityUnderstaffingPenalty,
+    handoffTierPenalty,
+    rotationRepeatCount,
     sameDayLaneRepeatCount,
     nextDayLaneRepeatCount,
     shortReturnCount,
@@ -2053,7 +2140,9 @@ function idleHardPlacementAdjust(
   return delta
 }
 
-function illegalBoardEval(): BoardEvaluation {
+function illegalBoardEval(
+  objective: AssignmentObjective = 'standard',
+): BoardEvaluation {
   const zero = {
     rotation: 0,
     workload: 0,
@@ -2068,9 +2157,13 @@ function illegalBoardEval(): BoardEvaluation {
   }
   return {
     legal: false,
+    objective,
     score: Number.NEGATIVE_INFINITY,
     components: zero,
     understaffedSlots: Number.POSITIVE_INFINITY,
+    priorityUnderstaffingPenalty: Number.POSITIVE_INFINITY,
+    handoffTierPenalty: Number.POSITIVE_INFINITY,
+    rotationRepeatCount: Number.POSITIVE_INFINITY,
     sameDayLaneRepeatCount: Number.POSITIVE_INFINITY,
     nextDayLaneRepeatCount: Number.POSITIVE_INFINITY,
     shortReturnCount: Number.POSITIVE_INFINITY,
@@ -2109,6 +2202,40 @@ export function isBoardBetter(
     return next.understaffedSlots < current.understaffedSlots
   }
 
+  if (
+    next.priorityUnderstaffingPenalty !== current.priorityUnderstaffingPenalty
+  ) {
+    return (
+      next.priorityUnderstaffingPenalty < current.priorityUnderstaffingPenalty
+    )
+  }
+
+  if (next.handoffTierPenalty !== current.handoffTierPenalty) {
+    return next.handoffTierPenalty < current.handoffTierPenalty
+  }
+
+  if (next.recoveryOnHard !== current.recoveryOnHard) {
+    return next.recoveryOnHard < current.recoveryOnHard
+  }
+
+  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
+    return next.rotationRepeatCount < current.rotationRepeatCount
+  }
+
+  if (
+    next.objective === 'hardExperience' &&
+    next.components.hardBalance !== current.components.hardBalance
+  ) {
+    return next.components.hardBalance > current.components.hardBalance
+  }
+
+  if (
+    next.objective === 'loadFair' &&
+    next.components.workload !== current.components.workload
+  ) {
+    return next.components.workload > current.components.workload
+  }
+
   if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
     return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
   }
@@ -2125,12 +2252,11 @@ export function isBoardBetter(
     return next.idleOnHard > current.idleOnHard
   }
 
-  if (next.components.workload !== current.components.workload) {
+  if (
+    next.objective === 'standard' &&
+    next.components.workload !== current.components.workload
+  ) {
     return next.components.workload > current.components.workload
-  }
-
-  if (next.recoveryOnHard !== current.recoveryOnHard) {
-    return next.recoveryOnHard < current.recoveryOnHard
   }
 
   if (next.shortReturnOnHard !== current.shortReturnOnHard) {
@@ -2606,7 +2732,7 @@ function buildPlacementReasons(
     if (isIdleForHardLane(p)) {
       const days =
         p.daysSinceLastDuty == null
-          ? `מעל ${ROTATION_LOOKBACK_DAYS}`
+          ? `מעל ${LOAD_BALANCE_DAYS}`
           : String(Math.floor(p.daysSinceLastDuty))
       reasons.push(
         `לא עבד ${days} ימים — עדיפות לעמדה קשה אחרי מנוחה של לפחות ${IDLE_HARD_REST_DAYS} ימים`,
@@ -2617,7 +2743,7 @@ function buildPlacementReasons(
     }, 0)
     if (highestLoad - p.load >= IDLE_HARD_LOAD_GAP) {
       reasons.push(
-        `עומס ${fmtLoad(p.load)} ב־${ROTATION_LOOKBACK_DAYS} הימים האחרונים, נמוך משאר הנוכחים — עדיפות לעמדה קשה`,
+        `עומס ${fmtLoad(p.load)} ב־${LOAD_BALANCE_DAYS} הימים האחרונים, נמוך משאר הנוכחים — עדיפות לעמדה קשה`,
       )
     }
     reasons.push(
@@ -2824,7 +2950,7 @@ function buildFinalBoardExplanations(
 
 /**
  * Pass 1 — greedy fill by lane priority, with progressive constraint relaxation:
- * 1) soft 14-day rotation threshold
+ * 1) soft 28-day rotation threshold
  * 2) night-recovery preference on medium/easy
  * 3) qualification hard-fail warning
  */
@@ -2927,7 +3053,7 @@ function greedyAssignPass(
       lane.intensity === 'hard' &&
       recoveringIds.size > 0
     ) {
-      const rested = qualified.filter((w) => !recoveringIds.has(w.id))
+      const rested = pool.filter((w) => !recoveringIds.has(w.id))
       if (rested.length >= lane.staffingStandard) {
         pool = rested
       }
@@ -2973,7 +3099,7 @@ function greedyAssignPass(
       lane.intensity === 'easy' &&
       isAfternoonShift(currentShiftType)
     ) {
-      const nightFirst = qualified.filter((w) => recoveringIds.has(w.id))
+      const nightFirst = pool.filter((w) => recoveringIds.has(w.id))
       if (nightFirst.length >= lane.staffingStandard) {
         pool = nightFirst
       }
@@ -2981,6 +3107,7 @@ function greedyAssignPass(
 
     // Relax night-recovery preference for medium/easy when still short
     if (
+      !handoffFallback &&
       pool.length < lane.staffingStandard &&
       lane.intensity !== 'hard' &&
       recoveringIds.size > 0
@@ -3102,6 +3229,187 @@ function greedyAssignPass(
   }
 }
 
+interface AssignmentFlowEdge {
+  to: number
+  reverseIndex: number
+  capacity: number
+  cost: number
+}
+
+/**
+ * Finds a maximum-coverage assignment, then minimizes handoff-tier breaks,
+ * hard-lane recovery conflicts, recent lane repeats, and finally preferences.
+ */
+function assignWorkersGlobally(
+  lanes: Lane[],
+  workers: Worker[],
+  profiles: Map<string, WorkerHistoryProfile>,
+  recoveringIds: Set<string>,
+  morning: SameDayMorningContext | null,
+  currentShiftType: ShiftType,
+  objective: AssignmentObjective,
+  lastSeatings: Map<string, LaneLastSeating>,
+  seed: string,
+): LaneAssignment[] {
+  const slots = lanes.reduce((total, lane) => total + lane.staffingStandard, 0)
+  const source = 0
+  const workerStart = 1
+  const laneStart = workerStart + workers.length
+  const dummyStart = laneStart + lanes.length
+  const sink = dummyStart + slots
+  const graph: AssignmentFlowEdge[][] = Array.from(
+    { length: sink + 1 },
+    () => [],
+  )
+  const assignmentEdges: {
+    edge: AssignmentFlowEdge
+    workerId: string
+    laneIndex: number
+  }[] = []
+
+  const addEdge = (from: number, to: number, capacity: number, cost: number) => {
+    const forward: AssignmentFlowEdge = {
+      to,
+      reverseIndex: graph[to]!.length,
+      capacity,
+      cost,
+    }
+    const reverse: AssignmentFlowEdge = {
+      to: from,
+      reverseIndex: graph[from]!.length,
+      capacity: 0,
+      cost: -cost,
+    }
+    graph[from]!.push(forward)
+    graph[to]!.push(reverse)
+    return forward
+  }
+
+  const tieCostLimit = Math.max(1, slots * Math.max(1, workers.length))
+  const repeatPenalty = tieCostLimit + 1
+  const recoveryPenalty = repeatPenalty * (slots + 1)
+  const handoffPenalty = recoveryPenalty * (slots + 1)
+  const maxWorkerCost =
+    2 * handoffPenalty + recoveryPenalty + repeatPenalty + workers.length
+  const lanePriorityUnit = slots * maxWorkerCost + 1
+  const dummyPenalty =
+    slots *
+      (maxWorkerCost + (lanes.length + 1) * lanePriorityUnit) +
+    1
+  const rng = createSeededRng(hashStringToSeed(seed))
+  const workerOrder = shuffle(workers, rng)
+  const workerNodeById = new Map<string, number>()
+
+  workerOrder.forEach((worker, index) => {
+    const node = workerStart + index
+    workerNodeById.set(worker.id, node)
+    addEdge(source, node, 1, 0)
+  })
+
+  for (let index = 0; index < slots; index++) {
+    const node = dummyStart + index
+    addEdge(source, node, 1, 0)
+    lanes.forEach((_, laneIndex) => {
+      const vacancyPriority = lanes.length - laneIndex
+      addEdge(
+        node,
+        laneStart + laneIndex,
+        1,
+        dummyPenalty + vacancyPriority * lanePriorityUnit,
+      )
+    })
+  }
+
+  lanes.forEach((lane, laneIndex) => {
+    addEdge(laneStart + laneIndex, sink, lane.staffingStandard, 0)
+    const qualified = workers.filter((worker) => isQualified(worker, lane))
+    const ranked = sortCandidatesForLane(qualified, {
+      lane,
+      profiles,
+      otherOpen: lanes.filter((other) => other.id !== lane.id),
+      currentShiftType,
+      morning,
+      recoveringIds,
+      lastSeatings,
+      objective,
+      rng,
+    })
+    const rankById = new Map(ranked.map((worker, rank) => [worker.id, rank]))
+
+    for (const worker of workerOrder) {
+      const rank = rankById.get(worker.id)
+      if (rank == null) continue
+      const profile = profiles.get(worker.id)
+      if (!profile) continue
+      const tier =
+        lane.afternoonHandoff && currentShiftType === 'afternoon'
+          ? afternoonHandoffTier(worker.id, lane.id, morning)
+          : 0
+      const cost =
+        tier * handoffPenalty +
+        (lane.intensity === 'hard' && recoveringIds.has(worker.id)
+          ? recoveryPenalty
+          : 0) +
+        (profile.daysSinceLastVisit.has(lane.id) ? repeatPenalty : 0) +
+        rank
+      const edge = addEdge(
+        workerNodeById.get(worker.id)!,
+        laneStart + laneIndex,
+        1,
+        cost,
+      )
+      assignmentEdges.push({ edge, workerId: worker.id, laneIndex })
+    }
+  })
+
+  let assignedSlots = 0
+  while (assignedSlots < slots) {
+    const distances = Array(graph.length).fill(Number.POSITIVE_INFINITY) as number[]
+    const previousNode = Array(graph.length).fill(-1) as number[]
+    const previousEdge = Array(graph.length).fill(-1) as number[]
+    const inQueue = Array(graph.length).fill(false) as boolean[]
+    const queue = [source]
+    distances[source] = 0
+    inQueue[source] = true
+
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const from = queue[cursor]!
+      inQueue[from] = false
+      for (let edgeIndex = 0; edgeIndex < graph[from]!.length; edgeIndex++) {
+        const edge = graph[from]![edgeIndex]!
+        if (edge.capacity <= 0) continue
+        const nextDistance = distances[from]! + edge.cost
+        if (nextDistance >= distances[edge.to]!) continue
+        distances[edge.to] = nextDistance
+        previousNode[edge.to] = from
+        previousEdge[edge.to] = edgeIndex
+        if (!inQueue[edge.to]) {
+          queue.push(edge.to)
+          inQueue[edge.to] = true
+        }
+      }
+    }
+
+    if (!Number.isFinite(distances[sink])) break
+    for (let node = sink; node !== source; node = previousNode[node]!) {
+      const from = previousNode[node]!
+      const edge = graph[from]![previousEdge[node]!]!
+      edge.capacity -= 1
+      graph[node]![edge.reverseIndex]!.capacity += 1
+    }
+    assignedSlots += 1
+  }
+
+  const assignments = lanes.map((lane) => ({
+    laneId: lane.id,
+    workerIds: [] as string[],
+  }))
+  for (const { edge, workerId, laneIndex } of assignmentEdges) {
+    if (edge.capacity === 0) assignments[laneIndex]!.workerIds.push(workerId)
+  }
+  return assignments
+}
+
 /**
  * Explain a board that was already saved, without assigning anyone again.
  * History of the same date is ignored, so the shift does not explain itself.
@@ -3161,24 +3469,11 @@ export function explainSavedBoard(input: {
     }
   }
 
-  const intensityOrder: Record<Intensity, number> = { hard: 0, medium: 1, easy: 2 }
-  const orderedLanes = [...activeLanes].sort((a, b) => {
-    if (shiftType === 'afternoon') {
-      const aH = a.afternoonHandoff ? 0 : 1
-      const bH = b.afternoonHandoff ? 0 : 1
-      if (aH !== bH) return aH - bH
-    }
-    const aOpen = a.requiredCertifications.length === 0 ? 1 : 0
-    const bOpen = b.requiredCertifications.length === 0 ? 1 : 0
-    if (aOpen !== bOpen) return aOpen - bOpen
-    const qa = presentWorkers.filter((w) => isQualified(w, a)).length
-    const qb = presentWorkers.filter((w) => isQualified(w, b)).length
-    if (qa !== qb) return qa - qb
-    if (intensityOrder[a.intensity] !== intensityOrder[b.intensity]) {
-      return intensityOrder[a.intensity] - intensityOrder[b.intensity]
-    }
-    return b.staffingStandard - a.staffingStandard
-  })
+  const orderedLanes = orderLanesForAssignment(
+    activeLanes,
+    presentWorkers,
+    shiftType,
+  )
 
   const roster = new Map(presentWorkers.map((worker) => [worker.id, worker]))
   const lastSeatings = buildLaneLastSeatings(
@@ -3203,12 +3498,13 @@ export function explainSavedBoard(input: {
   )
 }
 
-export function runAssignmentAlgorithm(
+function runAssignmentAlgorithmInternal(
   activeLanes: Lane[],
   presentWorkers: Worker[],
   history: ShiftSchedule[],
   allLanes: Lane[],
   ctx?: AssignmentContext,
+  includeGreedyBaseline = true,
 ): AssignmentResult {
   const warnings: string[] = []
 
@@ -3232,7 +3528,6 @@ export function runAssignmentAlgorithm(
     }
   }
 
-  const available = new Set(presentWorkers.map((w) => w.id))
   const workerById = new Map(presentWorkers.map((w) => [w.id, w]))
 
   const currentDate = ctx?.date ?? '9999-12-31'
@@ -3321,52 +3616,76 @@ export function runAssignmentAlgorithm(
     }
   }
 
-  const intensityOrder: Record<Intensity, number> = { hard: 0, medium: 1, easy: 2 }
+  const orderedLanes = orderLanesForAssignment(
+    activeLanes,
+    presentWorkers,
+    currentShiftType,
+  )
 
-  const orderedLanes = [...activeLanes].sort((a, b) => {
-    if (currentShiftType === 'afternoon') {
-      const aH = a.afternoonHandoff ? 0 : 1
-      const bH = b.afternoonHandoff ? 0 : 1
-      if (aH !== bH) return aH - bH
-    }
-
-    const aOpen = a.requiredCertifications.length === 0 ? 1 : 0
-    const bOpen = b.requiredCertifications.length === 0 ? 1 : 0
-    if (aOpen !== bOpen) return aOpen - bOpen
-
-    const qa = presentWorkers.filter((w) => isQualified(w, a)).length
-    const qb = presentWorkers.filter((w) => isQualified(w, b)).length
-    if (qa !== qb) return qa - qb
-
-    if (intensityOrder[a.intensity] !== intensityOrder[b.intensity]) {
-      return intensityOrder[a.intensity] - intensityOrder[b.intensity]
-    }
-    return b.staffingStandard - a.staffingStandard
-  })
-
-  // Phase 1 — priority greedy with relaxation hierarchy
-  const pass1 = greedyAssignPass(
+  const globalAssignments = assignWorkersGlobally(
     orderedLanes,
     presentWorkers,
-    available,
-    workerById,
     profiles,
     recoveringIds,
     morningCtx,
     currentShiftType,
-    warnings,
-    tieBreakSeedBase,
     objective,
     lastSeatings,
-    roster,
+    tieBreakSeedBase,
   )
-
-  const greedyBaseline = cloneAssignments(pass1.assignments)
+  let initialAssignments = globalAssignments
+  if (includeGreedyBaseline) {
+    const greedyWarnings: string[] = []
+    const greedy = greedyAssignPass(
+      orderedLanes,
+      presentWorkers,
+      new Set(presentWorkers.map((worker) => worker.id)),
+      workerById,
+      profiles,
+      recoveringIds,
+      morningCtx,
+      currentShiftType,
+      greedyWarnings,
+      tieBreakSeedBase,
+      objective,
+      lastSeatings,
+      roster,
+    )
+    const initialEvalContext: EvaluateBoardContext = {
+      lanes: activeLanes,
+      workersById: workerById,
+      profiles,
+      recoveringIds,
+      morning: morningCtx,
+      currentShiftType,
+      objective,
+      weights: weightsForObjective(objective),
+      lastSeatings,
+      baselineAssignments: greedy.assignments,
+    }
+    if (
+      isBoardBetter(
+        evaluateBoard(greedy.assignments, initialEvalContext),
+        evaluateBoard(globalAssignments, initialEvalContext),
+      )
+    ) {
+      initialAssignments = greedy.assignments
+    }
+  }
+  const greedyBaseline = cloneAssignments(initialAssignments)
+  const assignedInitially = new Set(
+    initialAssignments.flatMap((assignment) =>
+      assignment.workerIds.filter(Boolean),
+    ),
+  )
+  const unassignedInitially = presentWorkers
+    .map((worker) => worker.id)
+    .filter((id) => !assignedInitially.has(id))
 
   // Phase 2+ — multi-pass local search on global board objective
   const optimized = runMultiPassOptimization({
-    assignments: pass1.assignments,
-    unassignedWorkerIds: [...available],
+    assignments: initialAssignments,
+    unassignedWorkerIds: unassignedInitially,
     lanes: activeLanes,
     workersById: workerById,
     profiles,
@@ -3421,6 +3740,73 @@ export function runAssignmentAlgorithm(
     if (filled < lane.staffingStandard) understaffedLaneIds.push(lane.id)
   }
 
+  for (const lane of activeLanes) {
+    const row = finalAssignments.find((assignment) => assignment.laneId === lane.id)
+    const picked = row?.workerIds.filter(Boolean) ?? []
+    if (picked.length < lane.staffingStandard) {
+      const qualifiedCount = presentWorkers.filter((worker) =>
+        isQualified(worker, lane),
+      ).length
+      if (qualifiedCount === 0) {
+        warnings.push(
+          `אין עובדים מוסמכים לנתיב "${lane.name}" — מגבלת ההסמכות מונעת מילוי נתיב חובה`,
+        )
+      }
+      warnings.push(
+        `נתיב "${lane.name}" דורש ${lane.staffingStandard} בודקים מוסמכים, שובצו ${picked.length}`,
+      )
+    }
+    for (const workerId of picked) {
+      const worker = workerById.get(workerId)
+      if (!worker) continue
+      if (lane.intensity === 'hard' && recoveringIds.has(workerId)) {
+        warnings.push(
+          `אחרי לילה → קשה בצהריים: "${worker.fullName}" שובץ בנתיב "${lane.name}" (לא נמצא שיבוץ מלא חלופי שמכבד את ההעדפה)`,
+        )
+      }
+      const daysSince = profiles.get(workerId)?.daysSinceLastVisit.get(lane.id)
+      if (daysSince != null && daysSince <= 1) {
+        const when = daysSince === 0.5 ? 'מוקדם יותר היום' : 'אתמול'
+        warnings.push(
+          `חזרה קצרה לעמדה: "${worker.fullName}" שובץ שוב ב"${lane.name}" אחרי שהיה שם ${when}`,
+        )
+      }
+      if (
+        lane.afternoonHandoff &&
+        currentShiftType === 'afternoon' &&
+        morningCtx?.found
+      ) {
+        const tier = afternoonHandoffTier(workerId, lane.id, morningCtx)
+        if (tier === 1) {
+          warnings.push(
+            `נתיב "${lane.name}" — ממשיך מבוקר (היה שם בבוקר); לא נמצא מחליף צהריים מתאים`,
+          )
+        } else if (tier === 2) {
+          warnings.push(
+            `נתיב "${lane.name}" — מולא ע״י ממשיך משמרת ארוכה אחר (אין מחליף צהריים / איש הבוקר אינו זמין)`,
+          )
+        }
+      }
+
+    }
+  }
+
+  const repeatedPlacements = finalAssignments.reduce(
+    (total, assignment) =>
+      total +
+      assignment.workerIds.filter(
+        (workerId) =>
+          workerId != null &&
+          profiles.get(workerId)?.daysSinceLastVisit.has(assignment.laneId),
+      ).length,
+    0,
+  )
+  if (repeatedPlacements > 0) {
+    warnings.push(
+      `נדרשו ${repeatedPlacements} חזרות לנתיב בחלון הרוטציה; נבחר שיבוץ עם מספר החזרות הנמוך ביותר במסגרת מילוי התקנים, החלפת הצהריים וכללי המנוחה`,
+    )
+  }
+
   const emptyLanes = finalAssignments.filter((a) => a.workerIds.length === 0)
   if (emptyLanes.length > 0 && unassigned.length > 0) {
     for (const a of emptyLanes) {
@@ -3460,6 +3846,22 @@ export function runAssignmentAlgorithm(
   }
 }
 
+export function runAssignmentAlgorithm(
+  activeLanes: Lane[],
+  presentWorkers: Worker[],
+  history: ShiftSchedule[],
+  allLanes: Lane[],
+  ctx?: AssignmentContext,
+): AssignmentResult {
+  return runAssignmentAlgorithmInternal(
+    activeLanes,
+    presentWorkers,
+    history,
+    allLanes,
+    ctx,
+  )
+}
+
 /** Progress tick reported while the multi-start search runs. */
 export interface AssignmentProgress {
   /** 0–100 */
@@ -3472,8 +3874,8 @@ export interface AssignmentProgress {
 
 export interface AssignmentProgressOptions {
   /**
-   * Starts to run — each fully greedy + optimized with its own tie-break
-   * seed; the strictly best board wins.
+   * Full assignment searches to run, each with its own tie-break seed.
+   * The best board found by the shared comparison criteria wins.
    * Default: DEFAULT_PROGRESS_SEARCH_STARTS.
    */
   searchStarts?: number
@@ -3482,15 +3884,9 @@ export interface AssignmentProgressOptions {
   yieldToUi?: () => Promise<void>
 }
 
-/** Two animation frames: paint the loader first, then let it animate. */
+/** Yield between starts so the browser can render progress and accept input. */
 function yieldForProgressUi(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    } else {
-      setTimeout(resolve, 0)
-    }
-  })
+  return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 /**
@@ -3553,9 +3949,9 @@ function comparisonEvalContext(
 /**
  * Async multi-start runner with progress: same contract as
  * `runAssignmentAlgorithm`, but runs several fully-optimized starts (default
- * DEFAULT_PROGRESS_SEARCH_STARTS), yields to the browser between them so a
- * loader can paint and animate, reports how many board checks ran so far, and
- * returns the strictly best board. Deterministic: seeds derive from the same
+ * DEFAULT_PROGRESS_SEARCH_STARTS), yields to the browser between them, reports
+ * how many board checks ran so far, and returns the best board found in that
+ * search budget. It does not prove a global optimum. Deterministic: seeds derive from the same
  * base the sync runner uses.
  */
 export async function runAssignmentAlgorithmWithProgress(
@@ -3611,14 +4007,16 @@ export async function runAssignmentAlgorithmWithProgress(
   let compareBaseline: LaneAssignment[] | null = null
   let totalEvaluations = 0
 
+  await yieldToUi()
   for (let i = 0; i < starts; i++) {
     const seed = i === 0 ? baseSeed : `${baseSeed}|start${i}`
-    const candidate = runAssignmentAlgorithm(
+    const candidate = runAssignmentAlgorithmInternal(
       activeLanes,
       presentWorkers,
       history,
       allLanes,
       { ...ctx, date, shiftType, rngSeed: seed },
+      false,
     )
     totalEvaluations += candidate.searchStats?.evaluations ?? 0
     if (!compareBaseline) compareBaseline = candidate.assignments

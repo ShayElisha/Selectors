@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_BOARD_WEIGHTS,
+  DEFAULT_PROGRESS_SEARCH_STARTS,
   HARD_EXPERIENCE_BOARD_WEIGHTS,
   LOAD_FAIR_BOARD_WEIGHTS,
   accumulateLoadBalance,
@@ -19,6 +20,7 @@ import {
   runAssignmentAlgorithm,
   runAssignmentAlgorithmWithProgress,
   runMultiPassOptimization,
+  sortCandidatesForLane,
   type AssignmentProgress,
   type EvaluateBoardContext,
 } from './algorithm'
@@ -210,6 +212,58 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(profile.rotationWeightedVisits.get('hard')).toBeCloseTo(1.5 + 1.2)
     expect(profile.daysSinceLastVisit.get('hard')).toBe(2)
     expect(profile.hardCount).toBe(2)
+  })
+
+  it('uses 28-day weighted lane rotation while keeping workload stats at 14 days', () => {
+    const oldWorker = worker('old', 'ישן', ['forklift'])
+    const recentWorker = worker('recent', 'עדכני', ['forklift'])
+    const history = [
+      shift(
+        'old-visit',
+        '2026-03-14',
+        'morning',
+        [{ laneId: 'hard', workerIds: ['old'] }],
+        ['old'],
+        ['hard'],
+      ),
+      shift(
+        'recent-visit',
+        '2026-03-25',
+        'morning',
+        [{ laneId: 'hard', workerIds: ['recent'] }],
+        ['recent'],
+        ['hard'],
+      ),
+    ]
+
+    const oldProfile = buildWorkerProfile(
+      oldWorker.id,
+      history,
+      [hard],
+      'morning',
+      '2026-03-30',
+      14,
+    )
+    const recentProfile = buildWorkerProfile(
+      recentWorker.id,
+      history,
+      [hard],
+      'morning',
+      '2026-03-30',
+      14,
+    )
+
+    expect(oldProfile.rotationLaneCounts.get('hard')).toBe(1)
+    expect(oldProfile.rotationWeightedVisits.get('hard')).toBeCloseTo(1.2 * 0.35)
+    expect(oldProfile.hardCount).toBe(0)
+    expect(oldProfile.shiftsSeen).toBe(0)
+    expect(oldProfile.daysSinceLastDuty).toBeNull()
+
+    expect(recentProfile.rotationLaneCounts.get('hard')).toBe(1)
+    expect(recentProfile.rotationWeightedVisits.get('hard')).toBeCloseTo(1.2)
+    expect(recentProfile.hardCount).toBe(1)
+    expect(recentProfile.shiftsSeen).toBe(1)
+    expect(recentProfile.daysSinceLastDuty).toBe(5)
   })
 
   it('computeWorkerLaneStats counts night shifts in lane totals', () => {
@@ -805,6 +859,7 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       intensity: 'hard',
       requiredCertifications: ['c'],
     })
+
     const other = lane('o', 'קשה אחר', {
       intensity: 'hard',
       requiredCertifications: ['c'],
@@ -843,6 +898,70 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
     expect(fair.assignments[0]?.workerIds).toEqual(['rest'])
     expect(experienced.assignments[0]?.workerIds).toEqual(['vet'])
     expect(fair.loadSpread ?? 0).toBeLessThanOrEqual(experienced.loadSpread ?? 0)
+  })
+
+  it('hard-experience ranking compares each worker against their own shift count', () => {
+    const experienced = worker('experienced', 'מנוסה', ['forklift'])
+    const occasional = worker('occasional', 'מדי פעם', ['forklift'])
+    const profiles = profilesFor(
+      [experienced, occasional],
+      [hard],
+      [],
+      'morning',
+      '2026-03-10',
+    )
+    profiles.get(experienced.id)!.hardCount = 2
+    profiles.get(experienced.id)!.shiftsSeen = 2
+    profiles.get(occasional.id)!.hardCount = 2
+    profiles.get(occasional.id)!.shiftsSeen = 6
+
+    const ranked = sortCandidatesForLane([occasional, experienced], {
+      lane: hard,
+      profiles,
+      otherOpen: [],
+      currentShiftType: 'morning',
+      morning: null,
+      recoveringIds: new Set(),
+      objective: 'hardExperience',
+    })
+
+    expect(ranked[0]?.id).toBe(experienced.id)
+  })
+
+  it('globally avoids recent lane repeats when a full non-repeating assignment exists', () => {
+    const laneOne = lane('one', 'נתיב ראשון', { intensity: 'easy' })
+    const laneTwo = lane('two', 'נתיב שני', { intensity: 'medium' })
+    const alice = worker('alice', 'אליס')
+    const bob = worker('bob', 'בוב')
+    const history = [
+      shift(
+        'previous',
+        '2026-03-09',
+        'morning',
+        [
+          { laneId: laneOne.id, workerIds: [alice.id] },
+          { laneId: laneTwo.id, workerIds: [bob.id] },
+        ],
+        [alice.id, bob.id],
+        [laneOne.id, laneTwo.id],
+      ),
+    ]
+
+    const result = runAssignmentAlgorithm(
+      [laneOne, laneTwo],
+      [alice, bob],
+      history,
+      [laneOne, laneTwo],
+      { date: '2026-03-10', shiftType: 'morning', rngSeed: 'no-repeat' },
+    )
+
+    expect(
+      result.assignments.find((row) => row.laneId === laneOne.id)?.workerIds,
+    ).toEqual([bob.id])
+    expect(
+      result.assignments.find((row) => row.laneId === laneTwo.id)?.workerIds,
+    ).toEqual([alice.id])
+    expect(result.warnings.some((warning) => warning.includes('נדרשו'))).toBe(false)
   })
 
   it('weights sum approximately to 1', () => {
@@ -1790,6 +1909,7 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
     expect(result.assignments.find((row) => row.laneId === 'hard')?.workerIds).toEqual([
       'dana',
     ])
+    expect(result.warnings.some((warning) => warning.includes('נדרשו'))).toBe(true)
     const note = result.explanations.find((item) => item.workerId === 'dana')
     expect(note?.reasons.some((reason) => reason.includes('האדם האחרון בנתיב'))).toBe(
       true,
@@ -1989,7 +2109,24 @@ describe('progress runner — multi-start search with real progress', () => {
   it('single sync run exposes search telemetry too', () => {
     const { lanes, workers, history } = scenario()
     const single = runAssignmentAlgorithm(lanes, workers, history, lanes, ctx)
+    expect(DEFAULT_PROGRESS_SEARCH_STARTS).toBe(1000)
     expect(single.searchStats?.starts).toBe(1)
     expect(single.searchStats?.evaluations).toBeGreaterThan(0)
+  })
+
+  it('uses 1000 complete starts by default', async () => {
+    const laneOne = lane('one', 'נתיב', { intensity: 'easy' })
+    const people = [worker('a', 'א'), worker('b', 'ב')]
+    const result = await runAssignmentAlgorithmWithProgress(
+      [laneOne],
+      people,
+      [],
+      [laneOne],
+      { date: '2026-03-10', shiftType: 'morning' },
+      { yieldToUi: async () => {} },
+    )
+
+    expect(result.searchStats?.starts).toBe(1000)
+    expect(result.assignments[0]?.workerIds).toHaveLength(1)
   })
 })
