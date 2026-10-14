@@ -496,6 +496,7 @@ const MODEL_COLLECTIONS = {
 };
 
 const SHIFT_VERSIONS_COLLECTION = "shift_versions";
+const SHIFT_HANDOFF_COLLECTION = "shift_handoff_notes";
 
 function orderedDocs(items) {
   return items.map((item, listOrder) => {
