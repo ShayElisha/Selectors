@@ -43,17 +43,20 @@ type NavItem = { id: View; label: string; icon: typeof Home }
 const DAILY: NavItem[] = [
   { id: 'home', label: 'ראשי', icon: Home },
   { id: 'shift', label: 'שיבוץ', icon: ClipboardList },
-  { id: 'briefings', label: 'תדריכים', icon: BookOpen },
 ]
 
-const DATA: NavItem[] = [
+const OPERATIONS: NavItem[] = [
+  { id: 'briefings', label: 'תדריכים', icon: BookOpen },
   { id: 'tracking', label: 'מעקב נתיבים', icon: Table2 },
+  { id: 'cancellations', label: 'ביטולים וחוסרים', icon: CalendarX2 },
+  { id: 'handoff', label: 'מסירת משמרת', icon: ClipboardPenLine },
+]
+
+const REPORTS: NavItem[] = [
   { id: 'analytics', label: 'סטטיסטיקות ואנליזה', icon: BarChart3 },
   { id: 'history', label: 'היסטוריה', icon: History },
   { id: 'audit', label: 'יומן', icon: ScrollText },
   { id: 'customsBrokers', label: 'עמילי מכס', icon: Briefcase },
-  { id: 'cancellations', label: 'ביטולים וחוסרים', icon: CalendarX2 },
-  { id: 'handoff', label: 'מסירת משמרת', icon: ClipboardPenLine },
 ]
 
 const MANAGE: NavItem[] = [
@@ -83,7 +86,7 @@ const MOBILE_MORE: View[] = [
   'handoff',
 ]
 
-const ALL_NAV = [...DAILY, ...DATA, ...MANAGE]
+const ALL_NAV = [...DAILY, ...OPERATIONS, ...REPORTS, ...MANAGE]
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -130,6 +133,82 @@ function NavButton({
   )
 }
 
+function NavMenu({
+  label,
+  icon: Icon,
+  items,
+  active,
+  activeView,
+  onNavigate,
+}: {
+  label: string
+  icon: typeof Home
+  items: NavItem[]
+  active: boolean
+  activeView: View
+  onNavigate: (id: View) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: MouseEvent | TouchEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    const timer = window.setTimeout(() => {
+      document.addEventListener('mousedown', onPointer)
+      document.addEventListener('touchstart', onPointer)
+    }, 0)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('touchstart', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${active ? 'bg-brand/10 text-brand' : open ? 'bg-surface text-ink shadow-sm ring-1 ring-line/80' : 'text-ink-soft hover:bg-surface/70 hover:text-ink'}`}
+      >
+        <Icon className="size-[17px] opacity-80" aria-hidden />
+        {label}
+        <ChevronDown className={`size-3.5 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open ? (
+        <div role="menu" className="absolute start-0 top-full z-[200] mt-1 max-h-[70vh] min-w-[13rem] overflow-y-auto rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]">
+          {items.map((item) => {
+            const ItemIcon = item.icon
+            const selected = activeView === item.id
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                onClick={() => { onNavigate(item.id); setOpen(false) }}
+                className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-start text-sm font-medium transition ${selected ? 'bg-brand/8 text-brand' : 'text-ink hover:bg-surface'}`}
+              >
+                <ItemIcon className="size-4 shrink-0" aria-hidden />
+                {item.label}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const {
     view,
@@ -151,11 +230,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   } = useApp()
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [manageOpen, setManageOpen] = useState(false)
-  const [manageMenuPos, setManageMenuPos] = useState<{
-    top: number
-    left: number
-  } | null>(null)
   const [profileMenuPos, setProfileMenuPos] = useState<{
     top: number
     left: number
@@ -164,9 +238,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const profileRef = useRef<HTMLDivElement>(null)
   const profileBtnRef = useRef<HTMLButtonElement>(null)
   const profileMenuRef = useRef<HTMLDivElement>(null)
-  const manageRef = useRef<HTMLDivElement>(null)
-  const manageMenuRef = useRef<HTMLDivElement>(null)
-  const manageBtnRef = useRef<HTMLButtonElement>(null)
   const lastErrorToast = useRef<string | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
@@ -195,8 +266,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const go = (id: View) => {
     setMoreOpen(false)
     setProfileOpen(false)
-    setManageOpen(false)
-    setManageMenuPos(null)
     if (id === 'shift' && !draft) {
       const models = resolveShiftModels(
         data.shiftModels,
@@ -224,7 +293,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     () => (user?.isOrgManager ? [...MANAGE, SETTINGS_NAV] : MANAGE),
     [user?.isOrgManager],
   )
-  const dataNav = DATA.filter(
+  const reportNav = REPORTS.filter(
     (item) => item.id !== 'customsBrokers' || module === 'inspectors',
   )
   const moreViews = useMemo(
@@ -235,11 +304,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
     [module, user?.isOrgManager],
   )
   const moreActive = useMemo(() => moreViews.includes(view), [moreViews, view])
-  const manageActive = useMemo(() => manageNav.some((n) => n.id === view), [manageNav, view])
-  const manageCurrent = useMemo(
-    () => manageNav.find((n) => n.id === view) ?? null,
-    [manageNav, view],
-  )
+  const operationsActive = OPERATIONS.some((item) => item.id === view)
+  const reportsActive = reportNav.some((item) => item.id === view)
+  const manageActive = manageNav.some((item) => item.id === view)
   const statusText = syncLabel(loading, refreshing, syncing)
   const online = !loading && !refreshing && !syncing
 
@@ -273,31 +340,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     }
   }, [profileOpen])
 
-  useLayoutEffect(() => {
-    if (!manageOpen || !manageBtnRef.current) {
-      setManageMenuPos(null)
-      return
-    }
-    const place = () => {
-      const r = manageBtnRef.current!.getBoundingClientRect()
-      // RTL: align menu's right edge with button's right edge
-      const menuWidth = 192
-      setManageMenuPos({
-        top: r.bottom + 6,
-        left: Math.max(8, r.right - menuWidth),
-      })
-    }
-    place()
-    window.addEventListener('resize', place)
-    window.addEventListener('scroll', place, true)
-    return () => {
-      window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
-    }
-  }, [manageOpen])
-
   useEffect(() => {
-    if (!profileOpen && !manageOpen) return
+    if (!profileOpen) return
     const onPointer = (e: MouseEvent | TouchEvent) => {
       const t = e.target as Node
       if (profileOpen) {
@@ -305,20 +349,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
         const inMenu = profileMenuRef.current?.contains(t)
         if (!inBtn && !inMenu) setProfileOpen(false)
       }
-      if (manageOpen) {
-        const inBtn = manageRef.current?.contains(t)
-        const inMenu = manageMenuRef.current?.contains(t)
-        if (!inBtn && !inMenu) {
-          setManageOpen(false)
-          setManageMenuPos(null)
-        }
-      }
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setProfileOpen(false)
-        setManageOpen(false)
-        setManageMenuPos(null)
       }
     }
     // Defer so the opening click does not immediately close the menu
@@ -333,7 +367,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       document.removeEventListener('touchstart', onPointer)
       document.removeEventListener('keydown', onKey)
     }
-  }, [profileOpen, manageOpen])
+  }, [profileOpen])
 
   return (
     <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col overflow-x-clip px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
@@ -521,11 +555,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
       )}
 
       <nav
-        className="relative z-30 mb-6 hidden overflow-x-auto overscroll-x-contain rounded-xl border border-line/70 bg-card/70 p-1 shadow-sm backdrop-blur-md lg:block no-print [scrollbar-width:thin]"
-        aria-label="ניווט ראשי — גלילה אופקית לפריטים נוספים"
-        tabIndex={0}
+        className="relative z-30 mb-6 hidden rounded-xl border border-line/70 bg-card/70 p-1 shadow-sm backdrop-blur-md lg:block no-print"
+        aria-label="ניווט ראשי"
       >
-        <div className="flex w-max min-w-full flex-nowrap items-center gap-0.5">
+        <div className="flex flex-nowrap items-center gap-0.5">
           {DAILY.map((item) => (
             <NavButton
               key={item.id}
@@ -534,79 +567,33 @@ export function Shell({ children }: { children: React.ReactNode }) {
               onClick={() => go(item.id)}
             />
           ))}
+          <NavMenu
+            label="תפעול"
+            icon={BookOpen}
+            items={OPERATIONS}
+            active={operationsActive}
+            activeView={view}
+            onNavigate={go}
+          />
+          <NavMenu
+            label="דוחות ויומן"
+            icon={BarChart3}
+            items={reportNav}
+            active={reportsActive}
+            activeView={view}
+            onNavigate={go}
+          />
           <span className="mx-1 h-5 w-px shrink-0 bg-line/80" aria-hidden />
-          {dataNav.map((item) => (
-            <NavButton
-              key={item.id}
-              item={item}
-              active={itemActive(item.id)}
-              onClick={() => go(item.id)}
-            />
-          ))}
-          <span className="mx-1 h-5 w-px shrink-0 bg-line/80" aria-hidden />
-          <div className="relative" ref={manageRef}>
-            <button
-              ref={manageBtnRef}
-              type="button"
-              onClick={() => {
-                setProfileOpen(false)
-                setManageOpen((o) => !o)
-              }}
-              aria-expanded={manageOpen}
-              aria-haspopup="menu"
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                manageActive
-                  ? 'bg-brand text-white shadow-sm'
-                  : manageOpen
-                    ? 'bg-surface text-ink shadow-sm ring-1 ring-line/80'
-                    : 'text-ink-soft hover:bg-surface/70 hover:text-ink'
-              }`}
-            >
-              <Settings2 className="size-[17px] opacity-80" aria-hidden />
-              {manageCurrent
-                ? `ניהול · ${manageCurrent.label}`
-                : 'ניהול'}
-              <ChevronDown
-                className={`size-3.5 transition ${manageOpen ? 'rotate-180' : ''}`}
-                aria-hidden
-              />
-            </button>
-          </div>
+          <NavMenu
+            label="ניהול"
+            icon={Settings2}
+            items={manageNav}
+            active={manageActive}
+            activeView={view}
+            onNavigate={go}
+          />
         </div>
       </nav>
-
-      {manageOpen &&
-        manageMenuPos &&
-        createPortal(
-          <div
-            ref={manageMenuRef}
-            role="menu"
-            className="fixed z-[200] min-w-[12rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)] animate-fade-up no-print"
-            style={{ top: manageMenuPos.top, left: manageMenuPos.left }}
-          >
-            {manageNav.map((item) => {
-              const Icon = item.icon
-              const active = itemActive(item.id)
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => go(item.id)}
-                  className={`flex w-full items-center gap-2 px-3 py-2.5 text-sm font-medium transition ${
-                    active
-                      ? 'bg-brand/8 text-brand'
-                      : 'text-ink hover:bg-surface'
-                  }`}
-                >
-                  <Icon className="size-4 shrink-0" aria-hidden />
-                  {item.label}
-                </button>
-              )
-            })}
-          </div>,
-          document.body,
-        )}
 
       <main className="min-w-0 flex-1">{children}</main>
 
