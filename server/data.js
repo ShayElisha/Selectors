@@ -495,6 +495,8 @@ const MODEL_COLLECTIONS = {
   shiftModels: "shift_models",
 };
 
+const SHIFT_VERSIONS_COLLECTION = "shift_versions";
+
 function orderedDocs(items) {
   return items.map((item, listOrder) => {
     const id = item?.id || randomUUID();
@@ -1253,6 +1255,12 @@ export async function writeState(data, options = {}) {
       historyRevision,
       historyChanged,
     );
+    if (options.action === "data_reset") {
+      const db = await getDb(target);
+      await db
+        .collection(SHIFT_VERSIONS_COLLECTION)
+        .deleteMany(scopeFilter(scope), opts);
+    }
   }, target);
 
   const result = { ...payload, revision: nextRevision };
@@ -1500,14 +1508,58 @@ export async function upsertShift(id, body, actor, options = {}) {
     const db = await getDb(target);
     const stored = stampScope({ ...schedule }, scope);
     delete stored._id;
-    await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
-      { _id: shiftDocId(scope, schedule.id) },
-      {
-        $set: stored,
-        $setOnInsert: { listOrder: -Date.now() },
-      },
-      { upsert: true },
-    );
+    const versionActor = actor
+      ? {
+          id: String(actor.id || ""),
+          fullName: String(actor.fullName || ""),
+        }
+      : null;
+    const versionDocs = [];
+    if (previous) {
+      const versionFilter = { ...scopeFilter(scope), shiftId: schedule.id };
+      const hasVersions = await db
+        .collection(SHIFT_VERSIONS_COLLECTION)
+        .countDocuments(versionFilter);
+      if (hasVersions === 0) {
+        const baselineId = `baseline:${shiftDocId(scope, schedule.id)}`;
+        versionDocs.push({
+          _id: baselineId,
+          shiftId: schedule.id,
+          createdAt: String(previous.updatedAt || previous.createdAt || new Date().toISOString()),
+          actor: null,
+          schedule: { ...previous },
+          ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+        });
+      }
+    }
+    versionDocs.push({
+      _id: randomUUID(),
+      shiftId: schedule.id,
+      createdAt: schedule.updatedAt || new Date().toISOString(),
+      actor: versionActor,
+      schedule: { ...schedule },
+      ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+    });
+    await withDbTransaction(async (session) => {
+      const txOpts = session ? { session } : {};
+      for (const version of versionDocs) {
+        await db
+          .collection(SHIFT_VERSIONS_COLLECTION)
+          .updateOne(
+            { _id: version._id },
+            { $setOnInsert: version },
+            { upsert: true, ...txOpts },
+          );
+      }
+      await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
+        { _id: shiftDocId(scope, schedule.id) },
+        {
+          $set: stored,
+          $setOnInsert: { listOrder: -Date.now() },
+        },
+        { upsert: true, ...txOpts },
+      );
+    }, target);
     const savedState = {
       ...latest,
       history: latestHistory,
@@ -1535,6 +1587,88 @@ export async function upsertShift(id, body, actor, options = {}) {
     module: scope?.module,
   });
 
+  return saved;
+}
+
+export async function listShiftVersions(id, options = {}) {
+  const scope = options.scope;
+  const target = targetForScope(scope);
+  const db = await getDb(target);
+  const col = db.collection(SHIFT_VERSIONS_COLLECTION);
+  const filter = { ...scopeFilter(scope), shiftId: String(id) };
+  const existingCount = await col.countDocuments(filter);
+  if (existingCount === 0) {
+    const state = await readState(scope);
+    const current = state.history.find((shift) => shift.id === String(id));
+    if (current) {
+      const baselineId = `baseline:${shiftDocId(scope, id)}`;
+      const baseline = {
+        _id: baselineId,
+        shiftId: String(id),
+        createdAt: String(current.updatedAt || current.createdAt || new Date().toISOString()),
+        actor: null,
+        schedule: { ...current },
+        ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+      };
+      await col.updateOne(
+        { _id: baselineId },
+        { $setOnInsert: baseline },
+        { upsert: true },
+      );
+    }
+  }
+  const docs = await col
+    .find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(100)
+    .toArray();
+  return docs.map((doc) => ({
+    id: String(doc._id),
+    createdAt: String(doc.createdAt || ""),
+    actorName: doc.actor?.fullName || "מנהל",
+    date: String(doc.schedule?.date || ""),
+    shiftType: String(doc.schedule?.shiftType || ""),
+  }));
+}
+
+export async function restoreShiftVersion(id, versionId, actor, options = {}) {
+  const scope = options.scope;
+  const state = await readState(scope);
+  const current = state.history.find((shift) => shift.id === id);
+  if (!current) {
+    const err = new Error("המשמרת לא נמצאה");
+    err.status = 404;
+    throw err;
+  }
+  if (isShiftSignedOff(current)) signedShiftError("לשחזר");
+
+  const target = targetForScope(scope);
+  const db = await getDb(target);
+  const version = await db.collection(SHIFT_VERSIONS_COLLECTION).findOne({
+    _id: String(versionId),
+    shiftId: String(id),
+    ...scopeFilter(scope),
+  });
+  if (!version?.schedule) {
+    const err = new Error("הגרסה לא נמצאה");
+    err.status = 404;
+    throw err;
+  }
+
+  const schedule = {
+    ...version.schedule,
+    id,
+    updatedAt: new Date().toISOString(),
+  };
+  delete schedule.signOff;
+  const saved = await upsertShift(id, schedule, actor, options);
+  await appendAuditLog({
+    action: "shift_version_restore",
+    actor,
+    details: `שוחזרה גרסת שיבוץ ${schedule.date} · ${schedule.shiftType} · נוצרה ב־${String(version.createdAt || "").slice(0, 16)}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  });
   return saved;
 }
 
@@ -1619,6 +1753,9 @@ export async function deleteShift(id, actor, options = {}) {
     await db.collection(MODEL_COLLECTIONS.shifts).deleteOne({
       _id: shiftDocId(scope, id),
     });
+    await db
+      .collection(SHIFT_VERSIONS_COLLECTION)
+      .deleteMany({ ...scopeFilter(scope), shiftId: String(id) });
     const savedState = {
       ...latest,
       history: latest.history.filter((h) => h.id !== id),

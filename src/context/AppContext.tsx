@@ -26,6 +26,7 @@ import {
   checkLoginRemote,
   deleteShiftRemote,
   fetchAppData,
+  restoreShiftVersionRemote,
   loginRemote,
   postAuditEvent,
   refreshSessionRemote,
@@ -387,6 +388,7 @@ interface AppContextValue {
   signCurrentShift: (signature: string) => Promise<void>
   loadShiftFromHistory: (id: string) => void
   deleteHistoryItem: (id: string) => Promise<void>
+  restoreHistoryVersion: (shiftId: string, versionId: string) => Promise<void>
   addWorker: (w: Omit<Worker, 'id'>) => void
   updateWorker: (w: Worker) => void
   deleteWorker: (id: string) => void
@@ -3067,6 +3069,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [runWithFreshRevision])
 
+  const restoreHistoryVersion = useCallback(async (shiftId: string, versionId: string) => {
+    setSyncing(true)
+    try {
+      const saved = await runWithFreshRevision((revision) =>
+        restoreShiftVersionRemote(shiftId, versionId, revision),
+      )
+      skipNextSync.current = true
+      dataRef.current = saved
+      setData(saved)
+      saveAppDataCache(saved)
+      setError(null)
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) {
+        setError(e instanceof Error ? e.message : 'שחזור הגרסה נכשל')
+      }
+      throw e
+    } finally {
+      setSyncing(false)
+    }
+  }, [runWithFreshRevision])
+
   const addWorker = useCallback(
     (w: Omit<Worker, 'id'>) => {
       patchData((prev) => ({
@@ -3077,7 +3100,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...w,
             id: uuid(),
             isManager: Boolean(w.isManager),
-            isInspector: Boolean(w.isInspector) || !Boolean(w.isManager),
+            isInspector: Boolean(w.isInspector) || !w.isManager,
           },
         ],
       }))
@@ -3399,16 +3422,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             customsBrokers: normalizeCustomsBrokers(
               list.map((b) => (b.id === broker.id ? { ...b, name } : b)),
-              { seedIfEmpty: false },
             ),
           }
         }
         const next: CustomsBroker = { id: uuid(), name, contacts: [] }
         return {
           ...prev,
-          customsBrokers: normalizeCustomsBrokers([...list, next], {
-            seedIfEmpty: false,
-          }),
+          customsBrokers: normalizeCustomsBrokers([...list, next]),
         }
       })
     },
@@ -3421,7 +3441,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         customsBrokers: normalizeCustomsBrokers(
           (prev.customsBrokers ?? []).filter((b) => b.id !== id),
-          { seedIfEmpty: false },
         ),
       }))
     },
@@ -3469,7 +3488,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               }
               return { ...b, contacts: [...b.contacts, next] }
             }),
-            { seedIfEmpty: false },
           ),
         }
       })
@@ -3487,7 +3505,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ? { ...b, contacts: b.contacts.filter((c) => c.id !== contactId) }
               : b,
           ),
-          { seedIfEmpty: false },
         ),
       }))
     },
@@ -3597,6 +3614,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       signCurrentShift,
       loadShiftFromHistory,
       deleteHistoryItem,
+      restoreHistoryVersion,
       addWorker,
       updateWorker,
       deleteWorker,
@@ -3692,6 +3710,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       signCurrentShift,
       loadShiftFromHistory,
       deleteHistoryItem,
+      restoreHistoryVersion,
       addWorker,
       updateWorker,
       deleteWorker,

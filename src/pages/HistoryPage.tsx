@@ -4,6 +4,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  History,
+  Loader2,
   List,
   Moon,
   MoreHorizontal,
@@ -13,7 +15,9 @@ import {
   Table2,
   Trash2,
   Clock,
+  RotateCcw,
 } from 'lucide-react'
+import { fetchShiftVersionsRemote } from '../api'
 import { useApp } from '../context/AppContext'
 import {
   EmptyState,
@@ -68,7 +72,7 @@ import { buildHistoryMatrix } from '../lib/historyMatrix'
 import { downloadHistoryExcel } from '../lib/historyExport'
 import { notify } from '../lib/notify'
 import { workerMatchesSearch } from '../lib/trackingHeatmap'
-import type { ShiftSchedule, ShiftType } from '../types'
+import type { ShiftSchedule, ShiftType, ShiftVersionSummary } from '../types'
 
 type Mode = 'matrix' | 'list'
 const HISTORY_PRESETS = ['14', '30', 'all', 'custom'] as const
@@ -177,6 +181,123 @@ function ConfirmDialog({
   )
 }
 
+function ShiftVersionsDialog({
+  shift,
+  onClose,
+}: {
+  shift: ShiftSchedule
+  onClose: () => void
+}) {
+  const { data, module, restoreHistoryVersion, syncing } = useApp()
+  const [versions, setVersions] = useState<ShiftVersionSummary[]>([])
+  const [loadingVersions, setLoadingVersions] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<ShiftVersionSummary | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const models = resolveShiftModels(data.shiftModels, module)
+  const signedOff = Boolean(data.history.find((item) => item.id === shift.id)?.signOff?.signedAt)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingVersions(true)
+    setLoadError(null)
+    void fetchShiftVersionsRemote(shift.id)
+      .then((items) => {
+        if (!cancelled) setVersions(items)
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : 'לא ניתן לטעון גרסאות')
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingVersions(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [shift.id])
+
+  const confirmRestore = async () => {
+    if (!restoreTarget) return
+    setRestoring(true)
+    try {
+      await restoreHistoryVersion(shift.id, restoreTarget.id)
+      notify.success('הגרסה שוחזרה', 'השחזור נשמר כגרסה חדשה ביומן.')
+      setRestoreTarget(null)
+      onClose()
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'שחזור הגרסה נכשל')
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[90] flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4 no-print"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose()
+        }}
+      >
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shift-versions-title"
+          className="w-full max-w-xl rounded-2xl border border-line bg-card p-4 sm:p-5"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 id="shift-versions-title" className="font-display text-lg font-bold text-ink">גרסאות שיבוץ</h2>
+              <p className="mt-1 text-[13px] text-ink-soft">{shiftModelLabel(models, shift.shiftType)} · <Ltr>{formatShiftDate(shift.date)}</Ltr></p>
+            </div>
+            <button type="button" className="ui-btn ui-btn-secondary" onClick={onClose}>סגירה</button>
+          </div>
+          <p className="mt-3 text-[13px] text-ink-soft">נשמרת גרסה בכל שמירה. מוצגות עד 100 הגרסאות האחרונות.</p>
+          <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto">
+            {loadingVersions ? (
+              <div className="flex items-center gap-2 py-5 text-sm text-ink-soft"><Loader2 className="size-4 animate-spin" aria-hidden />טוען גרסאות…</div>
+            ) : loadError ? (
+              <p role="alert" className="rounded-lg bg-hard-soft px-3 py-2 text-sm text-hard">{loadError}</p>
+            ) : versions.length === 0 ? (
+              <p className="py-5 text-sm text-ink-soft">לא נמצאו גרסאות לשיבוץ הזה.</p>
+            ) : versions.map((version, index) => (
+              <article key={version.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">{index === 0 ? 'הגרסה האחרונה' : `גרסה ${versions.length - index}`} · {shiftModelLabel(models, version.shiftType)}</p>
+                  <p className="mt-0.5 text-[13px] text-ink-soft"><Ltr>{new Date(version.createdAt).toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' })}</Ltr> · {version.actorName}</p>
+                  {version.date !== shift.date ? <p className="mt-0.5 text-[12px] text-ink-soft">תאריך השיבוץ בגרסה: <Ltr>{formatShiftDate(version.date)}</Ltr></p> : null}
+                </div>
+                <button
+                  type="button"
+                  disabled={signedOff || restoring || syncing}
+                  title={signedOff ? 'משמרת סגורה ונעולה' : undefined}
+                  onClick={() => setRestoreTarget(version)}
+                  className="ui-btn ui-btn-secondary inline-flex items-center gap-1.5"
+                >
+                  <RotateCcw className="size-3.5" aria-hidden />שחזור
+                </button>
+              </article>
+            ))}
+          </div>
+          {signedOff ? <p className="mt-3 text-[13px] text-ink-soft">המשמרת נסגרה וננעלה, לכן אי אפשר לשחזר אליה גרסה.</p> : null}
+        </section>
+      </div>
+      <ConfirmDialog
+        open={Boolean(restoreTarget)}
+        title="שחזור גרסת שיבוץ"
+        confirmLabel={restoring ? 'משחזר…' : 'שחזור'}
+        confirmDisabled={restoring || syncing}
+        onCancel={() => setRestoreTarget(null)}
+        onConfirm={() => void confirmRestore()}
+      >
+        <p>הגרסה הנוכחית תישמר, והלוח יחזור לתוכן הגרסה שנבחרה.</p>
+        {restoreTarget ? <p>{new Date(restoreTarget.createdAt).toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' })} · {restoreTarget.actorName}</p> : null}
+      </ConfirmDialog>
+    </>
+  )
+}
+
 function HealthChip({ shift }: { shift: ShiftSchedule }) {
   const health = presentAssignedHealth(shift)
   if (health.kind === 'ok') {
@@ -279,6 +400,7 @@ function ShiftAccordion({
   const { data, module } = useApp()
   const [open, setOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [versionsOpen, setVersionsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const Icon = SHIFT_ICONS[shift.shiftType]
   const lanesById = useMemo(
@@ -379,6 +501,17 @@ function ShiftAccordion({
               role="menu"
               className="absolute end-0 top-full z-40 mt-1 min-w-[9rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
             >
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium text-ink hover:bg-surface"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setVersionsOpen(true)
+                }}
+              >
+                <History className="size-3.5" aria-hidden />גרסאות שיבוץ
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -504,6 +637,9 @@ function ShiftAccordion({
             {shift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
           </button>
         </div>
+      ) : null}
+      {versionsOpen ? (
+        <ShiftVersionsDialog shift={shift} onClose={() => setVersionsOpen(false)} />
       ) : null}
     </div>
   )

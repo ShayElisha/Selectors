@@ -17,9 +17,11 @@ import {
   migrateLegacyTenancy,
   publicData,
   listHistoryPage,
+  listShiftVersions,
   readState,
   clientRevisionIsCurrent,
   recordSelfHeal,
+  restoreShiftVersion,
   requestPasswordReset,
   resendManagerTempPassword,
   upsertShift,
@@ -633,6 +635,31 @@ app.put('/api/shifts/:id', async (req, res) => {
     delete body.expectedRevision
     res.json(
       await upsertShift(req.params.id, body, actor, {
+        scope,
+        expectedRevision:
+          expectedRevision === undefined ? undefined : Number(expectedRevision),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/shifts/:id/versions', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(await listShiftVersions(req.params.id, { scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shifts/:id/versions/:versionId/restore', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    const expectedRevision = req.body?.expectedRevision
+    res.json(
+      await restoreShiftVersion(req.params.id, req.params.versionId, actor, {
         scope,
         expectedRevision:
           expectedRevision === undefined ? undefined : Number(expectedRevision),

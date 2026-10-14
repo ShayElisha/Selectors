@@ -29,6 +29,7 @@ const OPERATIONAL_COLLECTIONS = [
   'questions',
   'customs_brokers',
   'shift_models',
+  'shift_versions',
 ]
 
 export function normalizePhone(phone) {

@@ -85,7 +85,6 @@ export function normalizeCustomsBroker(raw: unknown): CustomsBroker | null {
 
 export function normalizeCustomsBrokers(
   list: unknown,
-  _opts?: { seedIfEmpty?: boolean },
 ): CustomsBroker[] {
   const raw = Array.isArray(list) ? list : []
   const out: CustomsBroker[] = []

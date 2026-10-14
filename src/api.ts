@@ -1,4 +1,4 @@
-import type { AppData, ShiftSchedule } from './types'
+import type { AppData, ShiftSchedule, ShiftVersionSummary } from './types'
 import { clearSession, loadAppDataCache, loadSession, type SessionUser } from './auth'
 
 export class ApiError extends Error {
@@ -96,6 +96,28 @@ export function saveShiftRemote(
     method: 'PUT',
     body: JSON.stringify({ ...schedule, expectedRevision }),
   })
+}
+
+export function fetchShiftVersionsRemote(
+  shiftId: string,
+): Promise<ShiftVersionSummary[]> {
+  return request<ShiftVersionSummary[]>(
+    `/api/shifts/${encodeURIComponent(shiftId)}/versions`,
+  )
+}
+
+export function restoreShiftVersionRemote(
+  shiftId: string,
+  versionId: string,
+  expectedRevision?: number,
+): Promise<AppData> {
+  return request<AppData>(
+    `/api/shifts/${encodeURIComponent(shiftId)}/versions/${encodeURIComponent(versionId)}/restore`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ expectedRevision }),
+    },
+  )
 }
 
 export function deleteShiftRemote(

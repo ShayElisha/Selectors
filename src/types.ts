@@ -200,6 +200,14 @@ export interface ShiftSchedule {
   updatedAt: string
 }
 
+export interface ShiftVersionSummary {
+  id: string
+  createdAt: string
+  actorName: string
+  date: string
+  shiftType: ShiftType
+}
+
 export interface AppData {
   workers: Worker[]
   lanes: Lane[]
