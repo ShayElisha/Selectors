@@ -104,15 +104,14 @@ export interface BoardStepProps {
   onExplainModalOpenChange?: (open: boolean) => void
 }
 
-function placeFloatingMenu(anchor: HTMLElement, width: number) {
+function placeFloatingMenu(anchor: HTMLElement, width: number, height = 88) {
   const rect = anchor.getBoundingClientRect()
   let left = rect.left
   if (left + width > window.innerWidth - 8) left = rect.right - width
   left = Math.max(8, Math.min(left, window.innerWidth - width - 8))
   let top = rect.bottom + 4
-  const estimatedHeight = 88
-  if (top + estimatedHeight > window.innerHeight - 8) {
-    top = Math.max(8, rect.top - estimatedHeight - 4)
+  if (top + height > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - height - 4)
   }
   return { top, left }
 }
@@ -488,6 +487,7 @@ export function BoardStep({
   const [addPicker, setAddPicker] = useState<'lane' | 'worker' | null>(null)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
   const [laneActionMenu, setLaneActionMenu] = useState<string | null>(null)
+  const [laneActionPos, setLaneActionPos] = useState<{ top: number; left: number } | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set())
   const [swapTarget, setSwapTarget] = useState<{
     laneId: string
@@ -502,6 +502,7 @@ export function BoardStep({
   const explainTriggerRef = useRef<HTMLButtonElement | null>(null)
   const shareRootRef = useRef<HTMLDivElement | null>(null)
   const laneActionMenuRef = useRef<HTMLDivElement | null>(null)
+  const laneActionButtonRef = useRef<HTMLButtonElement | null>(null)
   const summaryMenuRef = useRef<HTMLDivElement | null>(null)
   const summaryBtnRef = useRef<HTMLButtonElement | null>(null)
   const summaryPanelRef = useRef<HTMLDivElement | null>(null)
@@ -578,7 +579,8 @@ export function BoardStep({
       }
       if (
         laneActionMenu &&
-        !laneActionMenuRef.current?.contains(e.target as Node)
+        !laneActionMenuRef.current?.contains(e.target as Node) &&
+        !laneActionButtonRef.current?.contains(e.target as Node)
       ) {
         setLaneActionMenu(null)
       }
@@ -597,6 +599,25 @@ export function BoardStep({
       document.removeEventListener('keydown', onKey)
     }
   }, [shareOpen, summaryMenuOpen, laneActionMenu])
+
+  useLayoutEffect(() => {
+    if (!laneActionMenu) {
+      setLaneActionPos(null)
+      return
+    }
+    const place = () => {
+      const anchor = laneActionButtonRef.current
+      if (!anchor) return
+      setLaneActionPos(placeFloatingMenu(anchor, 224, 280))
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [laneActionMenu])
 
   useLayoutEffect(() => {
     if (!summaryMenuOpen) {
@@ -1396,11 +1417,9 @@ export function BoardStep({
                           </button>
                         </>
                       ) : null}
-                      <div
-                        ref={laneActionMenu === laneId ? laneActionMenuRef : null}
-                        className="relative"
-                      >
+                      <div className="relative">
                         <button
+                          ref={laneActionMenu === laneId ? laneActionButtonRef : null}
                           type="button"
                           onClick={() =>
                             setLaneActionMenu((current) =>
@@ -1415,10 +1434,13 @@ export function BoardStep({
                         >
                           <MoreHorizontal className="size-4" aria-hidden />
                         </button>
-                        {laneActionMenu === laneId ? (
-                          <div
+                        {laneActionMenu === laneId && laneActionPos
+                          ? createPortal(
+                            <div
+                            ref={laneActionMenuRef}
                             role="menu"
-                            className="absolute end-0 top-full z-30 mt-1 max-h-72 min-w-56 overflow-y-auto rounded-xl border border-line bg-card p-1.5 shadow-[var(--shadow-panel-hover)]"
+                            className="fixed z-[1000] max-h-[min(70vh,280px)] min-w-56 overflow-y-auto rounded-xl border border-line bg-card p-1.5 shadow-[var(--shadow-panel-hover)]"
+                            style={{ top: laneActionPos.top, left: laneActionPos.left }}
                           >
                             {!isGateLane ? (
                               <button
@@ -1484,8 +1506,10 @@ export function BoardStep({
                             {slots.filter(Boolean).length === 0 && isGateLane ? (
                               <p className="px-2.5 py-2 text-sm text-ink-soft">אין פעולות זמינות</p>
                             ) : null}
-                          </div>
-                        ) : null}
+                            </div>,
+                            document.body,
+                          )
+                          : null}
                       </div>
                     </div>
                   ) : null}
