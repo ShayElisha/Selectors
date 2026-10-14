@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useId,
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -20,6 +21,7 @@ import {
   MessageCircle,
   MoreHorizontal,
   Plus,
+  Search,
   Save,
   Shield,
   Sparkles,
@@ -77,6 +79,7 @@ import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
 import type { AppData, LaneAssignment, ShiftType, Worker } from '../types'
+import { avatarColor } from '../lib/avatarColor'
 
 export interface BoardStepProps {
   draft: ShiftDraft
@@ -129,6 +132,293 @@ function workerLaneNameElsewhere(
   return null
 }
 
+interface WorkerChoice {
+  worker: Worker
+  description?: string
+}
+
+function workerInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length < 2) return parts[0]?.slice(0, 2) ?? '?'
+  return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`
+}
+
+function WorkerCombobox({
+  options,
+  value,
+  placeholder,
+  ariaLabel,
+  onChange,
+  disabled = false,
+}: {
+  options: WorkerChoice[]
+  value: string
+  placeholder: string
+  ariaLabel: string
+  onChange: (workerId: string | null) => void
+  disabled?: boolean
+}) {
+  const id = useId()
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  )
+  const selected = options.find((option) => option.worker.id === value)
+  const filtered = options.filter(({ worker, description }) =>
+    `${worker.fullName} ${description ?? ''}`
+      .toLocaleLowerCase('he')
+      .includes(query.trim().toLocaleLowerCase('he')),
+  )
+
+  const updatePosition = () => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const width = Math.min(360, window.innerWidth - 16)
+    const height = Math.min(320, window.innerHeight - 16)
+    let top = rect.bottom + 4
+    if (top + height > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - height - 4)
+    }
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
+    setPosition({ top, left, width })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const frame = window.requestAnimationFrame(() => searchRef.current?.focus())
+    updatePosition()
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        !triggerRef.current?.contains(target) &&
+        !popoverRef.current?.contains(target)
+      ) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    const reposition = () => updatePosition()
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open])
+
+  useEffect(() => {
+    setActiveIndex((index) =>
+      filtered.length === 0
+        ? -1
+        : Math.min(Math.max(index, -1), filtered.length - 1),
+    )
+  }, [filtered.length, query])
+
+  const choose = (workerId: string | null) => {
+    onChange(workerId)
+    setOpen(false)
+    setQuery('')
+    triggerRef.current?.focus()
+  }
+
+  const openList = () => {
+    setActiveIndex(filtered.findIndex((option) => option.worker.id === value))
+    setOpen(true)
+  }
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActiveIndex((index) =>
+        filtered.length ? (index + 2) % (filtered.length + 1) - 1 : -1,
+      )
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActiveIndex((index) =>
+        filtered.length
+          ? (index - 1 + filtered.length + 2) % (filtered.length + 1) - 1
+          : -1,
+      )
+    } else if (event.key === 'Home' && filtered.length) {
+      event.preventDefault()
+      setActiveIndex(0)
+    } else if (event.key === 'End' && filtered.length) {
+      event.preventDefault()
+      setActiveIndex(filtered.length - 1)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      if (activeIndex < 0) choose(null)
+      else if (filtered[activeIndex]) choose(filtered[activeIndex]!.worker.id)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      setQuery('')
+      triggerRef.current?.focus()
+    }
+  }
+
+  return (
+    <div className="min-w-0 flex-1">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-listbox`}
+        onClick={() => {
+          if (open) {
+            setOpen(false)
+            setQuery('')
+          } else {
+            openList()
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            openList()
+          } else if (event.key === 'Escape') {
+            setOpen(false)
+          }
+        }}
+        className={`flex h-11 w-full min-w-0 items-center gap-2 rounded-xl border bg-surface-2 px-2.5 text-start transition hover:border-brand/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-70 ${
+          selected ? 'border-line' : 'border-dashed border-warn/50'
+        }`}
+      >
+        <ChevronDown
+          className={`size-4 shrink-0 text-ink-soft transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+        {selected ? (
+          <span
+            aria-hidden
+            className={`inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${avatarColor(selected.worker.fullName)}`}
+          >
+            {workerInitials(selected.worker.fullName)}
+          </span>
+        ) : (
+          <span className="inline-flex size-7 shrink-0 items-center justify-center">
+            <span className="size-2 rounded-full bg-warn" aria-hidden />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+          {selected?.worker.fullName ?? placeholder}
+        </span>
+        {selected?.description ? (
+          <span className="hidden max-w-[35%] truncate text-xs text-ink-soft sm:block">
+            {selected.description}
+          </span>
+        ) : null}
+      </button>
+      {open && position
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="fixed z-[500] overflow-hidden rounded-xl border border-line bg-card p-2 shadow-[var(--shadow-panel-hover)]"
+              style={{ top: position.top, left: position.left, width: position.width }}
+            >
+              <label className="relative block">
+                <Search
+                  className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
+                  aria-hidden
+                />
+                <input
+                  ref={searchRef}
+                  type="search"
+                  className="ui-field h-10 w-full ps-9 text-sm"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="חיפוש בודק"
+                  aria-label="חיפוש בודק"
+                  aria-controls={`${id}-listbox`}
+                  aria-activedescendant={
+                    `${id}-${activeIndex < 0 ? 'clear' : `option-${activeIndex}`}`
+                  }
+                />
+              </label>
+              <div
+                id={`${id}-listbox`}
+                role="listbox"
+                aria-label={ariaLabel}
+                className="mt-2 max-h-64 overflow-y-auto"
+              >
+                <button
+                  id={`${id}-clear`}
+                  type="button"
+                  role="option"
+                  aria-selected={!value}
+                  onMouseEnter={() => setActiveIndex(-1)}
+                  onClick={() => choose(null)}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-start text-sm text-ink-soft hover:bg-surface ${
+                    activeIndex === -1 ? 'bg-surface' : ''
+                  }`}
+                >
+                  <span className="inline-flex size-7 items-center justify-center">
+                    <span className="size-2 rounded-full bg-warn" aria-hidden />
+                  </span>
+                  {placeholder}
+                  {!value ? <Check className="ms-auto size-4" aria-hidden /> : null}
+                </button>
+                {filtered.map(({ worker, description }, index) => (
+                  <button
+                    id={`${id}-option-${index}`}
+                    key={worker.id}
+                    type="button"
+                    role="option"
+                    aria-selected={worker.id === value}
+                    tabIndex={-1}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => choose(worker.id)}
+                    className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-start hover:bg-surface ${
+                      index === activeIndex ? 'bg-surface' : ''
+                    }`}
+                  >
+                    <span
+                      aria-hidden
+                      className={`inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${avatarColor(worker.fullName)}`}
+                    >
+                      {workerInitials(worker.fullName)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-ink">
+                        {worker.fullName}
+                      </span>
+                      {description ? (
+                        <span className="block truncate text-xs text-ink-soft">
+                          {description}
+                        </span>
+                      ) : null}
+                    </span>
+                    {worker.id === value ? (
+                      <Check className="size-4 shrink-0 text-brand" aria-hidden />
+                    ) : null}
+                  </button>
+                ))}
+                {filtered.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-ink-soft">
+                    לא נמצאו בודקים
+                  </p>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  )
+}
+
 export function BoardStep({
   draft,
   data,
@@ -145,7 +435,7 @@ export function BoardStep({
   onSignOff,
   onCompare,
   onReassign,
-  onEditSettings: _onEditSettings,
+  onEditSettings,
   onRequestDiscard,
   onOpenExtraPick,
   onBackToAttendance,
@@ -197,6 +487,7 @@ export function BoardStep({
   const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
   const [addPicker, setAddPicker] = useState<'lane' | 'worker' | null>(null)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
+  const [laneActionMenu, setLaneActionMenu] = useState<string | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set())
   const [swapTarget, setSwapTarget] = useState<{
     laneId: string
@@ -210,6 +501,7 @@ export function BoardStep({
 
   const explainTriggerRef = useRef<HTMLButtonElement | null>(null)
   const shareRootRef = useRef<HTMLDivElement | null>(null)
+  const laneActionMenuRef = useRef<HTMLDivElement | null>(null)
   const summaryMenuRef = useRef<HTMLDivElement | null>(null)
   const summaryBtnRef = useRef<HTMLButtonElement | null>(null)
   const summaryPanelRef = useRef<HTMLDivElement | null>(null)
@@ -271,7 +563,7 @@ export function BoardStep({
   }, [boardDirty])
 
   useEffect(() => {
-    if (!shareOpen && !summaryMenuOpen) return
+    if (!shareOpen && !summaryMenuOpen && !laneActionMenu) return
     const onDoc = (e: MouseEvent) => {
       if (shareOpen && shareRootRef.current && !shareRootRef.current.contains(e.target as Node)) {
         setShareOpen(false)
@@ -284,11 +576,18 @@ export function BoardStep({
       ) {
         setSummaryMenuOpen(false)
       }
+      if (
+        laneActionMenu &&
+        !laneActionMenuRef.current?.contains(e.target as Node)
+      ) {
+        setLaneActionMenu(null)
+      }
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShareOpen(false)
         setSummaryMenuOpen(false)
+        setLaneActionMenu(null)
       }
     }
     document.addEventListener('mousedown', onDoc)
@@ -297,7 +596,7 @@ export function BoardStep({
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
     }
-  }, [shareOpen, summaryMenuOpen])
+  }, [shareOpen, summaryMenuOpen, laneActionMenu])
 
   useLayoutEffect(() => {
     if (!summaryMenuOpen) {
@@ -416,24 +715,18 @@ export function BoardStep({
     )
   }
   const gateManagerSelect = (
-    <select
-      className="ui-field w-full py-2 text-sm"
-      aria-label="בחירת מנהל משמרת"
+    <WorkerCombobox
+      options={shiftManagers.map((worker) => ({ worker }))}
       value={draft.gateManagerWorkerId ?? ''}
-      disabled={locked || shiftManagers.length === 0}
-      onChange={(event) => chooseGateManager(event.target.value)}
-    >
-      <option value="">
-        {shiftManagers.length === 0
+      placeholder={
+        shiftManagers.length === 0
           ? 'אין מנהל שהוא גם בודק'
-          : 'בחרו מנהל משמרת'}
-      </option>
-      {shiftManagers.map((manager) => (
-        <option key={manager.id} value={manager.id}>
-          {manager.fullName}
-        </option>
-      ))}
-    </select>
+          : 'בחרו מנהל משמרת'
+      }
+      ariaLabel="בחירת מנהל משמרת"
+      disabled={locked || shiftManagers.length === 0}
+      onChange={(workerId) => chooseGateManager(workerId ?? '')}
+    />
   )
   const saveBlocked =
     Boolean(slotConflict) ||
@@ -468,14 +761,6 @@ export function BoardStep({
       return
     }
     onSignOff?.()
-  }
-
-  const handoffOptionLabel = (workerId: string, fullName: string, laneId: string) => {
-    if (!morningCtx?.found) return fullName
-    const tier = afternoonHandoffTier(workerId, laneId, morningCtx)
-    if (tier === 0) return `${fullName} · צהריים בלבד`
-    if (tier === 1) return `${fullName} · ממשיך (היה כאן בבוקר)`
-    return `${fullName} · ממשיך מבוקר`
   }
 
   const handleSelectWorker = (
@@ -630,15 +915,17 @@ export function BoardStep({
     }
   }
 
-  const saveStatusText = saveFlash
-    ? lastSavedAt
-      ? `נשמר · ${lastSavedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`
-      : 'נשמר'
-    : boardDirty
+  const saveStatusText =
+    draftDirty || boardDirty
       ? 'שינויים שלא נשמרו'
-      : lastSavedAt
-        ? `נשמר · ${lastSavedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`
-        : 'טרם נשמר'
+      : saveFlash
+        ? lastSavedAt
+          ? `נשמר · ${lastSavedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`
+          : 'נשמר'
+        : lastSavedAt
+          ? `נשמר · ${lastSavedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`
+          : 'טרם נשמר'
+  const isSaved = !draftDirty && !boardDirty && Boolean(lastSavedAt)
 
   const renderWorkerSelect = (
     lane: (typeof data.lanes)[number],
@@ -650,7 +937,7 @@ export function BoardStep({
     const present = data.workers.filter(
       (w) => draft.presentWorkerIds.includes(w.id) && w.isInspector,
     )
-    const options = present
+    const workers = present
       .slice()
       .sort((a, b) => {
         const qa = isQualified(a, lane) ? 0 : 1
@@ -663,84 +950,77 @@ export function BoardStep({
         }
         return a.fullName.localeCompare(b.fullName, 'he')
       })
-
-    const isExtra = slotIndex >= std
     const selectedWorker = workerId
       ? data.workers.find((w) => w.id === workerId)
       : null
+    if (selectedWorker && !workers.some((worker) => worker.id === selectedWorker.id)) {
+      workers.push(selectedWorker)
+    }
+
+    const isExtra = slotIndex >= std
     const selectedLacksCert =
       selectedWorker != null && !isQualified(selectedWorker, lane)
 
-    const optionLabel = (w: Worker) => {
+    const optionDescription = (w: Worker) => {
+      const details: string[] = []
       const elsewhere = workerLaneNameElsewhere(
         w.id,
         draft.assignments,
         data.lanes,
         laneId,
       )
-      let label =
-        lane.afternoonHandoff && draft.shiftType === 'afternoon'
-          ? handoffOptionLabel(w.id, w.fullName, laneId)
-          : w.fullName
+      if (lane.afternoonHandoff && draft.shiftType === 'afternoon') {
+        const tier = morningCtx?.found
+          ? afternoonHandoffTier(w.id, laneId, morningCtx)
+          : null
+        if (tier === 0) details.push('צהריים בלבד')
+        else if (tier === 1) details.push('ממשיך — היה כאן בבוקר')
+        else if (tier === 2) details.push('ממשיך מבוקר')
+      }
       if (elsewhere && w.id !== workerId) {
-        label += ` · כעת בנתיב ${elsewhere}`
+        details.push(`כעת בנתיב ${elsewhere}`)
       }
       if (!isQualified(w, lane)) {
         const missing = missingCertsForLane(w, lane)
-        label += missing.length
-          ? ` · ללא הסמכה (חסר: ${missing.join(' · ')})`
-          : ' · ללא הסמכה'
+        details.push(
+          missing.length
+            ? `ללא הסמכה · חסר: ${missing.join(' · ')}`
+            : 'ללא הסמכה',
+        )
       }
-      return label
+      return details.join(' · ')
     }
 
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {locked ? (
-          <p className="rounded-xl border border-line/80 bg-surface/70 px-3 py-2 text-sm font-semibold text-ink">
-            {selectedWorker?.fullName || 'פנוי'}
-          </p>
+          <WorkerCombobox
+            options={workers.map((worker) => ({
+              worker,
+              description: optionDescription(worker),
+            }))}
+            value={workerId}
+            placeholder="פנוי"
+            ariaLabel={`בודק בנתיב ${lane.name}`}
+            disabled
+            onChange={() => undefined}
+          />
         ) : (
-        <div className="relative min-w-0">
-        <select
-          className={`min-w-0 w-full appearance-none rounded-xl border py-2 pe-8 ps-3 text-sm font-semibold tracking-tight text-ink transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-            selectedLacksCert
-              ? 'border-warn/40 bg-warn-soft/50'
-              : isExtra
-                ? 'border-accent/30 bg-accent-soft/40'
-                : 'border-line/80 bg-surface/70 hover:border-brand/30 hover:bg-card'
-          }`}
-          value={workerId || ''}
-          onChange={(e) =>
-            handleSelectWorker(laneId, slotIndex, e.target.value || null)
-          }
-          aria-label={`בודק בנתיב ${lane.name}${std > 1 ? ` משבצת ${slotIndex + 1}` : ''}`}
-        >
-          <option value="">— פנוי —</option>
-          {options.map((w) => (
-            <option key={w.id} value={w.id}>
-              {optionLabel(w)}
-            </option>
-          ))}
-          {workerId && !options.some((w) => w.id === workerId) && selectedWorker && (
-            <option value={workerId}>{optionLabel(selectedWorker)}</option>
-          )}
-        </select>
-        <ChevronDown
-          className="pointer-events-none absolute end-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
-          aria-hidden
-        />
-        </div>
+          <div className={selectedLacksCert ? 'rounded-xl ring-1 ring-warn/40' : isExtra ? 'rounded-xl ring-1 ring-accent/30' : ''}>
+            <WorkerCombobox
+              options={workers.map((worker) => ({
+                worker,
+                description: optionDescription(worker),
+              }))}
+              value={workerId}
+              placeholder="בחר בודק"
+              ariaLabel={`בודק בנתיב ${lane.name}${std > 1 ? ` משבצת ${slotIndex + 1}` : ''}`}
+              onChange={(nextWorkerId) =>
+                handleSelectWorker(laneId, slotIndex, nextWorkerId)
+              }
+            />
+          </div>
         )}
-        {!locked && workerId ? (
-          <button
-            type="button"
-            className="ui-btn ui-btn-secondary mt-1 !py-1 text-[12px]"
-            onClick={() => setDropWorkerId(workerId)}
-          >
-            הורדה ממשמרת
-          </button>
-        ) : null}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -754,7 +1034,7 @@ export function BoardStep({
   }
 
   return (
-    <section className="board-print-root space-y-4 touch-pan-y pb-40 sm:space-y-5 sm:pb-32">
+    <section className="board-print-root space-y-4 touch-pan-y sm:space-y-5">
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line/60 bg-card/80 px-3 py-2.5 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-4">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-brand px-2.5 py-1 text-[12px] font-bold text-white">
@@ -826,6 +1106,17 @@ export function BoardStep({
                   className="fixed z-[200] min-w-[10rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
                   style={{ top: summaryPos.top, left: summaryPos.left }}
                 >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      setSummaryMenuOpen(false)
+                      onEditSettings()
+                    }}
+                  >
+                    עריכת הגדרות
+                  </button>
                   <button
                     type="button"
                     role="menuitem"
@@ -936,8 +1227,8 @@ export function BoardStep({
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-[1.5rem] border border-brand/15 bg-card shadow-[var(--shadow-panel-hover)]">
-        <div className="border-b border-brand/10 bg-gradient-to-l from-brand/[0.095] via-brand/[0.025] to-card px-4 py-5 sm:px-6 sm:py-6">
+      <div className="rounded-[1.5rem] border border-brand/15 bg-card shadow-[var(--shadow-panel-hover)]">
+        <div className="rounded-t-[1.5rem] border-b border-brand/10 bg-gradient-to-l from-brand/[0.095] via-brand/[0.025] to-card px-4 py-5 sm:px-6 sm:py-6">
           <p className="text-[11px] font-semibold tracking-[0.22em] text-brand/70">
             GATE OUT
           </p>
@@ -956,17 +1247,17 @@ export function BoardStep({
           </p>
         </div>
 
-        <div className="flex touch-pan-y flex-col gap-2.5 bg-surface/50 p-2.5 sm:gap-3 sm:p-4">
+        <div className="grid touch-pan-y grid-cols-1 gap-4 p-4 min-[900px]:grid-cols-2">
           {gateLane && !draft.activeLaneIds.includes(gateLane.id) ? (
-            <div className="rounded-2xl border border-line/70 border-s-4 border-s-brand bg-card px-3 py-3 shadow-[var(--shadow-panel)] sm:px-4">
-              <h4 className="inline-flex items-center gap-1.5 font-display text-base font-bold text-ink">
+            <div className="board-lane-card board-lane-card--gate relative rounded-2xl border border-line bg-card p-4 shadow-sm">
+              <h4 className="inline-flex items-center gap-1.5 font-display text-base font-semibold text-ink">
                 <Shield className="size-4 text-brand" aria-hidden />
-                מנהל משמרת
+                מנהל שער
               </h4>
-              <p className="mt-1 text-xs text-ink-soft">
+              <div className="mt-3">{gateManagerSelect}</div>
+              <p className="mt-2 truncate text-xs text-ink-soft">
                 לא סומן מנהל בתחילת המשמרת. הבחירה כאן מוסיפה אותו ללוח.
               </p>
-              <div className="mt-2.5">{gateManagerSelect}</div>
             </div>
           ) : null}
           {[...draft.activeLaneIds]
@@ -976,7 +1267,7 @@ export function BoardStep({
               if (!la || !lb) return a.localeCompare(b)
               return compareLaneNames(la, lb)
             })
-            .map((laneId) => {
+            .map((laneId, laneIndex) => {
             const lane = data.lanes.find((l) => l.id === laneId)
             if (!lane) return null
             const isGateLane = isGateManagerLane(lane)
@@ -987,6 +1278,7 @@ export function BoardStep({
             const filled = slots.filter(Boolean).length
             const chipKind = staffingChipKind(filled, std)
             const notesOpen = expandedNotes.has(laneId)
+            const noteText = assignment?.notes?.trim() ?? ''
 
             const emptyLane = !(assignment?.workerIds.some(Boolean))
             const healedTone = draft.healHighlights?.find((item) => item.laneId === laneId)?.tone
@@ -995,26 +1287,19 @@ export function BoardStep({
               <div
                 key={laneId}
                 id={`board-lane-${laneId}`}
-                className={`scroll-mt-24 rounded-2xl border border-line/80 border-s-4 bg-card px-3.5 py-3.5 shadow-[var(--shadow-panel)] transition-shadow duration-150 hover:shadow-[var(--shadow-panel-hover)] sm:px-5 sm:py-4 ${
+                style={{ animationDelay: `${laneIndex * 20}ms` }}
+                className={`board-lane-card board-lane-card--${isGateLane ? 'gate' : lane.intensity} group relative scroll-mt-24 rounded-2xl border border-line bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md motion-reduce:animate-none ${
                   healedTone === 'filled'
                     ? 'ring-2 ring-ok'
                     : frozen || healedTone === 'frozen'
                       ? 'ring-2 ring-warn'
                       : ''
-                } ${
-                  isGateLane
-                    ? 'border-s-brand'
-                    : lane.intensity === 'hard'
-                      ? 'border-s-hard'
-                      : lane.intensity === 'medium'
-                        ? 'border-s-warn'
-                        : 'border-s-easy'
                 }`}
               >
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <h4 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <h4 className="min-w-0 font-display text-base font-semibold tracking-tight text-ink sm:text-[17px]">
                         {isGateLane ? (
                           <span className="inline-flex items-center gap-1.5">
                             <Shield className="size-4 text-brand" aria-hidden />
@@ -1041,85 +1326,178 @@ export function BoardStep({
                           החלפת צהריים
                         </span>
                       ) : null}
-                      <span
-                        className={`inline-flex min-h-7 items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold tabular-nums ring-1 ${
-                          chipKind === 'ok'
-                            ? 'bg-surface text-ink-soft ring-line'
-                            : chipKind === 'over'
-                              ? 'bg-warn-soft text-warn ring-warn/20'
-                              : 'bg-hard-soft text-hard ring-hard/20'
-                        }`}
-                      >
-                        <Ltr>
-                          {filled}/{std}
-                        </Ltr>
-                        {chipKind === 'over' ? ' מעל תקן' : chipKind === 'under' ? ' חסר' : null}
-                      </span>
+                      {filled >= std && chipKind !== 'over' ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ok">
+                          <span className="size-1.5 rounded-full bg-ok" aria-hidden />
+                          מאויש
+                        </span>
+                      ) : (
+                        <span className="inline-flex min-h-6 items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn ring-1 ring-warn/20">
+                          <Ltr>{filled}/{std}</Ltr>
+                          {chipKind === 'over' ? ' מעל תקן' : null}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  {!isGateLane && !locked ? (
-                    <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
+                  {!locked ? (
+                    <div className="flex shrink-0 items-center gap-0.5 no-print">
                       <button
                         type="button"
                         onClick={() =>
-                          runWithUndo('נוסף מקום בנתיב', () => addSlotToLane(laneId))
+                          setExpandedNotes((current) => {
+                            const next = new Set(current)
+                            if (next.has(laneId)) next.delete(laneId)
+                            else next.add(laneId)
+                            return next
+                          })
                         }
-                        className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-card hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                        title="הוסף משבצת"
-                        aria-label={`הוסף משבצת בנתיב ${lane.name}`}
+                        className="relative inline-flex size-9 items-center justify-center rounded-[10px] text-ink-soft transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        title="הערה לנתיב"
+                        aria-label={notesOpen ? 'הסתר הערה לנתיב' : 'הערה לנתיב'}
+                        aria-expanded={notesOpen}
                       >
-                        <Plus className="size-4" aria-hidden />
+                        <StickyNote className="size-4" aria-hidden />
+                        {noteText ? (
+                          <span className="absolute end-1.5 top-1.5 size-1.5 rounded-full bg-brand" aria-label="יש הערה" />
+                        ) : null}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const parked = slots.filter(Boolean).map(
-                            (id) =>
-                              data.workers.find((worker) => worker.id === id)?.fullName ?? id,
-                          )
-                          runWithUndo(
-                            parked.length > 0
-                              ? `${lane.name} הוסר. ${parked.join(', ')} ממתינים לשיבוץ`
-                              : `${lane.name} הוסר מהמשמרת`,
-                            () => removeLaneFromShift(laneId),
-                          )
-                        }}
-                        className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                        title="הסר נתיב מהמשמרת"
-                        aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
+                      {!isGateLane ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              runWithUndo('נוסף מקום בנתיב', () => addSlotToLane(laneId))
+                            }
+                            className="lane-card-action inline-flex size-9 items-center justify-center rounded-[10px] text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                            title="הוסף משבצת"
+                            aria-label={`הוסף משבצת בנתיב ${lane.name}`}
+                          >
+                            <Plus className="size-4" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const parked = slots.filter(Boolean).map(
+                                (id) =>
+                                  data.workers.find((worker) => worker.id === id)?.fullName ?? id,
+                              )
+                              runWithUndo(
+                                parked.length > 0
+                                  ? `${lane.name} הוסר. ${parked.join(', ')} ממתינים לשיבוץ`
+                                  : `${lane.name} הוסר מהמשמרת`,
+                                () => removeLaneFromShift(laneId),
+                              )
+                            }}
+                            className="ui-btn-danger-ghost lane-card-action inline-flex size-9 items-center justify-center rounded-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                            title="הסר נתיב מהמשמרת"
+                            aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
+                          >
+                            <Trash2 className="size-4" aria-hidden />
+                          </button>
+                        </>
+                      ) : null}
+                      <div
+                        ref={laneActionMenu === laneId ? laneActionMenuRef : null}
+                        className="relative"
                       >
-                        <Trash2 className="size-3.5" aria-hidden />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLaneActionMenu((current) =>
+                              current === laneId ? null : laneId,
+                            )
+                          }
+                          className="inline-flex size-9 items-center justify-center rounded-[10px] text-ink-soft transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                          title="פעולות נתיב"
+                          aria-label={`פעולות נתיב ${lane.name}`}
+                          aria-haspopup="menu"
+                          aria-expanded={laneActionMenu === laneId}
+                        >
+                          <MoreHorizontal className="size-4" aria-hidden />
+                        </button>
+                        {laneActionMenu === laneId ? (
+                          <div
+                            role="menu"
+                            className="absolute end-0 top-full z-30 mt-1 max-h-72 min-w-56 overflow-y-auto rounded-xl border border-line bg-card p-1.5 shadow-[var(--shadow-panel-hover)]"
+                          >
+                            {!isGateLane ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-start text-sm font-semibold text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                                onClick={() => {
+                                  setLaneActionMenu(null)
+                                  onOpenExtraPick(laneId)
+                                }}
+                              >
+                                <Plus className="size-4" aria-hidden />
+                                הוספת בודק
+                              </button>
+                            ) : null}
+                            {slots.filter(Boolean).map((id) => {
+                              const worker = data.workers.find((item) => item.id === id)
+                              const name = worker?.fullName ?? id
+                              return (
+                                <div key={id} className="border-t border-line/70 px-2 py-2 first:border-t-0">
+                                  <p className="truncate text-xs font-semibold text-ink-soft">{name}</p>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-start text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                                    onClick={() => {
+                                      setLaneActionMenu(null)
+                                      setLeaveTarget({ laneId, workerId: id })
+                                    }}
+                                  >
+                                    <ArrowLeftRight className="size-4" aria-hidden />
+                                    החלפה באמצע משמרת
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-start text-sm font-semibold text-bad hover:bg-bad-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                                    onClick={() => {
+                                      setLaneActionMenu(null)
+                                      setDropWorkerId(id)
+                                    }}
+                                  >
+                                    <UserMinus className="size-4" aria-hidden />
+                                    הורדה ממשמרת
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-start text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                                    onClick={() => {
+                                      setLaneActionMenu(null)
+                                      runWithUndo('הוסרה ישיבה מהנתיב', () =>
+                                        beginRemoval(id),
+                                      )
+                                    }}
+                                  >
+                                    <UserX className="size-4" aria-hidden />
+                                    הסרת בודק
+                                  </button>
+                                </div>
+                              )
+                            })}
+                            {slots.filter(Boolean).length === 0 && isGateLane ? (
+                              <p className="px-2.5 py-2 text-sm text-ink-soft">אין פעולות זמינות</p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>
 
-                <div className="mt-2.5 space-y-2">
+                <div className="mt-3 space-y-2">
                   {slots.map((workerId, slotIndex) => {
                     if (isGateLane) {
-                      const name =
-                        data.workers.find((w) => w.id === workerId)?.fullName ??
-                        (workerId || '—')
-                      return (
-                        <div
-                          key={slotIndex}
-                          className="rounded-xl bg-brand/[0.06] px-3 py-2.5 ring-1 ring-brand/15"
-                        >
-                          {locked ? (
-                            <div className="flex items-center gap-3">
-                              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-                                <Shield className="size-4" aria-hidden />
-                              </span>
-                              <span className="text-base font-semibold tracking-tight text-ink">{name}</span>
-                            </div>
-                          ) : (
-                            gateManagerSelect
-                          )}
-                        </div>
-                      )
+                      return <div key={slotIndex}>{gateManagerSelect}</div>
                     }
                     return (
-                      <div key={slotIndex} className="flex items-center gap-2">
+                      <div key={slotIndex} className="flex min-w-0 items-center gap-2">
                         {std > 1 ? (
                           <span className="w-4 shrink-0 text-[11px] text-ink-soft tabular-nums">
                             {slotIndex + 1}.
@@ -1127,66 +1505,36 @@ export function BoardStep({
                         ) : null}
                         {renderWorkerSelect(lane, laneId, slotIndex, workerId, std)}
                         {workerId && !locked ? (
-                          <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface/80 p-0.5 ring-1 ring-line/70 no-print">
-                            <button
-                              type="button"
-                              onClick={() => setLeaveTarget({ laneId, workerId })}
-                              className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-card hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                              title="יציאה באמצע משמרת. רק האדם הזה מוחלף"
-                              aria-label="החלפה באמצע משמרת"
-                            >
-                              <UserMinus className="size-4" aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSwapTarget({ laneId, slotIndex, workerId })
-                              }
-                              className="inline-flex size-8 items-center justify-center rounded-full text-brand transition hover:bg-card focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                              title="החלף עם נתיב אחר"
-                              aria-label="החלף עם נתיב אחר"
-                            >
-                              <ArrowLeftRight className="size-4" aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                runWithUndo('הוסרה ישיבה מהנתיב', () =>
-                                  beginRemoval(workerId),
-                                )
-                              }
-                              className="inline-flex size-8 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                              title="הסר בודק מהשיבוץ ומהנוכחות"
-                              aria-label="הסר בודק מהשיבוץ"
-                            >
-                              <UserX className="size-4" aria-hidden />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSwapTarget({ laneId, slotIndex, workerId })}
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-brand transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
+                            title="החלפה"
+                            aria-label={`החלפה ל${data.workers.find((worker) => worker.id === workerId)?.fullName ?? 'בודק'}`}
+                          >
+                            <ArrowLeftRight className="size-4" aria-hidden />
+                          </button>
                         ) : null}
                       </div>
                     )
                   })}
                 </div>
 
-                <div className="mt-3 no-print">
+                {!notesOpen && noteText ? (
                   <button
                     type="button"
                     onClick={() =>
-                      setExpandedNotes((s) => {
-                        const next = new Set(s)
-                        if (next.has(laneId)) next.delete(laneId)
-                        else next.add(laneId)
-                        return next
-                      })
+                      setExpandedNotes((current) => new Set(current).add(laneId))
                     }
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-soft transition hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                    aria-expanded={notesOpen}
+                    className="mt-2 block max-w-full truncate text-start text-xs text-ink-soft hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
+                    title={noteText}
+                    aria-label="הצגת הערת הנתיב"
                   >
-                    <StickyNote className="size-3.5" aria-hidden />
-                    {notesOpen ? 'הסתר הערה' : 'הערה לנתיב'}
+                    {noteText}
                   </button>
-                  {notesOpen ? (
-                    <div className="mt-1.5">
+                ) : null}
+                {notesOpen ? (
+                  <div className="mt-2 no-print">
                       <textarea
                         className="ui-field min-h-[3.5rem] resize-y whitespace-pre-wrap !py-2 text-xs sm:text-sm"
                         rows={3}
@@ -1207,21 +1555,20 @@ export function BoardStep({
                         אפשר Enter לשורה חדשה · עד {LANE_NOTE_MAX_LENGTH} תווים ·{' '}
                         {(assignment?.notes ?? '').length}/{LANE_NOTE_MAX_LENGTH}
                       </p>
-                    </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </div>
             )
           })}
           {draft.activeLaneIds.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-sm text-ink-soft">
+            <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-sm text-ink-soft min-[900px]:col-span-2">
               אין נתיבים במשמרת. חזרו לבחירת נתיבים כדי להוסיף.
             </p>
           ) : null}
         </div>
 
         {draft.unassignedWorkerIds.length > 0 ? (
-          <div className="border-t border-line/70 bg-surface/40 px-3 py-3 sm:px-5">
+          <div className="rounded-b-[1.5rem] border-t border-line/70 bg-surface/40 px-3 py-3 sm:px-5">
             <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-ink-soft">
               <UserMinus className="size-3.5" aria-hidden />
               ממתינים לשיבוץ
@@ -1282,73 +1629,60 @@ export function BoardStep({
         onUndo={undoShiftDrop}
       />
 
-      {/* Sticky actions */}
-      <div className="fixed inset-x-3 bottom-20 z-40 rounded-2xl border border-line/70 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-panel-hover)] backdrop-blur-md no-print sm:inset-x-4 lg:bottom-4 lg:left-1/2 lg:right-auto lg:w-[min(72rem,calc(100%-2rem))] lg:-translate-x-1/2">
-        <div className="mx-auto flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold text-ink-soft">שמירה</span>
+      <div className="fixed inset-x-4 bottom-4 z-40 mx-auto w-[calc(100%-32px)] max-w-[760px] rounded-2xl border border-line/80 bg-card/85 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print">
+        <div className="flex min-w-0 items-center justify-between gap-1 sm:gap-2">
+          <div
+            className={`flex shrink-0 items-center gap-1.5 transition-colors duration-200 ${
+              isSaved ? 'text-ok' : 'text-warn'
+            }`}
+            role="status"
+            aria-label={isSaved ? saveStatusText : 'טרם נשמר'}
+            title={saveStatusText}
+          >
+            {isSaved ? (
+              <CheckCircle2 className="size-4" aria-hidden />
+            ) : (
+              <span className="size-2 rounded-full bg-warn" aria-hidden />
+            )}
+            <span className="hidden text-[11px] font-semibold sm:inline">
+              {isSaved ? 'נשמר' : 'טרם נשמר'}
+            </span>
+          </div>
+
           {locked ? (
-            <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ok">
+            <span className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[13px] font-semibold text-ok">
               <Lock className="size-4" aria-hidden />
-              הלוח נעול
+              <span className="hidden sm:inline">הלוח נעול</span>
             </span>
           ) : (
-          <button
-            type="button"
-            onClick={trySave}
-            aria-disabled={saveBlocked}
-            title={saveBlockedReason ?? undefined}
-            className={`ui-btn ui-btn-primary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-              saveBlocked ? 'cursor-not-allowed opacity-40' : ''
-            } ${saveFlash ? '!bg-ok hover:!bg-ok' : ''}`}
-          >
-            {saveFlash ? (
-              <Check className="size-4" aria-hidden />
-            ) : (
-              <Save className="size-4" aria-hidden />
-            )}
-            שמירה
-          </button>
-          )}
-          {!locked && onSignOff ? (
             <button
               type="button"
-              onClick={trySignOff}
+              onClick={trySave}
               aria-disabled={saveBlocked}
-              title={
-                saveBlocked
-                  ? 'אפשר לסגור רק כשהלוח תקין וכולם משובצים'
-                  : 'סגירה נועלת את הלוח לעריכה'
-              }
-              className={`ui-btn ui-btn-secondary !py-2 gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              title={saveBlockedReason ?? undefined}
+              className={`ui-btn ui-btn-primary !h-10 shrink-0 !px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                 saveBlocked ? 'cursor-not-allowed opacity-40' : ''
-              }`}
+              } ${saveFlash ? '!bg-ok hover:!bg-ok' : ''}`}
             >
-              <Lock className="size-4" aria-hidden />
-              סגירת משמרת
+              {saveFlash ? (
+                <Check className="size-4" aria-hidden />
+              ) : (
+                <Save className="size-4" aria-hidden />
+              )}
+              שמירה
             </button>
-          ) : null}
-          <span
-            className={`text-[12px] font-medium tabular-nums ${
-              saveFlash || (!boardDirty && lastSavedAt)
-                ? 'text-ok'
-                : boardDirty
-                  ? 'text-warn'
-                  : 'text-ink-soft'
-            }`}
-          >
-            {saveStatusText}
-          </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-line/60 pt-2">
-            <span className="text-[11px] font-semibold text-ink-soft">כלים</span>
-          <div className="relative" ref={shareRootRef}>
+          )}
+
+          <span className="h-7 w-px shrink-0 bg-line" aria-hidden />
+
+          <div className="relative shrink-0" ref={shareRootRef}>
             <button
               type="button"
+              aria-label="שיתוף"
               aria-haspopup="menu"
               aria-expanded={shareOpen}
               disabled={shareBusy}
-              title={exportBlock ?? undefined}
+              title={exportBlock ?? 'שיתוף'}
               onClick={() => {
                 if (exportBlock) {
                   notify.error('לא ניתן לייצא', exportBlock)
@@ -1356,15 +1690,15 @@ export function BoardStep({
                 }
                 setShareOpen((o) => !o)
               }}
-              className="ui-btn ui-btn-secondary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60"
+              className="ui-btn ui-btn-ghost !h-8 !w-8 !gap-1 !p-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60 sm:!h-10 sm:!w-auto sm:!px-3"
             >
               {shareBusy ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
               ) : (
                 <MessageCircle className="size-4" aria-hidden />
               )}
-              שיתוף
-              <ChevronDown className="size-3.5 opacity-70" aria-hidden />
+              <span className="hidden sm:inline">שיתוף</span>
+              <ChevronDown className="hidden size-3.5 opacity-70 sm:block" aria-hidden />
             </button>
             {shareOpen ? (
               <div
@@ -1394,27 +1728,56 @@ export function BoardStep({
               </div>
             ) : null}
           </div>
+
           {!locked && onCompare ? (
             <button
               type="button"
               onClick={onCompare}
-              className="ui-btn ui-btn-secondary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="ui-btn ui-btn-ghost !h-8 !w-8 !p-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:!h-10 sm:!w-auto sm:!gap-2 sm:!px-3"
+              title="השוואת חלופות"
+              aria-label="השוואת חלופות"
             >
-              השוואת חלופות
+              <ArrowLeftRight className="size-4" aria-hidden />
+              <span className="hidden sm:inline">השוואת חלופות</span>
             </button>
           ) : null}
+
           {!locked ? (
-          <button
-            type="button"
-            onClick={confirmReassign}
-            disabled={assigning}
-            className="ui-btn ui-btn-secondary !py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-          >
-            <Sparkles className="size-4" aria-hidden />
-            שבץ מחדש
-          </button>
+            <button
+              type="button"
+              onClick={confirmReassign}
+              disabled={assigning}
+              className="ui-btn !h-8 !w-8 !gap-0 !rounded-xl !bg-brand-soft !p-0 text-sm !font-semibold !text-brand transition hover:!bg-brand/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60 sm:!h-10 sm:!w-auto sm:!gap-2 sm:!px-3"
+              title="שבץ מחדש"
+              aria-label="שבץ מחדש"
+            >
+              <Sparkles className="size-4" aria-hidden />
+              <span className="hidden sm:inline">שבץ מחדש</span>
+            </button>
           ) : null}
-          </div>
+
+          {!locked && onSignOff ? (
+            <>
+              <span className="h-7 w-px shrink-0 bg-line" aria-hidden />
+              <button
+                type="button"
+                onClick={trySignOff}
+                aria-disabled={saveBlocked}
+                title={
+                  saveBlocked
+                    ? 'אפשר לסגור רק כשהלוח תקין וכולם משובצים'
+                    : 'סגירה נועלת את הלוח לעריכה'
+                }
+                className={`ui-btn ui-btn-secondary !h-8 !w-8 !gap-0 !p-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:!h-10 sm:!w-auto sm:!gap-2 sm:!px-3 ${
+                  saveBlocked ? 'cursor-not-allowed opacity-40' : ''
+                }`}
+                aria-label="סגירת משמרת"
+              >
+                <Lock className="size-4" aria-hidden />
+                <span className="hidden sm:inline">סגירת משמרת</span>
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
