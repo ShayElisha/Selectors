@@ -672,7 +672,7 @@ export function ShiftPage() {
     <div
       className={`space-y-4 sm:space-y-5 ${
         shiftStep === 'board'
-          ? 'pb-32'
+          ? 'pb-48 lg:pb-32'
           : 'pb-44 sm:pb-36'
       }`}
     >

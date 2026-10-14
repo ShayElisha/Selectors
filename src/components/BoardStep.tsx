@@ -1653,7 +1653,7 @@ export function BoardStep({
         onUndo={undoShiftDrop}
       />
 
-      <div className="fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-40 mx-auto w-auto max-w-[760px] rounded-2xl border border-line/80 bg-card/85 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print sm:inset-x-4">
+      <div className="fixed inset-x-3 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto w-auto max-w-[760px] rounded-2xl border border-line/80 bg-card/85 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print sm:inset-x-4 lg:bottom-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 sm:flex-nowrap">
           <div className="flex shrink-0 items-center gap-2">
           <div
