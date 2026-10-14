@@ -18,6 +18,9 @@ import {
   publicData,
   listHistoryPage,
   listShiftVersions,
+  listShiftHandoffs,
+  createShiftHandoff,
+  updateShiftHandoff,
   readState,
   clientRevisionIsCurrent,
   recordSelfHeal,
@@ -665,6 +668,33 @@ app.post('/api/shifts/:id/versions/:versionId/restore', async (req, res) => {
           expectedRevision === undefined ? undefined : Number(expectedRevision),
       }),
     )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/shift-handoffs', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(await listShiftHandoffs({ scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shift-handoffs', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.status(201).json(await createShiftHandoff(req.body || {}, actor, { scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/shift-handoffs/:id', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.json(await updateShiftHandoff(req.params.id, req.body || {}, actor, { scope }))
   } catch (err) {
     sendError(res, err)
   }

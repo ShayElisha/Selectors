@@ -1672,6 +1672,99 @@ export async function restoreShiftVersion(id, versionId, actor, options = {}) {
   return saved;
 }
 
+export async function listShiftHandoffs(options = {}) {
+  const scope = options.scope;
+  const db = await getDb(targetForScope(scope));
+  const docs = await db
+    .collection(SHIFT_HANDOFF_COLLECTION)
+    .find(scopeFilter(scope))
+    .sort({ status: 1, updatedAt: -1 })
+    .limit(300)
+    .toArray();
+  return docs.map(({ _id, orgId: _org, module: _module, ...note }) => ({
+    ...note,
+    id: String(_id),
+  }));
+}
+
+export async function createShiftHandoff(body = {}, actor, options = {}) {
+  const scope = options.scope;
+  const title = String(body.title || "").trim().slice(0, 120);
+  const details = String(body.details || "").trim().slice(0, 4000);
+  if (!title || !details) {
+    const err = new Error("יש למלא כותרת ופירוט");
+    err.status = 400;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  const note = {
+    id,
+    title,
+    details,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || ""))
+      ? String(body.date)
+      : "",
+    shiftType: ["morning", "afternoon", "afternoonA", "afternoonB", "night"].includes(body.shiftType)
+      ? body.shiftType
+      : "",
+    status: "open",
+    createdAt: now,
+    updatedAt: now,
+    createdBy: String(actor?.fullName || "מנהל"),
+  };
+  const db = await getDb(targetForScope(scope));
+  await db.collection(SHIFT_HANDOFF_COLLECTION).insertOne(stampScope(note, scope));
+  await appendAuditLog({
+    action: "shift_handoff_create",
+    actor,
+    details: `נוספה למסירת משמרת: ${title}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  });
+  return note;
+}
+
+export async function updateShiftHandoff(id, body = {}, actor, options = {}) {
+  const scope = options.scope;
+  const db = await getDb(targetForScope(scope));
+  const col = db.collection(SHIFT_HANDOFF_COLLECTION);
+  const filter = { _id: scope ? `${scope.orgId}:${scope.module}:${id}` : id, ...scopeFilter(scope) };
+  const current = await col.findOne(filter);
+  if (!current) {
+    const err = new Error("הפריט לא נמצא");
+    err.status = 404;
+    throw err;
+  }
+  const status = body.status === "closed" ? "closed" : body.status === "open" ? "open" : current.status;
+  const now = new Date().toISOString();
+  const changes = { status, updatedAt: now };
+  if (body.title != null) changes.title = String(body.title).trim().slice(0, 120);
+  if (body.details != null) changes.details = String(body.details).trim().slice(0, 4000);
+  if (!changes.title || !changes.details) {
+    const err = new Error("יש למלא כותרת ופירוט");
+    err.status = 400;
+    throw err;
+  }
+  if (status === "closed" && current.status !== "closed") {
+    changes.closedAt = now;
+    changes.closedBy = String(actor?.fullName || "מנהל");
+  } else if (status === "open") {
+    changes.closedAt = null;
+    changes.closedBy = null;
+  }
+  await col.updateOne(filter, { $set: changes });
+  await appendAuditLog({
+    action: "shift_handoff_update",
+    actor,
+    details: `${status === "closed" ? "נסגרה" : "עודכנה"} מסירת משמרת: ${changes.title}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  });
+  const { _id, orgId: _org, module: _module, ...updated } = await col.findOne(filter);
+  return { ...updated, id: String(_id) };
+}
+
 export async function recordSelfHeal(id, body, actor, options = {}) {
   const scope = options.scope;
   const state = await readState(scope);

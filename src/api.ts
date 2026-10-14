@@ -1,4 +1,4 @@
-import type { AppData, ShiftSchedule, ShiftVersionSummary } from './types'
+import type { AppData, ShiftHandoffNote, ShiftSchedule, ShiftVersionSummary } from './types'
 import { clearSession, loadAppDataCache, loadSession, type SessionUser } from './auth'
 
 export class ApiError extends Error {
@@ -118,6 +118,29 @@ export function restoreShiftVersionRemote(
       body: JSON.stringify({ expectedRevision }),
     },
   )
+}
+
+export function fetchShiftHandoffs(): Promise<ShiftHandoffNote[]> {
+  return request<ShiftHandoffNote[]>('/api/shift-handoffs')
+}
+
+export function createShiftHandoffRemote(
+  body: Pick<ShiftHandoffNote, 'title' | 'details' | 'date' | 'shiftType'>,
+): Promise<ShiftHandoffNote> {
+  return request<ShiftHandoffNote>('/api/shift-handoffs', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function updateShiftHandoffRemote(
+  id: string,
+  body: Partial<Pick<ShiftHandoffNote, 'title' | 'details' | 'status'>>,
+): Promise<ShiftHandoffNote> {
+  return request<ShiftHandoffNote>(`/api/shift-handoffs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
 }
 
 export function deleteShiftRemote(

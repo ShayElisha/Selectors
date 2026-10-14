@@ -30,6 +30,7 @@ const OPERATIONAL_COLLECTIONS = [
   'customs_brokers',
   'shift_models',
   'shift_versions',
+  'shift_handoff_notes',
 ]
 
 export function normalizePhone(phone) {

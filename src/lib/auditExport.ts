@@ -14,6 +14,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   shift_delete: 'מחיקת שיבוץ',
   shift_signoff: 'סגירת משמרת',
   shift_version_restore: 'שחזור גרסת שיבוץ',
+  shift_handoff_create: 'הוספה למסירת משמרת',
+  shift_handoff_update: 'עדכון מסירת משמרת',
   shift_self_heal: 'שיקום לוח',
   auto_assign: 'שיבוץ אוטומטי',
   manual_assign: 'שיבוץ ידני',

@@ -23,6 +23,8 @@ import {
   SlidersHorizontal,
   KeyRound,
   Scale,
+  CalendarX2,
+  ClipboardPenLine,
 } from 'lucide-react'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -50,6 +52,8 @@ const DATA: NavItem[] = [
   { id: 'history', label: 'היסטוריה', icon: History },
   { id: 'audit', label: 'יומן', icon: ScrollText },
   { id: 'customsBrokers', label: 'עמילי מכס', icon: Briefcase },
+  { id: 'cancellations', label: 'ביטולים וחוסרים', icon: CalendarX2 },
+  { id: 'handoff', label: 'מסירת משמרת', icon: ClipboardPenLine },
 ]
 
 const MANAGE: NavItem[] = [
@@ -75,6 +79,8 @@ const MOBILE_MORE: View[] = [
   'analytics',
   'audit',
   'customsBrokers',
+  'cancellations',
+  'handoff',
 ]
 
 const ALL_NAV = [...DAILY, ...DATA, ...MANAGE]

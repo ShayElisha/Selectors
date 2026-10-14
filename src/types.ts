@@ -208,6 +208,20 @@ export interface ShiftVersionSummary {
   shiftType: ShiftType
 }
 
+export interface ShiftHandoffNote {
+  id: string
+  title: string
+  details: string
+  date: string
+  shiftType: ShiftType | ''
+  status: 'open' | 'closed'
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  closedAt?: string | null
+  closedBy?: string | null
+}
+
 export interface AppData {
   workers: Worker[]
   lanes: Lane[]
@@ -287,3 +301,5 @@ export type View =
   | 'shiftModels'
   | 'customsBrokers'
   | 'settings'
+  | 'cancellations'
+  | 'handoff'
