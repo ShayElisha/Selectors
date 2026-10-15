@@ -1,10 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Building2,
+  Copy,
+  Download,
   Pencil,
   Phone,
   Plus,
   Search,
+  Star,
   Trash2,
   User,
   X,
@@ -26,6 +29,38 @@ import { notify } from '../lib/notify'
 import type { CustomsBroker, CustomsBrokerContact } from '../types'
 
 const PAGE_SIZE = 40
+
+function exportCustomsBrokersCsv(brokers: CustomsBroker[]) {
+  const cell = (value: string) => `"${value.replace(/"/g, '""')}"`
+  const rows = [
+    ['חברה', 'איש קשר', 'טלפון', 'מועדף', 'עודכן לאחרונה'],
+    ...brokers.flatMap((broker) => broker.contacts.length
+      ? broker.contacts.map((contact) => [
+          broker.name,
+          contact.name,
+          contact.phone,
+          contact.favorite ? 'כן' : 'לא',
+          contact.updatedAt || broker.updatedAt || '',
+        ])
+      : [[broker.name, '', '', 'לא', broker.updatedAt || '']]),
+  ]
+  const csv = `\uFEFF${rows.map((row) => row.map(cell).join(',')).join('\r\n')}`
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `customs-brokers-${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function formatUpdatedAt(value?: string) {
+  if (!value) return 'לא תועד'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? 'לא תועד'
+    : new Intl.DateTimeFormat('he-IL', { dateStyle: 'short' }).format(date)
+}
 
 type BrokerModal =
   | { mode: 'add' }
@@ -284,6 +319,7 @@ export function CustomsBrokersPage() {
     upsertCustomsBroker,
     deleteCustomsBroker,
     upsertCustomsBrokerContact,
+    toggleCustomsBrokerContactFavorite,
     deleteCustomsBrokerContact,
   } = useApp()
 
@@ -321,7 +357,10 @@ export function CustomsBrokersPage() {
     [filtered, visibleCount],
   )
   const groups = useMemo(
-    () => groupBrokersByInitial(visibleBrokers),
+    () => groupBrokersByInitial(visibleBrokers.map((broker) => ({
+      ...broker,
+      contacts: [...broker.contacts].sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || a.name.localeCompare(b.name, 'he')),
+    }))),
     [visibleBrokers],
   )
   const contactCount = useMemo(
@@ -352,6 +391,15 @@ export function CustomsBrokersPage() {
                 many: 'אנשי קשר',
               })}
             </p>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+              onClick={() => exportCustomsBrokersCsv(filtered)}
+              title="ייצוא רשימת החברות ואנשי הקשר המוצגים לקובץ CSV"
+            >
+              <Download className="size-3.5" aria-hidden />
+              ייצוא CSV
+            </button>
             <button
               type="button"
               className="ui-btn ui-btn-primary !py-1.5 text-xs"
@@ -546,6 +594,32 @@ export function CustomsBrokersPage() {
                           </a>
                           <button
                             type="button"
+                            className={`shrink-0 rounded-lg p-1.5 transition ${c.favorite ? 'text-amber-500' : 'text-ink-soft hover:text-amber-500'}`}
+                            title={c.favorite ? 'הסר ממועדפים' : 'הוסף למועדפים'}
+                            aria-label={`${c.favorite ? 'הסר' : 'הוסף'} את ${c.name || c.phone} ${c.favorite ? 'מהמועדפים' : 'למועדפים'}`}
+                            aria-pressed={Boolean(c.favorite)}
+                            onClick={() => toggleCustomsBrokerContactFavorite(broker.id, c.id)}
+                          >
+                            <Star className={`size-3.5 ${c.favorite ? 'fill-current' : ''}`} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-lg p-1.5 text-ink-soft hover:bg-brand/5 hover:text-brand"
+                            title="העתקת מספר טלפון"
+                            aria-label={`העתקת המספר ${c.phone}`}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(c.phone)
+                                notify.success('מספר הטלפון הועתק')
+                              } catch {
+                                notify.error('לא ניתן להעתיק את המספר בדפדפן הזה')
+                              }
+                            }}
+                          >
+                            <Copy className="size-3.5" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
                             className="shrink-0 rounded-lg p-1.5 text-ink-soft opacity-70 hover:bg-surface hover:text-brand sm:opacity-0 sm:group-hover:opacity-100"
                             title="עריכת איש קשר"
                             aria-label={`עריכת איש קשר ${c.name || c.phone}`}
@@ -577,6 +651,11 @@ export function CustomsBrokersPage() {
                         </li>
                       ))}
                     </ul>
+                    <p className="mt-1 text-start text-[11px] text-ink-soft">
+                      עודכן לאחרונה: {formatUpdatedAt(broker.contacts.reduce<string | undefined>((latest, contact) =>
+                        contact.updatedAt && (!latest || contact.updatedAt > latest) ? contact.updatedAt : latest,
+                      broker.updatedAt))}
+                    </p>
                     <button
                       type="button"
                       className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line px-2 py-1.5 text-[12px] font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand"

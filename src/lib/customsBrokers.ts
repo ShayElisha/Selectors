@@ -55,6 +55,8 @@ export function normalizeCustomsBrokerContact(
     name: String(o.name || '').trim(),
     phone: formatBrokerPhone(digits),
     phoneDigits: digits,
+    favorite: o.favorite === true,
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : undefined,
   }
 }
 
@@ -80,7 +82,12 @@ export function normalizeCustomsBroker(raw: unknown): CustomsBroker | null {
       a.name.localeCompare(b.name, 'he') ||
       a.phoneDigits.localeCompare(b.phoneDigits),
   )
-  return { id, name, contacts }
+  return {
+    id,
+    name,
+    contacts,
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : undefined,
+  }
 }
 
 export function normalizeCustomsBrokers(

@@ -539,6 +539,7 @@ interface AppContextValue {
     brokerId: string,
     contact: { id?: string; name: string; phone: string },
   ) => void
+  toggleCustomsBrokerContactFavorite: (brokerId: string, contactId: string) => void
   deleteCustomsBrokerContact: (brokerId: string, contactId: string) => void
   resetToSeed: () => Promise<void>
   refreshFromServer: () => Promise<void>
@@ -3651,11 +3652,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return {
             ...prev,
             customsBrokers: normalizeCustomsBrokers(
-              list.map((b) => (b.id === broker.id ? { ...b, name } : b)),
+            list.map((b) => (b.id === broker.id ? { ...b, name, updatedAt: new Date().toISOString() } : b)),
             ),
           }
         }
-        const next: CustomsBroker = { id: uuid(), name, contacts: [] }
+        const next: CustomsBroker = { id: uuid(), name, contacts: [], updatedAt: new Date().toISOString() }
         return {
           ...prev,
           customsBrokers: normalizeCustomsBrokers([...list, next]),
@@ -3695,7 +3696,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   ...b,
                   contacts: b.contacts.map((c) =>
                     c.id === contact.id
-                      ? { ...c, name, phone, phoneDigits: digits }
+                      ? { ...c, name, phone, phoneDigits: digits, updatedAt: new Date().toISOString() }
                       : c,
                   ),
                 }
@@ -3705,7 +3706,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   ...b,
                   contacts: b.contacts.map((c) =>
                     c.phoneDigits === digits
-                      ? { ...c, name: name || c.name, phone, phoneDigits: digits }
+                      ? { ...c, name: name || c.name, phone, phoneDigits: digits, updatedAt: new Date().toISOString() }
                       : c,
                   ),
                 }
@@ -3715,12 +3716,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 name,
                 phone,
                 phoneDigits: digits,
+                favorite: false,
+                updatedAt: new Date().toISOString(),
               }
               return { ...b, contacts: [...b.contacts, next] }
             }),
           ),
         }
       })
+    },
+    [patchData],
+  )
+
+  const toggleCustomsBrokerContactFavorite = useCallback(
+    (brokerId: string, contactId: string) => {
+      patchData((prev) => ({
+        ...prev,
+        customsBrokers: normalizeCustomsBrokers(
+          (prev.customsBrokers ?? []).map((b) => b.id === brokerId
+            ? { ...b, contacts: b.contacts.map((c) => c.id === contactId
+              ? { ...c, favorite: !c.favorite, updatedAt: new Date().toISOString() }
+              : c) }
+            : b),
+        ),
+      }))
     },
     [patchData],
   )
@@ -3867,6 +3886,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertCustomsBroker,
       deleteCustomsBroker,
       upsertCustomsBrokerContact,
+      toggleCustomsBrokerContactFavorite,
       deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
@@ -3965,6 +3985,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertCustomsBroker,
       deleteCustomsBroker,
       upsertCustomsBrokerContact,
+      toggleCustomsBrokerContactFavorite,
       deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,

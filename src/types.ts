@@ -316,6 +316,8 @@ export interface CustomsBrokerContact {
   name: string
   phone: string
   phoneDigits: string
+  favorite?: boolean
+  updatedAt?: string
 }
 
 /** Customs brokerage company with dialable contacts. */
@@ -323,6 +325,7 @@ export interface CustomsBroker {
   id: string
   name: string
   contacts: CustomsBrokerContact[]
+  updatedAt?: string
 }
 
 /** Named shift window stored separately for selectors and for inspectors. */
