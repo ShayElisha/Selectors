@@ -134,46 +134,56 @@ export function ShiftHandoffPage() {
   }
 
   const renderNote = (note: ShiftHandoffNote) => (
-    <article key={note.id} className="rounded-xl border border-line bg-surface p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <article
+      key={note.id}
+      className="overflow-hidden rounded-2xl border border-line bg-card shadow-sm transition-shadow hover:shadow-md"
+    >
+      <div className="p-4 sm:p-5">
         <div className="min-w-0">
-          <h3 className="font-semibold text-ink">{note.title}</h3>
-          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-soft">{note.details}</p>
-          <p className="mt-2 text-xs text-ink-soft">
-            {note.createdBy} · <Ltr>{when(note.createdAt)}</Ltr>
-            {note.date ? <> · {SHIFT_TYPE_LABELS[note.shiftType as ShiftType] || 'משמרת'} · <Ltr>{formatShiftDate(note.date)}</Ltr></> : null}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${note.status === 'open' ? 'bg-brand/10 text-brand' : 'bg-easy-soft text-easy'}`}>
+              {note.status === 'open' ? 'פתוח לטיפול' : 'טופל · בארכיון'}
+            </span>
+            {note.date ? <span className="rounded-full bg-surface px-2.5 py-1 text-[11px] font-medium text-ink-soft">{SHIFT_TYPE_LABELS[note.shiftType as ShiftType] || 'משמרת'} · {formatShiftDate(note.date)}</span> : null}
+          </div>
+          <h3 className="font-display text-base font-bold text-ink sm:text-lg">{note.title}</h3>
+          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-ink-soft">{note.details}</p>
+          <p className="mt-3 text-xs text-ink-soft">
+            נפתח על ידי {note.createdBy} · <Ltr>{when(note.createdAt)}</Ltr>
           </p>
-          {note.ownerWorkerId || note.dueDate ? (
-            <p className={`mt-1 text-xs ${note.status === 'open' && note.dueDate && note.dueDate < today() ? 'font-semibold text-hard' : 'text-ink-soft'}`}>
-              {note.ownerWorkerId ? `אחראי: ${data.workers.find((worker) => worker.id === note.ownerWorkerId)?.fullName ?? 'עובד לא זמין'}` : 'ללא אחראי'}
-              {note.dueDate ? ` · יעד: ${formatShiftDate(note.dueDate)}${note.status === 'open' && note.dueDate < today() ? ' · באיחור' : ''}` : ''}
-            </p>
-          ) : null}
-          {note.status === 'open' ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <label className="grid gap-1 text-xs text-ink-soft">אחראי
-                <select className="ui-input min-h-9 py-1 text-xs" value={note.ownerWorkerId || ''} onChange={(event) => void updateResponsibility(note, { ownerWorkerId: event.target.value })}>
-                  <option value="">לא הוקצה</option>
-                  {data.workers.filter((worker) => worker.status === 'active').map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName}</option>)}
-                </select>
-              </label>
-              <label className="grid gap-1 text-xs text-ink-soft">מועד יעד
-                <input type="date" className="ui-input min-h-9 py-1 text-xs" value={note.dueDate || ''} onChange={(event) => void updateResponsibility(note, { dueDate: event.target.value })} />
-              </label>
-            </div>
-          ) : null}
-          {note.status === 'closed' && note.closedBy ? <p className="mt-1 text-xs text-ink-soft">טופל על ידי {note.closedBy}{note.closedAt ? <> · <Ltr>{when(note.closedAt)}</Ltr></> : null}</p> : null}
+          {note.status === 'closed' && note.closedBy ? <p className="mt-1 text-xs font-medium text-easy">טופל על ידי {note.closedBy}{note.closedAt ? <> · <Ltr>{when(note.closedAt)}</Ltr></> : null}</p> : null}
         </div>
-        <button type="button" className="ui-btn ui-btn-secondary shrink-0" onClick={() => void setStatus(note, note.status === 'open' ? 'closed' : 'open')}>
-          {note.status === 'open' ? <><Check className="size-4" aria-hidden />סימון כטופל</> : <><RotateCcw className="size-4" aria-hidden />פתיחה מחדש</>}
-        </button>
-        <button type="button" className="ui-btn ui-btn-ghost shrink-0" onClick={() => editNote(note)} aria-label={`עריכת ${note.title}`}>
-          <Pencil className="size-4" aria-hidden />עריכה
-        </button>
-        <button type="button" className="ui-btn ui-btn-ghost shrink-0 text-hard" onClick={() => void deleteNote(note)} aria-label={`מחיקת ${note.title}`}>
-          <Trash2 className="size-4" aria-hidden />מחיקה
-        </button>
+        <div className="mt-4 flex flex-wrap items-center justify-start gap-2 border-t border-line/70 pt-3">
+          <button type="button" className="ui-btn ui-btn-secondary min-h-9 gap-1.5 !px-2.5 text-xs" onClick={() => void setStatus(note, note.status === 'open' ? 'closed' : 'open')}>
+            {note.status === 'open' ? <><Check className="size-3.5" aria-hidden />סימון כטופל</> : <><RotateCcw className="size-3.5" aria-hidden />פתיחה מחדש</>}
+          </button>
+          <button type="button" className="ui-btn ui-btn-ghost min-h-9 gap-1.5 !px-2.5 text-xs" onClick={() => editNote(note)} aria-label={`עריכת ${note.title}`}>
+            <Pencil className="size-3.5" aria-hidden />עריכה
+          </button>
+          <button type="button" className="ui-btn ui-btn-ghost min-h-9 gap-1.5 !px-2.5 text-xs text-hard" onClick={() => void deleteNote(note)} aria-label={`מחיקת ${note.title}`}>
+            <Trash2 className="size-3.5" aria-hidden />מחיקה
+          </button>
+        </div>
       </div>
+      {note.status === 'open' ? (
+        <div className="flex flex-wrap items-end gap-3 border-t border-line/70 bg-surface/60 px-4 py-3 sm:px-5">
+          <label className="grid w-full max-w-xs gap-1.5 text-xs font-semibold text-ink-soft">אחראי להמשך טיפול
+            <select className="ui-input min-h-9 py-1.5 text-sm" value={note.ownerWorkerId || ''} onChange={(event) => void updateResponsibility(note, { ownerWorkerId: event.target.value })}>
+              <option value="">לא הוקצה</option>
+              {data.workers.filter((worker) => worker.status === 'active').map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName}</option>)}
+            </select>
+          </label>
+          <label className="grid w-full max-w-[13rem] gap-1.5 text-xs font-semibold text-ink-soft">מועד יעד
+            <input type="date" className="ui-input min-h-9 py-1.5 text-sm" value={note.dueDate || ''} onChange={(event) => void updateResponsibility(note, { dueDate: event.target.value })} />
+          </label>
+          {note.dueDate && note.dueDate < today() ? <span className="mb-2 rounded-full bg-hard-soft px-2.5 py-1 text-xs font-bold text-hard">באיחור · {formatShiftDate(note.dueDate)}</span> : null}
+        </div>
+      ) : note.ownerWorkerId || note.dueDate ? (
+        <div className="border-t border-line/70 bg-surface/60 px-4 py-3 text-xs text-ink-soft sm:px-5">
+          {note.ownerWorkerId ? `אחראי: ${data.workers.find((worker) => worker.id === note.ownerWorkerId)?.fullName ?? 'עובד לא זמין'}` : 'ללא אחראי'}
+          {note.dueDate ? ` · מועד יעד: ${formatShiftDate(note.dueDate)}` : ''}
+        </div>
+      ) : null}
     </article>
   )
 
@@ -193,7 +203,7 @@ export function ShiftHandoffPage() {
             <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-owner">אחראי להמשך טיפול<select id="handoff-owner" className="ui-input" value={ownerWorkerId} onChange={(event) => setOwnerWorkerId(event.target.value)}><option value="">לא הוקצה</option>{data.workers.filter((worker) => worker.status === 'active').sort((a, b) => a.fullName.localeCompare(b.fullName, 'he')).map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName}</option>)}</select></label>
             <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-due-date">מועד יעד (אופציונלי)<input id="handoff-due-date" type="date" className="ui-input" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
           </div>
-          <div className="flex justify-end gap-2">{editingId ? <button type="button" className="ui-btn ui-btn-secondary" onClick={clearEditor} disabled={saving}><X className="size-4" aria-hidden />ביטול עריכה</button> : null}<button type="submit" className="ui-btn ui-btn-primary" disabled={saving || !title.trim() || !details.trim()}>{saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : editingId ? <Pencil className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}{editingId ? 'שמירת עדכון' : 'הוספה למסירה'}</button></div>
+          <div className="flex justify-start gap-2">{editingId ? <button type="button" className="ui-btn ui-btn-secondary" onClick={clearEditor} disabled={saving}><X className="size-4" aria-hidden />ביטול עריכה</button> : null}<button type="submit" className="ui-btn ui-btn-primary" disabled={saving || !title.trim() || !details.trim()}>{saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : editingId ? <Pencil className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}{editingId ? 'שמירת עדכון' : 'הוספה למסירה'}</button></div>
         </form>
       </SectionCard>
       <SectionCard title={`נושאים פתוחים (${openNotes.length})`} subtitle="הנושאים נשמרים ומשותפים בין מנהלי הארגון.">
