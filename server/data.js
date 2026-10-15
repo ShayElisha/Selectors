@@ -47,6 +47,7 @@ export function createSeedData() {
     briefingSections: [],
     questionBank: [],
     customsBrokers: [],
+    incidents: [],
     shiftModels: [],
   };
 }
@@ -273,6 +274,48 @@ export function normalizeData(raw, fallbackKind = "selector") {
         .sort((a, b) => a.order - b.order)
     : [];
 
+  const validIncidentSeverities = new Set(['low', 'medium', 'high', 'critical']);
+  const validIncidentStatuses = new Set(['open', 'in_progress', 'resolved']);
+  const incidents = Array.isArray(raw?.incidents)
+    ? raw.incidents
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null;
+          const id = String(item.id || '').trim();
+          const title = String(item.title || '').trim();
+          const description = String(item.description || '').trim();
+          if (!id || !title || !description) return null;
+          const now = new Date().toISOString();
+          return {
+            id,
+            title,
+            description,
+            severity: validIncidentSeverities.has(item.severity)
+              ? item.severity
+              : 'medium',
+            status: validIncidentStatuses.has(item.status)
+              ? item.status
+              : 'open',
+            ...(typeof item.laneId === 'string' && item.laneId.trim()
+              ? { laneId: item.laneId.trim() }
+              : {}),
+            ...(typeof item.shiftDate === 'string' && item.shiftDate.trim()
+              ? { shiftDate: item.shiftDate.trim() }
+              : {}),
+            ...(typeof item.shiftType === 'string'
+              ? { shiftType: item.shiftType }
+              : {}),
+            ...(typeof item.handlingNotes === 'string' && item.handlingNotes.trim()
+              ? { handlingNotes: item.handlingNotes.trim() }
+              : {}),
+            createdAt: String(item.createdAt || now),
+            createdBy: String(item.createdBy || 'מנהל'),
+            updatedAt: String(item.updatedAt || item.createdAt || now),
+            updatedBy: String(item.updatedBy || item.createdBy || 'מנהל'),
+          };
+        })
+        .filter(Boolean)
+    : [];
+
   const lanes = Array.isArray(raw?.lanes) ? raw.lanes.map(normalizeLane) : [];
   const gateIdx = lanes.findIndex(
     (l) => String(l.name || "").trim() === "מנהל שער",
@@ -307,6 +350,7 @@ export function normalizeData(raw, fallbackKind = "selector") {
       : [],
     briefingSections,
     questionBank,
+    incidents,
     customsBrokers: normalizeCustomsBrokersList(raw?.customsBrokers),
     shiftModels: normalizeShiftModels(raw?.shiftModels),
     revision: Number.isFinite(Number(raw?.revision)) ? Number(raw.revision) : 0,
@@ -493,6 +537,7 @@ const MODEL_COLLECTIONS = {
   questionBank: "questions",
   customsBrokers: "customs_brokers",
   shiftModels: "shift_models",
+  incidents: "incidents",
 };
 
 const SHIFT_VERSIONS_COLLECTION = "shift_versions";
@@ -594,6 +639,7 @@ async function assembleState(
     questionBank,
     customsBrokers,
     shiftModels,
+    incidents,
   ] = await Promise.all([
     read(MODEL_COLLECTIONS.workers),
     read(MODEL_COLLECTIONS.lanes),
@@ -602,6 +648,7 @@ async function assembleState(
     read(MODEL_COLLECTIONS.questionBank),
     read(MODEL_COLLECTIONS.customsBrokers),
     read(MODEL_COLLECTIONS.shiftModels),
+    read(MODEL_COLLECTIONS.incidents),
   ]);
   const history = scope?.orgId
     ? await loadCompleteHistory(scope, historyRevision, target)
@@ -618,6 +665,7 @@ async function assembleState(
       questionBank: fromOrderedDocs(questionBank),
       customsBrokers: fromOrderedDocs(customsBrokers),
       shiftModels: fromOrderedDocs(shiftModels),
+      incidents: fromOrderedDocs(incidents),
       revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
     },
     scope?.module === "inspectors" ? "inspector" : "selector",
@@ -690,6 +738,12 @@ async function replaceModels(
         stampScope(doc, scope),
       ),
     ],
+    [
+      MODEL_COLLECTIONS.incidents,
+      orderedDocs(snapshot.incidents || []).map((doc) =>
+        stampScope(doc, scope),
+      ),
+    ],
   ];
   const opts = session ? { session } : {};
   for (const [name, rawDocs] of models) {
@@ -752,6 +806,7 @@ async function migrateLegacyState(session, target = "selectors") {
       briefingSections: source.briefingSections,
       questionBank: source.questionBank,
       customsBrokers: source.customsBrokers,
+      incidents: source.incidents,
     },
     revision,
     session,
@@ -780,6 +835,7 @@ function snapshotOf(source) {
     questionBank: source.questionBank,
     customsBrokers: source.customsBrokers,
     shiftModels: source.shiftModels,
+    incidents: source.incidents,
   };
 }
 
@@ -870,6 +926,7 @@ function emptyState() {
     questionBank: [],
     customsBrokers: [],
     shiftModels: [],
+    incidents: [],
     revision: 0,
   });
 }
@@ -1222,6 +1279,7 @@ export async function writeState(data, options = {}) {
     questionBank: payload.questionBank ?? [],
     customsBrokers: payload.customsBrokers ?? [],
     shiftModels: payload.shiftModels ?? [],
+    incidents: payload.incidents ?? [],
   };
   const historyChanged =
     options.action === "data_reset" ||

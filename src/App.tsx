@@ -16,6 +16,7 @@ import { TrackingPage } from './pages/TrackingPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { AuditPage } from './pages/AuditPage'
 import { BriefingsPage } from './pages/BriefingsPage'
+import { IncidentsPage } from './pages/IncidentsPage'
 import { ShiftModelsPage } from './pages/ShiftModelsPage'
 import { CustomsBrokersPage } from './pages/CustomsBrokersPage'
 import { OrgSettingsPage } from './pages/OrgSettingsPage'
@@ -66,6 +67,7 @@ function ProtectedShell() {
         <Route path="lanes" element={<LanesPage />} />
         <Route path="certs" element={<CertsPage />} />
         <Route path="briefings" element={<BriefingsPage />} />
+        <Route path="incidents" element={<IncidentsPage />} />
         <Route path="shift-models" element={<ShiftModelsPage />} />
         <Route path="customs-brokers" element={<CustomsBrokersPage />} />
         <Route path="settings" element={<OrgSettingsPage />} />

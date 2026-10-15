@@ -232,6 +232,8 @@ export interface AppData {
   briefingSections: BriefingSection[]
   /** Shared quiz bank for inspectors (editable by managers) */
   questionBank: InspectorQuestion[]
+  /** Shared manager incident and equipment log. */
+  incidents?: IncidentRecord[]
   /** Customs broker companies and contacts (editable directory) */
   customsBrokers: CustomsBroker[]
   /** Shift windows for this module. Empty means the built-in defaults. */
@@ -261,6 +263,26 @@ export interface InspectorQuestion {
   order: number
   updatedAt: string
   updatedBy?: string
+}
+
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical'
+export type IncidentStatus = 'open' | 'in_progress' | 'resolved'
+
+/** A manager's operational incident or equipment issue. */
+export interface IncidentRecord {
+  id: string
+  title: string
+  description: string
+  severity: IncidentSeverity
+  status: IncidentStatus
+  laneId?: string
+  shiftDate?: string
+  shiftType?: ShiftType
+  handlingNotes?: string
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+  updatedBy: string
 }
 
 /** Contact person / phone line for a customs broker company. */
@@ -298,6 +320,7 @@ export type View =
   | 'audit'
   | 'certs'
   | 'briefings'
+  | 'incidents'
   | 'shiftModels'
   | 'customsBrokers'
   | 'settings'

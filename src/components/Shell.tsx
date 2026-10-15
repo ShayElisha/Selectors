@@ -26,6 +26,7 @@ import {
   CalendarX2,
   ClipboardPenLine,
   Box,
+  Siren,
 } from 'lucide-react'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -47,6 +48,7 @@ const DAILY: NavItem[] = [
 ]
 
 const OPERATIONS: NavItem[] = [
+  { id: 'incidents', label: 'אירועים ותקלות', icon: Siren },
   { id: 'stationMap', label: 'מפת עמדות', icon: Box },
   { id: 'briefings', label: 'תדריכים', icon: BookOpen },
   { id: 'tracking', label: 'מעקב נתיבים', icon: Table2 },
@@ -76,6 +78,7 @@ const SETTINGS_NAV: NavItem = {
 
 const MOBILE_PRIMARY: View[] = ['home', 'shift', 'workers', 'history']
 const MOBILE_MORE: View[] = [
+  'incidents',
   'briefings',
   'lanes',
   'certs',

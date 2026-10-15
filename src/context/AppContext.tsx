@@ -141,6 +141,9 @@ import type {
   ShiftModel,
   CustomsBroker,
   CustomsBrokerContact,
+  IncidentRecord,
+  IncidentSeverity,
+  IncidentStatus,
 } from '../types'
 
 function uniqueLabels(values: string[] | undefined): string[] {
@@ -207,6 +210,7 @@ function normalizeAppData(data: AppData, module: 'selectors' | 'inspectors' = 's
     briefingSections: normalizeBriefingSections(data.briefingSections),
     questionBank: normalizeQuestionBank(data.questionBank),
     customsBrokers: Array.isArray(data.customsBrokers) ? data.customsBrokers : [],
+    incidents: Array.isArray(data.incidents) ? data.incidents : [],
   }
 }
 
@@ -404,6 +408,18 @@ interface AppContextValue {
     },
   ) => void
   deleteBriefingSection: (id: string) => void
+  upsertIncident: (incident: {
+    id?: string
+    title: string
+    description: string
+    severity: IncidentSeverity
+    status: IncidentStatus
+    laneId?: string
+    shiftDate?: string
+    shiftType?: ShiftType
+    handlingNotes?: string
+  }) => void
+  deleteIncident: (id: string) => void
   reorderBriefingSections: (orderedIds: string[]) => void
   setBriefingSectionStarred: (id: string, starred: boolean) => void
   upsertInspectorQuestion: (
@@ -434,6 +450,7 @@ const emptyData: AppData = {
   briefingSections: [],
   questionBank: [],
   customsBrokers: [],
+  incidents: [],
   shiftModels: [],
   revision: 0,
 }
@@ -3285,6 +3302,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [patchData],
   )
 
+  const upsertIncident = useCallback(
+    (incident: {
+      id?: string
+      title: string
+      description: string
+      severity: IncidentSeverity
+      status: IncidentStatus
+      laneId?: string
+      shiftDate?: string
+      shiftType?: ShiftType
+      handlingNotes?: string
+    }) => {
+      const title = incident.title.trim()
+      const description = incident.description.trim()
+      if (!title || !description) return
+      const now = new Date().toISOString()
+      const actor = userRef.current?.fullName || 'מנהל'
+      patchData((prev) => {
+        const list = prev.incidents ?? []
+        const existing = incident.id ? list.find((item) => item.id === incident.id) : undefined
+        const next: IncidentRecord = {
+          id: existing?.id ?? uuid(),
+          title,
+          description,
+          severity: incident.severity,
+          status: incident.status,
+          ...(incident.laneId ? { laneId: incident.laneId } : {}),
+          ...(incident.shiftDate ? { shiftDate: incident.shiftDate } : {}),
+          ...(incident.shiftType ? { shiftType: incident.shiftType } : {}),
+          ...(incident.handlingNotes?.trim() ? { handlingNotes: incident.handlingNotes.trim() } : {}),
+          createdAt: existing?.createdAt ?? now,
+          createdBy: existing?.createdBy ?? actor,
+          updatedAt: now,
+          updatedBy: actor,
+        }
+        return {
+          ...prev,
+          incidents: existing
+            ? list.map((item) => (item.id === existing.id ? next : item))
+            : [next, ...list],
+        }
+      })
+    },
+    [patchData],
+  )
+
+  const deleteIncident = useCallback(
+    (id: string) => {
+      patchData((prev) => ({
+        ...prev,
+        incidents: (prev.incidents ?? []).filter((item) => item.id !== id),
+      }))
+    },
+    [patchData],
+  )
+
   const reorderBriefingSections = useCallback(
     (orderedIds: string[]) => {
       patchData((prev) => {
@@ -3625,6 +3698,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       removeCertification,
       upsertBriefingSection,
       deleteBriefingSection,
+      upsertIncident,
+      deleteIncident,
       reorderBriefingSections,
       setBriefingSectionStarred,
       upsertInspectorQuestion,
@@ -3721,6 +3796,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       removeCertification,
       upsertBriefingSection,
       deleteBriefingSection,
+      upsertIncident,
+      deleteIncident,
       reorderBriefingSections,
       setBriefingSectionStarred,
       upsertInspectorQuestion,
