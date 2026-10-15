@@ -96,6 +96,13 @@ const STEPS = [
   { id: 'board' as const, label: 'שיבוץ' },
 ]
 
+const QUALITY_LABELS: Record<string, string> = {
+  rotation: 'רוטציה בין נתיבים', workload: 'איזון עומס', recovery: 'מנוחה אחרי לילה',
+  hardBalance: 'ניסיון ואיזון בעמדות קשות', handoff: 'החלפת צהריים',
+  versatility: 'שמירת עובדים רב־תכליתיים', intensityDist: 'פיזור רמות קושי',
+  idleOnHard: 'התאמת מנוחה לעמדה קשה', staffing: 'כיסוי תקנים', stability: 'יציבות השיבוץ',
+}
+
 type ExtraFlow = 'closed' | 'ask' | 'pick'
 
 export function ShiftPage() {
@@ -1761,6 +1768,22 @@ export function ShiftPage() {
                 <li key={w}>{w}</li>
               ))}
             </ul>
+          ) : null}
+          {draft.quality ? (
+            <section className="rounded-xl border border-brand/20 bg-brand/5 px-4 py-3" aria-label="מדדי איכות השיבוץ">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-bold text-ink">מדדי איכות לשיבוץ האוטומטי</h3>
+                <span className="font-display text-xl font-bold tabular-nums text-brand">{Math.round(draft.quality.score)}/100</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-ink-soft">הציון מחושב מסכום כל מדד כפול משקלו, עם קנס על תקנים חסרים. אחוז המשקל מוצג ליד כל מדד. הסמכה, נוכחות ומניעת שיבוץ כפול הם אילוצים קשיחים; הם חייבים להתקיים ואינם חלק מהציון.</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {Object.entries(draft.quality.components).map(([key, value]) => (
+                  <span key={key} className="rounded-lg bg-card px-2 py-1 text-xs text-ink-soft ring-1 ring-line/70">{QUALITY_LABELS[key] ?? key}: <b className="tabular-nums text-ink">{Math.round(value)}</b> · משקל {Math.round((draft.quality?.weights[key as keyof NonNullable<typeof draft.quality>['weights']] ?? 0) * 100)}%</span>
+                ))}
+              </div>
+              {draft.quality.understaffedSlots > 0 ? <p className="mt-2 text-xs font-semibold text-hard">הגורם המרכזי לשיפור: חסרים {draft.quality.understaffedSlots} תקנים. בדקו אם יש עובדים מוסמכים נוספים או התאימו את כיסוי הנתיבים.</p> : null}
+              {Object.entries(draft.quality.components).some(([key, value]) => key !== 'staffing' && value < 70) ? <p className="mt-2 text-xs text-ink-soft">המדדים הנמוכים ביותר מצביעים על נקודות לשיפור. אפשר לבדוק חלופה להשוואה או לשנות את הלוח ידנית; שינוי ידני יסתיר את ציון האלגוריתם כדי לא להציג ציון מיושן.</p> : null}
+            </section>
           ) : null}
           {draft.signOff ? <ShiftClosedBanner signOff={draft.signOff} /> : null}
           <SelectorRoundTable

@@ -70,6 +70,7 @@ const emptyForm = (staffKind: StaffKind = 'selector'): Omit<Worker, 'id'> => ({
   isManager: false,
   staffKind,
   isOrgManager: false,
+  managerNotes: '',
 })
 
 type DialogKind =
@@ -481,6 +482,19 @@ function WorkerForm({
               נדרש מייל. סיסמה זמנית תישלח לכתובת שתזין
             </p>
           ) : null}
+        </div>
+
+        <div className="sm:col-span-2">
+          <FieldLabel htmlFor="worker-manager-notes">הערות מקצועיות למנהלים</FieldLabel>
+          <textarea
+            id="worker-manager-notes"
+            className="ui-field min-h-24 w-full resize-y bg-card"
+            maxLength={2000}
+            value={form.managerNotes || ''}
+            onChange={(e) => setForm((f) => ({ ...f, managerNotes: e.target.value }))}
+            placeholder="הערות מקצועיות שרלוונטיות לניהול ושיבוץ העובד"
+          />
+          <p className="mt-1 text-xs text-ink-soft">ההערות זמינות למנהלים בפרופיל העובד.</p>
         </div>
 
         <SegmentedTwo
@@ -975,6 +989,7 @@ export function WorkersPage() {
         isManager: Boolean(w.isManager) || Boolean(w.isOrgManager),
         staffKind: w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : defaultKind,
         isOrgManager: Boolean(w.isOrgManager),
+        managerNotes: w.managerNotes || '',
       }
       setForm(next)
       setBaseline(next)

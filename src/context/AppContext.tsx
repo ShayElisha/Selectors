@@ -332,6 +332,8 @@ export interface ShiftDraft {
   unassignedWorkerIds: string[]
   /** Filled by auto-assign; cleared on manual board edits */
   explanations: PlacementExplanation[]
+  /** Quality breakdown for the latest untouched automatic board. */
+  quality?: AssignmentResult['quality']
   /** Personal hours keyed by worker id. */
   workerWindows: Record<string, string>
   windowAdjustments: Record<string, WindowAdjustment>
@@ -1509,6 +1511,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       warnings: [],
       unassignedWorkerIds: [],
       explanations: [],
+      quality: undefined,
       staffingOverrides: {},
     })
     setShiftStep('lanes')
@@ -1540,6 +1543,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           assignments: [],
           rounds: [],
           explanations: [],
+          quality: undefined,
           warnings: [],
           unassignedWorkerIds: [],
           presentWorkerIds: [],
@@ -2225,6 +2229,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ),
             warnings: placed.warnings,
             explanations: placed.explanations,
+            quality: placed.quality,
           },
           data.lanes,
         )
@@ -2401,6 +2406,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ),
             warnings: placed.warnings,
             explanations: placed.explanations,
+            quality: placed.quality,
           },
           data.lanes,
         )
@@ -2439,6 +2445,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ),
             warnings: [],
             explanations: [],
+            quality: undefined,
           },
           data.lanes,
         )
@@ -2468,6 +2475,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           assignments: empty,
           warnings: [],
           explanations: [],
+          quality: undefined,
         },
         data.lanes,
       )
@@ -2573,6 +2581,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             assignments: padded,
+            quality: undefined,
           },
           data.lanes,
         )
@@ -2631,6 +2640,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...d,
             rounds,
             explanations: [],
+            quality: undefined,
           },
           data.lanes,
         )
@@ -2704,6 +2714,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             assignments: padded,
+            quality: undefined,
           },
           data.lanes,
         )
@@ -2756,7 +2767,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }, 1200)
         }
 
-        return { ...d, assignments: padded }
+        return { ...d, assignments: padded, quality: undefined }
       })
     },
     [data.lanes],
@@ -2797,6 +2808,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             assignments: next.assignments,
+            quality: undefined,
             presentWorkerIds: next.presentWorkerIds,
             gateManagerWorkerId: next.gateManagerWorkerId,
           },
@@ -2824,6 +2836,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return {
           ...d,
           assignments: padded,
+          quality: undefined,
           unassignedWorkerIds: computeUnassignedWorkerIds(
             d.presentWorkerIds,
             padded,
@@ -2845,7 +2858,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const target = padded.find((a) => a.laneId === laneId)
         if (!target) return d
         target.workerIds.push('')
-        return { ...d, assignments: padded }
+        return { ...d, assignments: padded, quality: undefined }
       })
     },
     [data.lanes],
@@ -2875,6 +2888,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             presentWorkerIds,
             gateManagerWorkerId,
             assignments,
+            quality: undefined,
             rounds: usesRounds(d)
               ? clearWorkerFromRounds(d.rounds ?? [], workerId)
               : [],
@@ -3051,6 +3065,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...d,
             activeLaneIds: d.activeLaneIds.filter((id) => id !== laneId),
             assignments: d.assignments.filter((row) => row.laneId !== laneId),
+            quality: undefined,
             staffingOverrides,
             explanations: (d.explanations ?? []).filter((item) => item.laneId !== laneId),
             rounds: (d.rounds ?? []).map((round) => ({

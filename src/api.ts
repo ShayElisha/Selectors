@@ -125,7 +125,8 @@ export function fetchShiftHandoffs(): Promise<ShiftHandoffNote[]> {
 }
 
 export function createShiftHandoffRemote(
-  body: Pick<ShiftHandoffNote, 'title' | 'details' | 'date' | 'shiftType'>,
+  body: Pick<ShiftHandoffNote, 'title' | 'details' | 'date' | 'shiftType'> &
+    Partial<Pick<ShiftHandoffNote, 'ownerWorkerId' | 'dueDate'>>,
 ): Promise<ShiftHandoffNote> {
   return request<ShiftHandoffNote>('/api/shift-handoffs', {
     method: 'POST',
@@ -135,7 +136,7 @@ export function createShiftHandoffRemote(
 
 export function updateShiftHandoffRemote(
   id: string,
-  body: Partial<Pick<ShiftHandoffNote, 'title' | 'details' | 'status'>>,
+  body: Partial<Pick<ShiftHandoffNote, 'title' | 'details' | 'status' | 'ownerWorkerId' | 'dueDate'>>,
 ): Promise<ShiftHandoffNote> {
   return request<ShiftHandoffNote>(`/api/shift-handoffs/${encodeURIComponent(id)}`, {
     method: 'PATCH',

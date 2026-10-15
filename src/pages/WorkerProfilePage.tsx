@@ -4,7 +4,7 @@ import { ArrowRight, Mail, Phone } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { CertChips, IntensityBadge, Ltr, SectionCard } from '../components/ui'
 import { SHIFT_TYPE_LABELS } from '../constants'
-import { isQualified } from '../algorithm'
+import { computeWorkerLoad, isQualified } from '../algorithm'
 import { formatShiftDate } from '../lib/hebrew'
 import { isGateManagerLane } from '../lib/gateManager'
 import { avatarColor } from '../lib/avatarColor'
@@ -85,6 +85,17 @@ export function WorkerProfilePage() {
   const shifts = workerShiftHistoryCount(data.history, worker.id)
   const gateShifts = data.history.filter((shift) => shift.gateManagerWorkerId === worker.id)
     .length
+  const currentLoad = computeWorkerLoad(
+    worker.id,
+    data.history,
+    data.lanes,
+    14,
+    data.history[0]?.date,
+  )
+  const experiencedLaneIds = new Set(history.flatMap((shift) => laneIdsFor(shift, worker.id)))
+  const relatedOpenIncidents = (data.incidents ?? []).filter(
+    (incident) => incident.status !== 'resolved' && incident.laneId && experiencedLaneIds.has(incident.laneId),
+  )
 
   return (
     <div className="space-y-4">
@@ -159,10 +170,40 @@ export function WorkerProfilePage() {
             <dd className="font-semibold text-ink">{shifts}</dd>
           </div>
           <div>
+            <dt className="text-ink-soft">עומס ב־14 הימים האחרונים</dt>
+            <dd className="font-semibold tabular-nums text-ink">{currentLoad.toFixed(1)}</dd>
+          </div>
+          <div>
             <dt className="text-ink-soft">פעמים כמנהל שער</dt>
             <dd className="font-semibold text-ink">{gateShifts}</dd>
           </div>
         </dl>
+      </SectionCard>
+
+      <SectionCard title="הערות מקצועיות למנהלים">
+        {worker.managerNotes?.trim() ? (
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{worker.managerNotes}</p>
+        ) : (
+          <p className="text-sm text-ink-soft">אין הערות מקצועיות. אפשר להוסיף אותן בעריכת העובד במאגר.</p>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title={`אירועים פתוחים בנתיבים שבהם שובץ (${relatedOpenIncidents.length})`}
+        subtitle="האירועים משויכים לנתיב שבו העובד שובץ בעבר; הם אינם רשומים כאירועים אישיים של העובד."
+      >
+        {relatedOpenIncidents.length ? (
+          <ul className="divide-y divide-line/70">
+            {relatedOpenIncidents.map((incident) => (
+              <li key={incident.id} className="py-2.5 text-sm">
+                <Link to="/incidents" className="font-semibold text-brand hover:underline">{incident.title}</Link>
+                <p className="mt-0.5 text-ink-soft">{incident.laneId ? laneName(incident.laneId) : ''} · {incident.status === 'in_progress' ? 'בטיפול' : 'פתוח'}</p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-ink-soft">אין אירועים פתוחים בנתיבים שבהם שובץ.</p>
+        )}
       </SectionCard>
 
       <SectionCard title="הסמכות" subtitle={`${certs.length} הסמכות רשומות`}>

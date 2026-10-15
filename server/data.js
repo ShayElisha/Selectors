@@ -89,6 +89,7 @@ function normalizeWorker(w, fallbackKind = "selector") {
     isManager: isManager || isOrgManager,
     staffKind,
     isOrgManager,
+    managerNotes: String(w.managerNotes || "").trim().slice(0, 2000),
   };
   if (typeof w.passwordHash === "string" && w.passwordHash) {
     worker.passwordHash = w.passwordHash;
@@ -1775,6 +1776,10 @@ export async function createShiftHandoff(body = {}, actor, options = {}) {
     id,
     title,
     details,
+    ownerWorkerId: String(body.ownerWorkerId || "").trim().slice(0, 120),
+    dueDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || ""))
+      ? String(body.dueDate)
+      : "",
     date: /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || ""))
       ? String(body.date)
       : "",
@@ -1819,6 +1824,11 @@ export async function updateShiftHandoff(id, body = {}, actor, options = {}) {
   const changes = { status, updatedAt: now };
   if (body.title != null) changes.title = String(body.title).trim().slice(0, 120);
   if (body.details != null) changes.details = String(body.details).trim().slice(0, 4000);
+  if (body.ownerWorkerId != null) changes.ownerWorkerId = String(body.ownerWorkerId).trim().slice(0, 120);
+  if (body.dueDate != null) {
+    const dueDate = String(body.dueDate).trim();
+    changes.dueDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : "";
+  }
   if (!changes.title || !changes.details) {
     const err = new Error("יש למלא כותרת ופירוט");
     err.status = 400;

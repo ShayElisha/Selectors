@@ -3,6 +3,7 @@ import { Check, ClipboardPenLine, Loader2, Plus, RotateCcw } from 'lucide-react'
 import { createShiftHandoffRemote, fetchShiftHandoffs, updateShiftHandoffRemote } from '../api'
 import { EmptyState, FieldLabel, Ltr, SectionCard } from '../components/ui'
 import { SHIFT_TYPE_LABELS } from '../constants'
+import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import { formatShiftDate } from '../lib/hebrew'
 import type { ShiftHandoffNote, ShiftType } from '../types'
@@ -20,6 +21,7 @@ function when(value: string) {
 }
 
 export function ShiftHandoffPage() {
+  const { data } = useApp()
   const [notes, setNotes] = useState<ShiftHandoffNote[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -28,6 +30,8 @@ export function ShiftHandoffPage() {
   const [details, setDetails] = useState('')
   const [date, setDate] = useState(today)
   const [shiftType, setShiftType] = useState<ShiftType | ''>('')
+  const [ownerWorkerId, setOwnerWorkerId] = useState('')
+  const [dueDate, setDueDate] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -52,10 +56,12 @@ export function ShiftHandoffPage() {
     if (!title.trim() || !details.trim()) return
     setSaving(true)
     try {
-      const created = await createShiftHandoffRemote({ title, details, date, shiftType })
+      const created = await createShiftHandoffRemote({ title, details, date, shiftType, ownerWorkerId, dueDate })
       setNotes((current) => [created, ...current])
       setTitle('')
       setDetails('')
+      setOwnerWorkerId('')
+      setDueDate('')
       notify.success('נוסף לסיכום המשמרת')
     } catch (cause) {
       notify.error(cause instanceof Error ? cause.message : 'שמירת הסיכום נכשלה')
@@ -67,10 +73,19 @@ export function ShiftHandoffPage() {
   const setStatus = async (note: ShiftHandoffNote, status: 'open' | 'closed') => {
     try {
       const updated = await updateShiftHandoffRemote(note.id, { status })
-      setNotes((current) => current.map((item) => item.id === note.id ? updated : item))
+      setNotes((current) => current.map((item) => item.id === note.id ? { ...updated, id: note.id } : item))
       notify.success(status === 'closed' ? 'הנושא סומן כטופל' : 'הנושא נפתח מחדש')
     } catch (cause) {
       notify.error(cause instanceof Error ? cause.message : 'עדכון הסיכום נכשל')
+    }
+  }
+
+  const updateResponsibility = async (note: ShiftHandoffNote, patch: { ownerWorkerId?: string; dueDate?: string }) => {
+    try {
+      const updated = await updateShiftHandoffRemote(note.id, patch)
+      setNotes((current) => current.map((item) => item.id === note.id ? { ...updated, id: note.id } : item))
+    } catch (cause) {
+      notify.error(cause instanceof Error ? cause.message : 'עדכון האחראי או מועד היעד נכשל')
     }
   }
 
@@ -84,6 +99,25 @@ export function ShiftHandoffPage() {
             {note.createdBy} · <Ltr>{when(note.createdAt)}</Ltr>
             {note.date ? <> · {SHIFT_TYPE_LABELS[note.shiftType as ShiftType] || 'משמרת'} · <Ltr>{formatShiftDate(note.date)}</Ltr></> : null}
           </p>
+          {note.ownerWorkerId || note.dueDate ? (
+            <p className={`mt-1 text-xs ${note.status === 'open' && note.dueDate && note.dueDate < today() ? 'font-semibold text-hard' : 'text-ink-soft'}`}>
+              {note.ownerWorkerId ? `אחראי: ${data.workers.find((worker) => worker.id === note.ownerWorkerId)?.fullName ?? 'עובד לא זמין'}` : 'ללא אחראי'}
+              {note.dueDate ? ` · יעד: ${formatShiftDate(note.dueDate)}${note.status === 'open' && note.dueDate < today() ? ' · באיחור' : ''}` : ''}
+            </p>
+          ) : null}
+          {note.status === 'open' ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <label className="grid gap-1 text-xs text-ink-soft">אחראי
+                <select className="ui-input min-h-9 py-1 text-xs" value={note.ownerWorkerId || ''} onChange={(event) => void updateResponsibility(note, { ownerWorkerId: event.target.value })}>
+                  <option value="">לא הוקצה</option>
+                  {data.workers.filter((worker) => worker.status === 'active').map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs text-ink-soft">מועד יעד
+                <input type="date" className="ui-input min-h-9 py-1 text-xs" value={note.dueDate || ''} onChange={(event) => void updateResponsibility(note, { dueDate: event.target.value })} />
+              </label>
+            </div>
+          ) : null}
           {note.status === 'closed' && note.closedBy ? <p className="mt-1 text-xs text-ink-soft">טופל על ידי {note.closedBy}{note.closedAt ? <> · <Ltr>{when(note.closedAt)}</Ltr></> : null}</p> : null}
         </div>
         <button type="button" className="ui-btn ui-btn-secondary shrink-0" onClick={() => void setStatus(note, note.status === 'open' ? 'closed' : 'open')}>
@@ -104,6 +138,10 @@ export function ShiftHandoffPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-date">תאריך משמרת (אופציונלי)<input id="handoff-date" type="date" className="ui-input" value={date} onChange={(event) => setDate(event.target.value)} /></label>
             <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-shift">משמרת (אופציונלי)<select id="handoff-shift" className="ui-input" value={shiftType} onChange={(event) => setShiftType(event.target.value as ShiftType | '')}><option value="">לא משויך למשמרת</option>{SHIFT_TYPES.map((type) => <option key={type} value={type}>{SHIFT_TYPE_LABELS[type]}</option>)}</select></label>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-owner">אחראי להמשך טיפול<select id="handoff-owner" className="ui-input" value={ownerWorkerId} onChange={(event) => setOwnerWorkerId(event.target.value)}><option value="">לא הוקצה</option>{data.workers.filter((worker) => worker.status === 'active').sort((a, b) => a.fullName.localeCompare(b.fullName, 'he')).map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName}</option>)}</select></label>
+            <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-due-date">מועד יעד (אופציונלי)<input id="handoff-due-date" type="date" className="ui-input" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
           </div>
           <div className="flex justify-end"><button type="submit" className="ui-btn ui-btn-primary" disabled={saving || !title.trim() || !details.trim()}>{saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}הוספה למסירה</button></div>
         </form>

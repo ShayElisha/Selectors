@@ -27,6 +27,8 @@ export interface Worker {
   staffKind?: StaffKind
   /** Sees both modules and may appoint other organization managers. */
   isOrgManager?: boolean
+  /** Private-to-managers professional notes for the worker profile. */
+  managerNotes?: string
 }
 
 export interface Lane {
@@ -229,6 +231,8 @@ export interface ShiftHandoffNote {
   id: string
   title: string
   details: string
+  ownerWorkerId?: string
+  dueDate?: string
   date: string
   shiftType: ShiftType | ''
   status: 'open' | 'closed'

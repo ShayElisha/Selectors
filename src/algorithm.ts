@@ -54,6 +54,14 @@ export interface AssignmentResult {
   experiencedHardSeats?: number
   /** Search telemetry: starts run and board evaluations performed. */
   searchStats?: { starts: number; evaluations: number; passes: number }
+  /** Final optimizer evaluation for the same weighted objective that chose the board. */
+  quality?: {
+    score: number
+    components: Record<BoardWeightKey, number>
+    weights: Record<BoardWeightKey, number>
+    understaffedSlots: number
+    legal: boolean
+  }
 }
 
 /** Soft goal for a generated board. Hard rules stay the same. */
@@ -3869,6 +3877,18 @@ function runAssignmentAlgorithmInternal(
     profiles,
     currentShiftType,
   )
+  const finalEvaluation = evaluateBoard(finalAssignments, {
+    lanes: activeLanes,
+    workersById: workerById,
+    profiles,
+    recoveringIds,
+    morning: morningCtx,
+    currentShiftType,
+    baselineAssignments: greedyBaseline,
+    objective,
+    weights: weightsForObjective(objective),
+    lastSeatings,
+  })
 
   return {
     assignments: finalAssignments,
@@ -3877,6 +3897,13 @@ function runAssignmentAlgorithmInternal(
     warnings: [...new Set(warnings)],
     explanations,
     ...boardStats,
+    quality: {
+      score: finalEvaluation.score,
+      components: finalEvaluation.components,
+      weights: weightsForObjective(objective),
+      understaffedSlots: finalEvaluation.understaffedSlots,
+      legal: finalEvaluation.legal,
+    },
     searchStats: {
       starts: 1,
       evaluations: optimized.evaluations,
