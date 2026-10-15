@@ -41,7 +41,7 @@ export function groupExplanations(
   return order.map((id) => byLane.get(id)!)
 }
 
-function visibleReasons(reasons: string[], hideTechnical: boolean): string[] {
+export function visibleExplanationReasons(reasons: string[], hideTechnical = true): string[] {
   if (!hideTechnical) return reasons
   return reasons.filter((reason) => !reason.includes('סדר מילוי') && !reason.includes('#'))
 }
@@ -70,7 +70,7 @@ export function AssignmentExplainDialog({
     const blocks = groups.map((group) => {
       const people = group.placements
         .map((placement) => {
-          const reasons = visibleReasons(placement.reasons, hideTechnical)
+          const reasons = visibleExplanationReasons(placement.reasons, hideTechnical)
           const bullets = reasons.map((reason) => `  • ${reason}`).join('\n')
           return bullets ? `${placement.workerName}\n${bullets}` : placement.workerName
         })
@@ -159,7 +159,7 @@ export function AssignmentExplainDialog({
                         {placement.workerName}
                       </p>
                       <ul className="mt-0.5 list-inside list-disc space-y-0.5 text-[11px] leading-relaxed text-ink-soft sm:text-xs">
-                        {visibleReasons(placement.reasons, hideTechnical).map((reason, index) => (
+                        {visibleExplanationReasons(placement.reasons, hideTechnical).map((reason, index) => (
                           <li key={index}>{reason}</li>
                         ))}
                       </ul>

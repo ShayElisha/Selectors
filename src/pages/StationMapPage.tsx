@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Box, CalendarDays, Check, Layers3, UsersRound } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { EmptyState, Ltr, PersonChip, SectionCard } from '../components/ui'
+import { visibleExplanationReasons } from '../components/AssignmentExplainDialog'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { currentShiftModel, resolveShiftModels, shiftModelLabel } from '../lib/shiftModels'
 import { formatShiftModelWindow } from '../lib/shiftModels'
@@ -163,7 +164,29 @@ export function StationMapPage() {
 
       {selectedStation ? (
         <SectionCard title={selectedStation.lane.name} subtitle="פרטי העמדה והכיסוי בסבב הנבחר" actions={<span className={`rounded-full px-2.5 py-1 text-xs font-bold ${selectedStation.missing ? 'bg-hard-soft text-hard' : 'bg-ok-soft text-ok'}`}>{selectedStation.missing ? `חסר ${selectedStation.missing}` : 'מאויש'}</span>}>
-          {selectedStation.workerIds.length ? <div className="flex flex-wrap gap-2">{selectedStation.workerIds.map((id) => <PersonChip key={id} name={workerNames.get(id) || 'עובד לא מזוהה'} />)}</div> : <p className="text-sm text-ink-soft">לא שובץ עובד לעמדה.</p>}
+          {selectedStation.workerIds.length ? (
+            <div className="space-y-3">
+              {selectedStation.workerIds.map((id) => {
+                const explanation = shift?.explanations?.find((item) => item.laneId === selectedStation.lane.id && item.workerId === id)
+                const reasons = explanation ? visibleExplanationReasons(explanation.reasons) : []
+                return (
+                  <div key={id} className="rounded-xl border border-line bg-surface/70 p-3">
+                    <PersonChip name={workerNames.get(id) || 'עובד לא מזוהה'} />
+                    {reasons.length ? (
+                      <div className="mt-2">
+                        <p className="text-xs font-bold text-ink">למה שובץ כאן</p>
+                        <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs leading-relaxed text-ink-soft">
+                          {reasons.map((reason, index) => <li key={index}>{reason}</li>)}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink-soft">אין הסבר שמור לשיבוץ הזה.</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : <p className="text-sm text-ink-soft">לא שובץ עובד לעמדה.</p>}
           {selectedStation.assignment?.notes ? <p className="mt-3 rounded-lg bg-surface p-3 text-sm text-ink">{selectedStation.assignment.notes}</p> : null}
           <p className="mt-3 text-xs text-ink-soft">תקן: {selectedStation.required} · {rounds.length > 1 ? rounds[currentRoundIndex]?.label : formatShiftModelWindow(models.find((model) => model.id === shiftType) || models[0]!)}</p>
         </SectionCard>
