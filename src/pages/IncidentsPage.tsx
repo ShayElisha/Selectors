@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Download, Pencil, Plus, Search, ShieldAlert, Trash2, Wrench, X } from 'lucide-react'
+import { AlertTriangle, ClipboardList, Download, Pencil, Plus, Search, ShieldAlert, Trash2, Wrench, X } from 'lucide-react'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { useApp } from '../context/AppContext'
 import { downloadIncidentsCsv } from '../lib/incidentsExport'
-import type { IncidentRecord, IncidentSeverity, IncidentStatus, ShiftType } from '../types'
+import type { IncidentKind, IncidentRecord, IncidentSeverity, IncidentStatus, ShiftType } from '../types'
 import { EmptyState, FieldLabel, SectionCard } from '../components/ui'
 
 const SEVERITIES: { id: IncidentSeverity; label: string; color: string }[] = [
@@ -21,7 +21,7 @@ const STATUSES: { id: IncidentStatus; label: string }[] = [
 
 const SHIFT_TYPES: ShiftType[] = ['morning', 'afternoonA', 'afternoonB', 'afternoon', 'night']
 
-type IncidentDraft = Pick<IncidentRecord, 'title' | 'description' | 'severity' | 'status'> & {
+type IncidentDraft = Pick<IncidentRecord, 'kind' | 'title' | 'description' | 'severity' | 'status'> & {
   laneId: string
   shiftDate: string
   shiftType: ShiftType | ''
@@ -29,6 +29,7 @@ type IncidentDraft = Pick<IncidentRecord, 'title' | 'description' | 'severity' |
 }
 
 const EMPTY_DRAFT: IncidentDraft = {
+  kind: 'event',
   title: '',
   description: '',
   severity: 'medium',
@@ -47,6 +48,7 @@ function formatDate(iso: string): string {
 export function IncidentsPage() {
   const { data, upsertIncident, deleteIncident } = useApp()
   const incidents = data.incidents ?? []
+  const [activeKind, setActiveKind] = useState<IncidentKind>('event')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all')
   const [severityFilter, setSeverityFilter] = useState<'all' | IncidentSeverity>('all')
@@ -54,6 +56,7 @@ export function IncidentsPage() {
   const [editingId, setEditingId] = useState<string | undefined>()
 
   const visible = useMemo(() => incidents
+    .filter((item) => item.kind === activeKind)
     .filter((item) => statusFilter === 'all' || item.status === statusFilter)
     .filter((item) => severityFilter === 'all' || item.severity === severityFilter)
     .filter((item) => {
@@ -62,11 +65,12 @@ export function IncidentsPage() {
       return `${text} ${laneName}`.includes(query.trim().toLocaleLowerCase('he'))
     })
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-  [incidents, statusFilter, severityFilter, query, data.lanes])
+  [incidents, activeKind, statusFilter, severityFilter, query, data.lanes])
 
   const openEditor = (item?: IncidentRecord) => {
     setEditingId(item?.id)
     setEditor(item ? {
+      kind: item.kind ?? 'event',
       title: item.title,
       description: item.description,
       severity: item.severity,
@@ -75,13 +79,14 @@ export function IncidentsPage() {
       shiftDate: item.shiftDate ?? '',
       shiftType: item.shiftType ?? '',
       handlingNotes: item.handlingNotes ?? '',
-    } : { ...EMPTY_DRAFT })
+    } : { ...EMPTY_DRAFT, kind: activeKind })
   }
 
   const save = () => {
     if (!editor?.title.trim() || !editor.description.trim()) return
     upsertIncident({
       id: editingId,
+      kind: editor.kind,
       title: editor.title,
       description: editor.description,
       severity: editor.severity,
@@ -94,9 +99,11 @@ export function IncidentsPage() {
     setEditingId(undefined)
   }
 
-  const openCount = incidents.filter((item) => item.status === 'open').length
-  const workingCount = incidents.filter((item) => item.status === 'in_progress').length
-  const criticalCount = incidents.filter((item) => item.severity === 'critical' && item.status !== 'resolved').length
+  const kindIncidents = incidents.filter((item) => item.kind === activeKind)
+  const openCount = kindIncidents.filter((item) => item.status === 'open').length
+  const workingCount = kindIncidents.filter((item) => item.status === 'in_progress').length
+  const criticalCount = kindIncidents.filter((item) => item.severity === 'critical' && item.status !== 'resolved').length
+  const kindLabel = activeKind === 'fault' ? 'תקלה' : 'אירוע'
 
   return (
     <div className="space-y-4">
@@ -109,13 +116,34 @@ export function IncidentsPage() {
               <Download className="size-4" aria-hidden /> ייצוא ({visible.length})
             </button>
             <button type="button" className="ui-btn ui-btn-primary" onClick={() => openEditor()}>
-              <Plus className="size-4" aria-hidden /> דיווח אירוע
+              <Plus className="size-4" aria-hidden /> דיווח {kindLabel}
             </button>
           </>
         }
       >
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface p-1" role="tablist" aria-label="סוג היומן">
+          {([
+            { id: 'event' as const, label: 'יומן אירועים', icon: ClipboardList },
+            { id: 'fault' as const, label: 'יומן תקלות', icon: AlertTriangle },
+          ]).map((tab) => {
+            const Icon = tab.icon
+            const count = incidents.filter((item) => item.kind === tab.id).length
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeKind === tab.id}
+                onClick={() => setActiveKind(tab.id)}
+                className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${activeKind === tab.id ? 'bg-card text-ink shadow-sm ring-1 ring-line' : 'text-ink-soft hover:text-ink'}`}
+              >
+                <Icon className="size-4" aria-hidden />{tab.label}<span className="rounded-full bg-surface px-1.5 py-0.5 text-[11px] tabular-nums">{count}</span>
+              </button>
+            )
+          })}
+        </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Metric label="כל האירועים" value={incidents.length} />
+          <Metric label={`כל ה${activeKind === 'fault' ? 'תקלות' : 'אירועים'}`} value={kindIncidents.length} />
           <Metric label="פתוחים" value={openCount} tone={openCount ? 'warn' : 'normal'} />
           <Metric label="בטיפול" value={workingCount} tone="brand" />
           <Metric label="קריטיים פתוחים" value={criticalCount} tone={criticalCount ? 'hard' : 'normal'} />
@@ -123,8 +151,9 @@ export function IncidentsPage() {
       </SectionCard>
 
       {editor ? (
-        <SectionCard title={editingId ? 'עריכת דיווח' : 'דיווח אירוע חדש'} subtitle="תעדו מה קרה, היכן, ומה נעשה כדי לטפל בכך." actions={<button className="ui-btn ui-btn-ghost" type="button" onClick={() => setEditor(null)} aria-label="סגירה"><X className="size-4" /></button>}>
+        <SectionCard title={editingId ? 'עריכת דיווח' : `דיווח ${editor.kind === 'fault' ? 'תקלה' : 'אירוע'} חדש`} subtitle="תעדו מה קרה, היכן, ומה נעשה כדי לטפל בכך." actions={<button className="ui-btn ui-btn-ghost" type="button" onClick={() => setEditor(null)} aria-label="סגירה"><X className="size-4" /></button>}>
           <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="סוג הדיווח"><select className="ui-field" value={editor.kind} onChange={(e) => setEditor({ ...editor, kind: e.target.value as IncidentKind })}><option value="event">אירוע</option><option value="fault">תקלה</option></select></Field>
             <Field label="כותרת *"><input className="ui-field" value={editor.title} onChange={(e) => setEditor({ ...editor, title: e.target.value })} placeholder="למשל: תקלה בשער צפוני" /></Field>
             <Field label="עמדה קשורה"><select className="ui-field" value={editor.laneId} onChange={(e) => setEditor({ ...editor, laneId: e.target.value })}><option value="">ללא עמדה מסוימת</option>{data.lanes.filter((lane) => lane.id !== 'gate-manager').map((lane) => <option key={lane.id} value={lane.id}>{lane.name}</option>)}</select></Field>
             <Field label="תיאור האירוע *" className="sm:col-span-2"><textarea className="ui-field min-h-24 resize-y" value={editor.description} onChange={(e) => setEditor({ ...editor, description: e.target.value })} placeholder="מה קרה? מי או מה הושפע?" /></Field>
@@ -141,14 +170,14 @@ export function IncidentsPage() {
         </SectionCard>
       ) : null}
 
-      <SectionCard title="רשימת דיווחים" subtitle={`${visible.length} מתוך ${incidents.length} אירועים`}>
+      <SectionCard title={`יומן ${activeKind === 'fault' ? 'תקלות' : 'אירועים'}`} subtitle={`${visible.length} מתוך ${kindIncidents.length} דיווחים`}>
         <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_180px_180px]">
           <label className="relative block"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft" aria-hidden /><input className="ui-field pe-9" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="חיפוש לפי כותרת, תיאור או עמדה" aria-label="חיפוש אירועים" /></label>
           <select className="ui-field" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | IncidentStatus)} aria-label="סינון לפי סטטוס"><option value="all">כל הסטטוסים</option>{STATUSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
           <select className="ui-field" value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as 'all' | IncidentSeverity)} aria-label="סינון לפי חומרה"><option value="all">כל רמות החומרה</option>{SEVERITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
         </div>
         {visible.length === 0 ? (
-          <EmptyState title={incidents.length ? 'לא נמצאו דיווחים' : 'עדיין אין אירועים ביומן'} text={incidents.length ? 'נסו לשנות את החיפוש או את הסינון.' : 'דווחו על אירוע או תקלה כדי שמנהלים יוכלו לתעד טיפול ולחזור אליו בהמשך.'} action={!incidents.length ? <button className="ui-btn ui-btn-primary" type="button" onClick={() => openEditor()}><Plus className="size-4" /> דיווח ראשון</button> : undefined} />
+          <EmptyState title={kindIncidents.length ? 'לא נמצאו דיווחים' : activeKind === 'fault' ? 'עדיין אין תקלות ביומן' : 'עדיין אין אירועים ביומן'} text={kindIncidents.length ? 'נסו לשנות את החיפוש או את הסינון.' : activeKind === 'fault' ? 'דווחו על תקלה כדי לתעד את חומרתה והטיפול בה.' : 'דווחו על אירוע תפעולי כדי שמנהלים יוכלו לתעד אותו ולעקוב אחריו.'} action={!kindIncidents.length ? <button className="ui-btn ui-btn-primary" type="button" onClick={() => openEditor()}><Plus className="size-4" /> דיווח {kindLabel}</button> : undefined} />
         ) : (
           <div className="space-y-3">
             {visible.map((item) => {

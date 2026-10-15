@@ -142,6 +142,7 @@ import type {
   CustomsBroker,
   CustomsBrokerContact,
   IncidentRecord,
+  IncidentKind,
   IncidentSeverity,
   IncidentStatus,
 } from '../types'
@@ -210,7 +211,12 @@ function normalizeAppData(data: AppData, module: 'selectors' | 'inspectors' = 's
     briefingSections: normalizeBriefingSections(data.briefingSections),
     questionBank: normalizeQuestionBank(data.questionBank),
     customsBrokers: Array.isArray(data.customsBrokers) ? data.customsBrokers : [],
-    incidents: Array.isArray(data.incidents) ? data.incidents : [],
+    incidents: Array.isArray(data.incidents)
+      ? data.incidents.map((incident) => ({
+          ...incident,
+          kind: incident.kind === 'fault' ? 'fault' : 'event',
+        }))
+      : [],
   }
 }
 
@@ -410,6 +416,7 @@ interface AppContextValue {
   deleteBriefingSection: (id: string) => void
   upsertIncident: (incident: {
     id?: string
+    kind: IncidentKind
     title: string
     description: string
     severity: IncidentSeverity
@@ -3307,6 +3314,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const upsertIncident = useCallback(
     (incident: {
       id?: string
+      kind: IncidentKind
       title: string
       description: string
       severity: IncidentSeverity
@@ -3326,6 +3334,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const existing = incident.id ? list.find((item) => item.id === incident.id) : undefined
         const next: IncidentRecord = {
           id: existing?.id ?? uuid(),
+          kind: incident.kind,
           title,
           description,
           severity: incident.severity,

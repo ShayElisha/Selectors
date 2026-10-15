@@ -23,6 +23,7 @@ export function buildIncidentsCsv(rows: IncidentRecord[], lanes: Lane[]): string
   const laneNames = new Map(lanes.map((lane) => [lane.id, lane.name]))
   const header = [
     'נפתח בתאריך',
+    'סוג דיווח',
     'כותרת',
     'תיאור',
     'חומרה',
@@ -37,6 +38,7 @@ export function buildIncidentsCsv(rows: IncidentRecord[], lanes: Lane[]): string
   ]
   const body = rows.map((row) => [
     new Date(row.createdAt).toLocaleString('he-IL'),
+    row.kind === 'fault' ? 'תקלה' : 'אירוע',
     row.title,
     row.description,
     SEVERITY_LABELS[row.severity],

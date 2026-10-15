@@ -284,10 +284,12 @@ export interface InspectorQuestion {
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical'
 export type IncidentStatus = 'open' | 'in_progress' | 'resolved'
+export type IncidentKind = 'event' | 'fault'
 
 /** A manager's operational incident or equipment issue. */
 export interface IncidentRecord {
   id: string
+  kind: IncidentKind
   title: string
   description: string
   severity: IncidentSeverity

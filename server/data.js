@@ -220,6 +220,7 @@ export function normalizeData(raw, fallbackKind = "selector") {
           const order = Number(s.order);
           return {
             id,
+            kind: item.kind === 'fault' ? 'fault' : 'event',
             title,
             body: String(s.body || "").trim(),
             order: Number.isFinite(order) ? order : 0,
