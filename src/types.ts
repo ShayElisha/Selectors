@@ -110,6 +110,8 @@ export interface ShiftChangeEvent {
 export interface ShiftDrop {
   workerId: string
   kind: 'leave' | 'cancel' | 'noshow'
+  /** Work areas held when the event was recorded, if they could be identified. */
+  laneIds?: string[]
   /** Clock minutes. For a leave this is when they stepped down. */
   minutes: number
   reason: string

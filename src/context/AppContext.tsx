@@ -2058,9 +2058,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!d) return d
       const reason = drop.reason.trim()
       if (!reason) return d
+      const laneIds = new Set<string>()
+      for (const assignment of d.assignments) {
+        if (assignment.workerIds.includes(drop.workerId)) laneIds.add(assignment.laneId)
+      }
+      for (const round of d.rounds ?? []) {
+        for (const assignment of round.assignments) {
+          if (assignment.workerIds.includes(drop.workerId)) laneIds.add(assignment.laneId)
+        }
+      }
       const shiftDrops = [
         ...(d.shiftDrops ?? []).filter((item) => item.workerId !== drop.workerId),
-        { ...drop, reason },
+        { ...drop, reason, laneIds: [...laneIds] },
       ]
       const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
       if (drop.kind === 'leave') {
