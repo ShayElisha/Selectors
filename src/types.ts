@@ -303,3 +303,4 @@ export type View =
   | 'settings'
   | 'cancellations'
   | 'handoff'
+  | 'stationMap'

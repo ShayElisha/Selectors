@@ -32,6 +32,7 @@ import { ReportPage } from './pages/ReportPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { CancellationsPage } from './pages/CancellationsPage'
 import { ShiftHandoffPage } from './pages/ShiftHandoffPage'
+import { StationMapPage } from './pages/StationMapPage'
 import { isAppPath } from './routes'
 
 function ProtectedShell() {
@@ -76,6 +77,7 @@ function ProtectedShell() {
         <Route path="history/:shiftId" element={<HistoryPage />} />
         <Route path="cancellations" element={<CancellationsPage />} />
         <Route path="handoff" element={<ShiftHandoffPage />} />
+        <Route path="station-map" element={<StationMapPage />} />
         <Route path="history-matrix" element={<Navigate to="/history" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
