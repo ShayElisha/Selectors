@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, ClipboardPenLine, Loader2, Plus, RotateCcw } from 'lucide-react'
-import { createShiftHandoffRemote, fetchShiftHandoffs, updateShiftHandoffRemote } from '../api'
+import { Check, ClipboardPenLine, Loader2, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react'
+import { createShiftHandoffRemote, deleteShiftHandoffRemote, fetchShiftHandoffs, updateShiftHandoffRemote } from '../api'
 import { EmptyState, FieldLabel, Ltr, SectionCard } from '../components/ui'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { useApp } from '../context/AppContext'
@@ -32,6 +32,7 @@ export function ShiftHandoffPage() {
   const [shiftType, setShiftType] = useState<ShiftType | ''>('')
   const [ownerWorkerId, setOwnerWorkerId] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -56,17 +57,60 @@ export function ShiftHandoffPage() {
     if (!title.trim() || !details.trim()) return
     setSaving(true)
     try {
-      const created = await createShiftHandoffRemote({ title, details, date, shiftType, ownerWorkerId, dueDate })
-      setNotes((current) => [created, ...current])
-      setTitle('')
-      setDetails('')
-      setOwnerWorkerId('')
-      setDueDate('')
-      notify.success('נוסף לסיכום המשמרת')
+      if (editingId) {
+        const updated = await updateShiftHandoffRemote(editingId, {
+          title,
+          details,
+          date,
+          shiftType,
+          ownerWorkerId,
+          dueDate,
+        })
+        setNotes((current) => current.map((item) => item.id === editingId ? { ...updated, id: editingId } : item))
+        notify.success('הנושא עודכן')
+      } else {
+        const created = await createShiftHandoffRemote({ title, details, date, shiftType, ownerWorkerId, dueDate })
+        setNotes((current) => [created, ...current])
+        notify.success('נוסף לסיכום המשמרת')
+      }
+      clearEditor()
     } catch (cause) {
       notify.error(cause instanceof Error ? cause.message : 'שמירת הסיכום נכשלה')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const clearEditor = () => {
+    setEditingId(null)
+    setTitle('')
+    setDetails('')
+    setDate(today())
+    setShiftType('')
+    setOwnerWorkerId('')
+    setDueDate('')
+  }
+
+  const editNote = (note: ShiftHandoffNote) => {
+    setEditingId(note.id)
+    setTitle(note.title)
+    setDetails(note.details)
+    setDate(note.date || today())
+    setShiftType(note.shiftType)
+    setOwnerWorkerId(note.ownerWorkerId || '')
+    setDueDate(note.dueDate || '')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const deleteNote = async (note: ShiftHandoffNote) => {
+    if (!window.confirm(`למחוק לצמיתות את "${note.title}" מהארכיון?`)) return
+    try {
+      await deleteShiftHandoffRemote(note.id)
+      setNotes((current) => current.filter((item) => item.id !== note.id))
+      if (editingId === note.id) clearEditor()
+      notify.success('הנושא נמחק')
+    } catch (cause) {
+      notify.error(cause instanceof Error ? cause.message : 'מחיקת הנושא נכשלה')
     }
   }
 
@@ -123,13 +167,19 @@ export function ShiftHandoffPage() {
         <button type="button" className="ui-btn ui-btn-secondary shrink-0" onClick={() => void setStatus(note, note.status === 'open' ? 'closed' : 'open')}>
           {note.status === 'open' ? <><Check className="size-4" aria-hidden />סימון כטופל</> : <><RotateCcw className="size-4" aria-hidden />פתיחה מחדש</>}
         </button>
+        <button type="button" className="ui-btn ui-btn-ghost shrink-0" onClick={() => editNote(note)} aria-label={`עריכת ${note.title}`}>
+          <Pencil className="size-4" aria-hidden />עריכה
+        </button>
+        <button type="button" className="ui-btn ui-btn-ghost shrink-0 text-hard" onClick={() => void deleteNote(note)} aria-label={`מחיקת ${note.title}`}>
+          <Trash2 className="size-4" aria-hidden />מחיקה
+        </button>
       </div>
     </article>
   )
 
   return (
     <div className="space-y-4">
-      <SectionCard title="סיכום ומסירת משמרת" subtitle="עדכונים משותפים למנהלים: אירועים, חוסרים ונושאים פתוחים להעברה למנהל הבא.">
+      <SectionCard title={editingId ? 'עריכת נושא במסירת משמרת' : 'סיכום ומסירת משמרת'} subtitle="עדכונים משותפים למנהלים: אירועים, חוסרים ונושאים פתוחים להעברה למנהל הבא.">
         <form onSubmit={(event) => void addNote(event)} className="grid gap-3 rounded-xl border border-line bg-surface p-4">
           <FieldLabel htmlFor="handoff-title">כותרת</FieldLabel>
           <input id="handoff-title" className="ui-input w-full" maxLength={120} required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="למשל: חוסר בכיסוי בנתיב 4" />
@@ -143,13 +193,15 @@ export function ShiftHandoffPage() {
             <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-owner">אחראי להמשך טיפול<select id="handoff-owner" className="ui-input" value={ownerWorkerId} onChange={(event) => setOwnerWorkerId(event.target.value)}><option value="">לא הוקצה</option>{data.workers.filter((worker) => worker.status === 'active').sort((a, b) => a.fullName.localeCompare(b.fullName, 'he')).map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName}</option>)}</select></label>
             <label className="grid gap-1.5 text-sm font-medium text-ink" htmlFor="handoff-due-date">מועד יעד (אופציונלי)<input id="handoff-due-date" type="date" className="ui-input" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
           </div>
-          <div className="flex justify-end"><button type="submit" className="ui-btn ui-btn-primary" disabled={saving || !title.trim() || !details.trim()}>{saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}הוספה למסירה</button></div>
+          <div className="flex justify-end gap-2">{editingId ? <button type="button" className="ui-btn ui-btn-secondary" onClick={clearEditor} disabled={saving}><X className="size-4" aria-hidden />ביטול עריכה</button> : null}<button type="submit" className="ui-btn ui-btn-primary" disabled={saving || !title.trim() || !details.trim()}>{saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : editingId ? <Pencil className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}{editingId ? 'שמירת עדכון' : 'הוספה למסירה'}</button></div>
         </form>
       </SectionCard>
       <SectionCard title={`נושאים פתוחים (${openNotes.length})`} subtitle="הנושאים נשמרים ומשותפים בין מנהלי הארגון.">
         {loading ? <div className="flex items-center gap-2 py-6 text-sm text-ink-soft"><Loader2 className="size-4 animate-spin" aria-hidden />טוען סיכומים…</div> : error ? <div role="alert" className="rounded-lg bg-hard-soft p-3 text-sm text-hard">{error}<button type="button" className="ui-btn ui-btn-secondary ms-2" onClick={() => void load()}>ניסיון חוזר</button></div> : openNotes.length ? <div className="space-y-2">{openNotes.map(renderNote)}</div> : <EmptyState title="אין נושאים פתוחים" text="אפשר להוסיף כאן אירוע או משימה להעברה למנהל הבא." action={<ClipboardPenLine className="mx-auto size-5 text-ink-soft" aria-hidden />} />}
       </SectionCard>
-      {closedNotes.length ? <SectionCard title={`טופלו (${closedNotes.length})`}><div className="space-y-2">{closedNotes.map(renderNote)}</div></SectionCard> : null}
+      <SectionCard title={`ארכיון (${closedNotes.length})`} subtitle="נושאים שטופלו נשמרים כאן. אפשר לערוך, לפתוח מחדש או למחוק אותם.">
+        {closedNotes.length ? <div className="space-y-2">{closedNotes.map(renderNote)}</div> : <EmptyState title="הארכיון ריק" text="נושאים שסומנו כטופלו יופיעו כאן." />}
+      </SectionCard>
     </div>
   )
 }

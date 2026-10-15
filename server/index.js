@@ -21,6 +21,7 @@ import {
   listShiftHandoffs,
   createShiftHandoff,
   updateShiftHandoff,
+  deleteShiftHandoff,
   readState,
   clientRevisionIsCurrent,
   recordSelfHeal,
@@ -695,6 +696,15 @@ app.patch('/api/shift-handoffs/:id', async (req, res) => {
   try {
     const { actor, scope } = await scopeForRequest(req)
     res.json(await updateShiftHandoff(req.params.id, req.body || {}, actor, { scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.delete('/api/shift-handoffs/:id', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.json(await deleteShiftHandoff(req.params.id, actor, { scope }))
   } catch (err) {
     sendError(res, err)
   }

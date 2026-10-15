@@ -136,11 +136,17 @@ export function createShiftHandoffRemote(
 
 export function updateShiftHandoffRemote(
   id: string,
-  body: Partial<Pick<ShiftHandoffNote, 'title' | 'details' | 'status' | 'ownerWorkerId' | 'dueDate'>>,
+  body: Partial<Pick<ShiftHandoffNote, 'title' | 'details' | 'status' | 'date' | 'shiftType' | 'ownerWorkerId' | 'dueDate'>>,
 ): Promise<ShiftHandoffNote> {
   return request<ShiftHandoffNote>(`/api/shift-handoffs/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
+  })
+}
+
+export function deleteShiftHandoffRemote(id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/shift-handoffs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   })
 }
 

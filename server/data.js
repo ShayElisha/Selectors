@@ -1824,6 +1824,15 @@ export async function updateShiftHandoff(id, body = {}, actor, options = {}) {
   const changes = { status, updatedAt: now };
   if (body.title != null) changes.title = String(body.title).trim().slice(0, 120);
   if (body.details != null) changes.details = String(body.details).trim().slice(0, 4000);
+  if (body.date != null) {
+    const date = String(body.date).trim();
+    changes.date = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+  }
+  if (body.shiftType != null) {
+    changes.shiftType = ["morning", "afternoon", "afternoonA", "afternoonB", "night"].includes(body.shiftType)
+      ? body.shiftType
+      : "";
+  }
   if (body.ownerWorkerId != null) changes.ownerWorkerId = String(body.ownerWorkerId).trim().slice(0, 120);
   if (body.dueDate != null) {
     const dueDate = String(body.dueDate).trim();
@@ -1853,6 +1862,33 @@ export async function updateShiftHandoff(id, body = {}, actor, options = {}) {
   });
   const { _id, orgId: _org, module: _module, ...updated } = await col.findOne(filter);
   return { ...updated, id: String(_id) };
+}
+
+export async function deleteShiftHandoff(id, actor, options = {}) {
+  const scope = options.scope;
+  const db = await getDb(targetForScope(scope));
+  const col = db.collection(SHIFT_HANDOFF_COLLECTION);
+  const prefix = scope ? `${scope.orgId}:${scope.module}:` : "";
+  const requestedId = String(id);
+  const storedId = prefix && !requestedId.startsWith(prefix)
+    ? `${prefix}${requestedId}`
+    : requestedId;
+  const filter = { _id: storedId, ...scopeFilter(scope) };
+  const current = await col.findOne(filter);
+  if (!current) {
+    const err = new Error("הפריט לא נמצא");
+    err.status = 404;
+    throw err;
+  }
+  await col.deleteOne(filter);
+  await appendAuditLog({
+    action: "shift_handoff_delete",
+    actor,
+    details: `נמחקה ממסירת משמרת: ${String(current.title || "נושא ללא כותרת")}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  });
+  return { ok: true };
 }
 
 export async function recordSelfHeal(id, body, actor, options = {}) {
