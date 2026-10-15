@@ -72,10 +72,10 @@ export function CancellationsPage() {
     const text = query.trim().toLocaleLowerCase('he')
     return periodRows.filter(({ shift, drop, workerName }) => !text || [workerName, drop.reason, shift.date, SHIFT_TYPE_LABELS[shift.shiftType]].some((value) => value.toLocaleLowerCase('he').includes(text)))
   }, [periodRows, query])
-  const canceled = periodRows.filter(({ drop }) => drop.kind === 'cancel').length
-  const noShows = periodRows.filter(({ drop }) => drop.kind === 'noshow').length
-  const earlyLeaves = periodRows.filter(({ drop }) => drop.kind === 'leave').length
-  const unclosed = new Set(periodRows.filter(({ shift }) => !shift.signOff?.signedAt).map(({ shift }) => shift.id)).size
+  const canceled = rows.filter(({ drop }) => drop.kind === 'cancel').length
+  const noShows = rows.filter(({ drop }) => drop.kind === 'noshow').length
+  const earlyLeaves = rows.filter(({ drop }) => drop.kind === 'leave').length
+  const unclosed = new Set(rows.filter(({ shift }) => !shift.signOff?.signedAt).map(({ shift }) => shift.id)).size
   const laneNames = useMemo(() => new Map(data.lanes.map((lane) => [lane.id, lane.name])), [data.lanes])
   const resetFilters = () => {
     setQuery('')
