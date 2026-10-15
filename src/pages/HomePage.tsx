@@ -14,6 +14,10 @@ import {
   BarChart3,
   AlertTriangle,
   Lock,
+  ClipboardPenLine,
+  Wrench,
+  Map as MapIcon,
+  Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
@@ -26,6 +30,7 @@ import {
   shiftModelLabel,
 } from '../lib/shiftModels'
 import { fetchAuditLogs, fetchSystemMessagesRemote, postAuditEvent } from '../api'
+import { fetchShiftHandoffs } from '../api'
 import type { SystemMessage } from '../api'
 import { downloadBoardImage, type ExportLaneLine } from '../lib/export'
 import {
@@ -51,7 +56,7 @@ import {
   Skeleton,
   StaffingBadge,
 } from '../components/ui'
-import type { Intensity, ShiftSchedule } from '../types'
+import type { Intensity, ShiftHandoffNote, ShiftSchedule } from '../types'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
@@ -131,6 +136,7 @@ export function HomePage() {
   const [savedBy, setSavedBy] = useState<string | null>(null)
   const [exportBusy, setExportBusy] = useState(false)
   const [systemMessages, setSystemMessages] = useState<SystemMessage[]>([])
+  const [handoffNotes, setHandoffNotes] = useState<ShiftHandoffNote[]>([])
   const [nowTick, setNowTick] = useState(() => Date.now())
   /** Reserved for when health is persisted on ShiftSchedule — not filled today. */
   const [shiftHealth] = useState<ShiftHealthSnapshot | null>(null)
@@ -155,6 +161,36 @@ export function HomePage() {
       stop = true
     }
   }, [user?.role])
+
+  useEffect(() => {
+    let stop = false
+    void fetchShiftHandoffs()
+      .then((notes) => {
+        if (!stop) setHandoffNotes(notes)
+      })
+      .catch(() => {
+        if (!stop) setHandoffNotes([])
+      })
+    return () => { stop = true }
+  }, [])
+
+  const openIncidents = useMemo(
+    () => (data.incidents ?? [])
+      .filter((item) => item.status !== 'resolved')
+      .sort((a, b) => {
+        const severityRank = { critical: 0, high: 1, medium: 2, low: 3 }
+        return severityRank[a.severity] - severityRank[b.severity] || b.updatedAt.localeCompare(a.updatedAt)
+      }),
+    [data.incidents],
+  )
+  const activeHandoffs = useMemo(() => {
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    return handoffNotes
+      .filter((note) => note.status === 'open')
+      .map((note) => ({ ...note, overdue: Boolean(note.dueDate && note.dueDate < today) }))
+      .sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'))
+  }, [handoffNotes])
 
   const shiftModels = useMemo(
     () => resolveShiftModels(data.shiftModels, module),
@@ -482,6 +518,87 @@ export function HomePage() {
           </ul>
         </section>
       ) : null}
+      <SectionCard
+        title="דורש תשומת לב"
+        subtitle="חריגות פתוחות ונושאים שממתינים להמשך טיפול"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="ui-btn ui-btn-secondary !py-1.5 text-xs" onClick={() => setView('stationMap')}>
+              <MapIcon className="size-3.5" aria-hidden /> מפת עמדות
+            </button>
+            <button type="button" className="ui-btn ui-btn-primary !py-1.5 text-xs" onClick={() => setView('incidents')}>
+              <Plus className="size-3.5" aria-hidden /> דיווח אירוע או תקלה
+            </button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <section className="rounded-xl border border-line/70 bg-surface/50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="inline-flex items-center gap-2 text-sm font-bold text-ink">
+                <AlertTriangle className="size-4 text-warn" aria-hidden /> אירועים ותקלות פתוחים
+              </h3>
+              <button type="button" className="text-xs font-semibold text-brand hover:underline" onClick={() => setView('incidents')}>
+                כל היומן ({openIncidents.length})
+              </button>
+            </div>
+            {openIncidents.length ? (
+              <ul className="space-y-1.5">
+                {openIncidents.slice(0, 4).map((incident) => (
+                  <li key={incident.id}>
+                    <button type="button" onClick={() => setView('incidents')} className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-start transition hover:bg-card">
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-ink">{incident.title}</span>
+                        <span className="block text-xs text-ink-soft">{incident.kind === 'fault' ? 'תקלה' : 'אירוע'} · {incident.status === 'in_progress' ? 'בטיפול' : 'פתוח'}{incident.laneId ? ` · ${data.lanes.find((lane) => lane.id === incident.laneId)?.name ?? ''}` : ''}</span>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${incident.severity === 'critical' ? 'bg-hard-soft text-hard' : incident.severity === 'high' ? 'bg-warn-soft text-warn' : 'bg-surface text-ink-soft'}`}>
+                        {{ critical: 'קריטית', high: 'גבוהה', medium: 'בינונית', low: 'נמוכה' }[incident.severity]}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="rounded-lg bg-card px-3 py-3 text-[13px] text-ink-soft">אין חריגות פתוחות כרגע.</p>}
+          </section>
+
+          <section className="rounded-xl border border-line/70 bg-surface/50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="inline-flex items-center gap-2 text-sm font-bold text-ink">
+                <ClipboardPenLine className="size-4 text-brand" aria-hidden /> נושאים פתוחים במסירת משמרת
+              </h3>
+              <button type="button" className="text-xs font-semibold text-brand hover:underline" onClick={() => setView('handoff')}>
+                כל הנושאים ({activeHandoffs.length})
+              </button>
+            </div>
+            {activeHandoffs.length ? (
+              <ul className="space-y-1.5">
+                {activeHandoffs.slice(0, 4).map((note) => (
+                  <li key={note.id}>
+                    <button type="button" onClick={() => setView('handoff')} className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-start transition hover:bg-card">
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-ink">{note.title}</span>
+                        <span className="block truncate text-xs text-ink-soft">{note.ownerWorkerId ? `אחראי: ${data.workers.find((worker) => worker.id === note.ownerWorkerId)?.fullName ?? 'לא ידוע'}` : 'ללא אחראי'}{note.dueDate ? ` · יעד: ${formatShiftDate(note.dueDate)}` : ''}</span>
+                      </span>
+                      {note.overdue ? <span className="shrink-0 rounded-full bg-hard-soft px-2 py-0.5 text-[11px] font-semibold text-hard">באיחור</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="rounded-lg bg-card px-3 py-3 text-[13px] text-ink-soft">אין נושאים פתוחים במסירת המשמרת.</p>}
+          </section>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-line/60 pt-3">
+          <button type="button" onClick={() => setView('stationMap')} className="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-ink hover:border-brand/30">
+            <MapIcon className="size-4 text-brand" aria-hidden /> פתיחת מפת עמדות <ArrowUpRight className="size-3.5 text-ink-soft" aria-hidden />
+          </button>
+          <button type="button" onClick={() => setView('incidents')} className="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-ink hover:border-brand/30">
+            <Wrench className="size-4 text-brand" aria-hidden /> דיווח אירוע או תקלה <ArrowUpRight className="size-3.5 text-ink-soft" aria-hidden />
+          </button>
+          <button type="button" onClick={() => setView('handoff')} className="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-ink hover:border-brand/30">
+            <ClipboardPenLine className="size-4 text-brand" aria-hidden /> פתיחת מסירת משמרת <ArrowUpRight className="size-3.5 text-ink-soft" aria-hidden />
+          </button>
+        </div>
+      </SectionCard>
       {/* 1. Compact status bar */}
       <section
         className="flex flex-col gap-3 rounded-2xl border border-brand/15 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 shadow-[var(--shadow-panel)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-5"
