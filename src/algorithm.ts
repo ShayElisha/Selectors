@@ -177,8 +177,8 @@ export interface MultiPassOptimizationResult {
 /** Soft objective weights for evaluateBoard (sum ≈ 1). */
 export const DEFAULT_BOARD_WEIGHTS = {
   /** Dominant when staffing is equal — prefer who was on the lane longest ago. */
-  rotation: 0.36,
-  workload: 0.11,
+  rotation: 0.42,
+  workload: 0.05,
   recovery: 0.15,
   hardBalance: 0.07,
   handoff: 0.08,
@@ -1445,8 +1445,6 @@ function compareForLane(
     const idleA = isIdleForHardLane(pa)
     const idleB = isIdleForHardLane(pb)
     if (idleA !== idleB) return idleA ? -1 : 1
-    const loadGap = pa.load - pb.load
-    if (Math.abs(loadGap) >= IDLE_HARD_LOAD_GAP) return loadGap
   }
 
   const applyRecovery =
@@ -2250,13 +2248,6 @@ export function isBoardBetter(
 
   if (next.idleOnHard !== current.idleOnHard) {
     return next.idleOnHard > current.idleOnHard
-  }
-
-  if (
-    next.objective === 'standard' &&
-    next.components.workload !== current.components.workload
-  ) {
-    return next.components.workload > current.components.workload
   }
 
   if (next.shortReturnOnHard !== current.shortReturnOnHard) {
