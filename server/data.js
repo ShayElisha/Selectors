@@ -1829,7 +1829,9 @@ export async function updateShiftHandoff(id, body = {}, actor, options = {}) {
     const dueDate = String(body.dueDate).trim();
     changes.dueDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : "";
   }
-  if (!changes.title || !changes.details) {
+  const nextTitle = body.title == null ? current.title : changes.title;
+  const nextDetails = body.details == null ? current.details : changes.details;
+  if (!String(nextTitle || "").trim() || !String(nextDetails || "").trim()) {
     const err = new Error("יש למלא כותרת ופירוט");
     err.status = 400;
     throw err;
