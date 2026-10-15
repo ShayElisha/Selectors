@@ -1740,10 +1740,16 @@ export async function listShiftHandoffs(options = {}) {
     .sort({ status: 1, updatedAt: -1 })
     .limit(300)
     .toArray();
-  return docs.map(({ _id, orgId: _org, module: _module, ...note }) => ({
-    ...note,
-    id: String(_id),
-  }));
+  const prefix = scope ? `${scope.orgId}:${scope.module}:` : "";
+  return docs.map(({ _id, orgId: _org, module: _module, ...note }) => {
+    const storedId = String(_id);
+    return {
+      ...note,
+      id: prefix && storedId.startsWith(prefix)
+        ? storedId.slice(prefix.length)
+        : storedId,
+    };
+  });
 }
 
 export async function createShiftHandoff(body = {}, actor, options = {}) {
@@ -1788,7 +1794,12 @@ export async function updateShiftHandoff(id, body = {}, actor, options = {}) {
   const scope = options.scope;
   const db = await getDb(targetForScope(scope));
   const col = db.collection(SHIFT_HANDOFF_COLLECTION);
-  const filter = { _id: scope ? `${scope.orgId}:${scope.module}:${id}` : id, ...scopeFilter(scope) };
+  const prefix = scope ? `${scope.orgId}:${scope.module}:` : "";
+  const requestedId = String(id);
+  const storedId = prefix && !requestedId.startsWith(prefix)
+    ? `${prefix}${requestedId}`
+    : requestedId;
+  const filter = { _id: storedId, ...scopeFilter(scope) };
   const current = await col.findOne(filter);
   if (!current) {
     const err = new Error("הפריט לא נמצא");
