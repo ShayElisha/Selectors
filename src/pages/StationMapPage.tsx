@@ -96,14 +96,13 @@ export function StationMapPage() {
   const currentAssignments = useMemo(() => shift ? assignmentsForShift(shift, currentRoundIndex) : [], [shift, currentRoundIndex])
   const assignmentExplanations = useMemo(() => {
     if (!shift) return []
-    if (shift.explanations?.length) return shift.explanations
     const activeLanes = data.lanes
       .filter((lane) => shift.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane))
       .map((lane) => ({
         ...lane,
         staffingStandard: effectiveStaffingStandard(lane, shift.staffingOverrides),
       }))
-    return explainSavedBoard({
+    const rebuilt = explainSavedBoard({
       assignments: currentAssignments,
       activeLanes,
       presentWorkers: data.workers.filter(
@@ -114,6 +113,15 @@ export function StationMapPage() {
       date: shift.date,
       shiftType: shift.shiftType,
     })
+    const explanationsByPlacement = new Map(
+      rebuilt.map((item) => [`${item.laneId}:${item.workerId}`, item]),
+    )
+    for (const item of shift.explanations ?? []) {
+      if (visibleExplanationReasons(item.reasons).length) {
+        explanationsByPlacement.set(`${item.laneId}:${item.workerId}`, item)
+      }
+    }
+    return [...explanationsByPlacement.values()]
   }, [shift, currentAssignments, data.lanes, data.workers, data.history])
   const stations = useMemo(() => {
     if (!shift) return []
