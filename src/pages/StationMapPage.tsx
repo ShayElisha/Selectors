@@ -3,6 +3,7 @@ import { AlertTriangle, Box, CalendarDays, Check, Layers3, UsersRound } from 'lu
 import { useApp } from '../context/AppContext'
 import { EmptyState, Ltr, PersonChip, SectionCard } from '../components/ui'
 import { visibleExplanationReasons } from '../components/AssignmentExplainDialog'
+import { explainSavedBoard } from '../algorithm'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { currentShiftModel, resolveShiftModels, shiftModelLabel } from '../lib/shiftModels'
 import { formatShiftModelWindow } from '../lib/shiftModels'
@@ -93,6 +94,27 @@ export function StationMapPage() {
   const rounds = shift?.rounds ?? []
   const currentRoundIndex = Math.min(roundIndex, Math.max(rounds.length - 1, 0))
   const currentAssignments = useMemo(() => shift ? assignmentsForShift(shift, currentRoundIndex) : [], [shift, currentRoundIndex])
+  const assignmentExplanations = useMemo(() => {
+    if (!shift) return []
+    if (shift.explanations?.length) return shift.explanations
+    const activeLanes = data.lanes
+      .filter((lane) => shift.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane))
+      .map((lane) => ({
+        ...lane,
+        staffingStandard: effectiveStaffingStandard(lane, shift.staffingOverrides),
+      }))
+    return explainSavedBoard({
+      assignments: currentAssignments,
+      activeLanes,
+      presentWorkers: data.workers.filter(
+        (worker) => shift.presentWorkerIds.includes(worker.id) && worker.id !== shift.gateManagerWorkerId,
+      ),
+      history: data.history.filter((item) => item.id !== shift.id),
+      allLanes: data.lanes,
+      date: shift.date,
+      shiftType: shift.shiftType,
+    })
+  }, [shift, currentAssignments, data.lanes, data.workers, data.history])
   const stations = useMemo(() => {
     if (!shift) return []
     return shift.activeLaneIds
@@ -167,7 +189,7 @@ export function StationMapPage() {
           {selectedStation.workerIds.length ? (
             <div className="space-y-3">
               {selectedStation.workerIds.map((id) => {
-                const explanation = shift?.explanations?.find((item) => item.laneId === selectedStation.lane.id && item.workerId === id)
+                const explanation = assignmentExplanations.find((item) => item.laneId === selectedStation.lane.id && item.workerId === id)
                 const reasons = explanation ? visibleExplanationReasons(explanation.reasons) : []
                 return (
                   <div key={id} className="rounded-xl border border-line bg-surface/70 p-3">
