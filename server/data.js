@@ -287,7 +287,14 @@ export function normalizeData(raw, fallbackKind = "selector") {
           const now = new Date().toISOString();
           return {
             id,
-            kind: item.kind === 'fault' ? 'fault' : 'event',
+            kind:
+              item.kind === 'fault' || item.kind === 'event'
+                ? item.kind
+                : /תקלה|תקלת|תקלות|כשל|כישלון|לא עובד|אינו עובד|לא פועל|אינו פועל|לא נפתח|לא נסגר|נשבר|שבור|קלקול|פגום|דליפה|נזילה|תקוע|תקיעה|קצר חשמלי|אין מתח|ציוד תקול/.test(
+                    `${title} ${description}`,
+                  )
+                  ? 'fault'
+                  : 'event',
             title,
             description,
             severity: validIncidentSeverities.has(item.severity)

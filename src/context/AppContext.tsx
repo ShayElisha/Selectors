@@ -159,6 +159,14 @@ function uniqueLabels(values: string[] | undefined): string[] {
   return out
 }
 
+function inferIncidentKind(incident: IncidentRecord): IncidentKind {
+  if (incident.kind === 'fault' || incident.kind === 'event') return incident.kind
+  const description = `${incident.title} ${incident.description}`.toLocaleLowerCase('he')
+  return /תקלה|תקלת|תקלות|כשל|כישלון|לא עובד|אינו עובד|לא פועל|אינו פועל|לא נפתח|לא נסגר|נשבר|שבור|קלקול|פגום|דליפה|נזילה|תקוע|תקיעה|קצר חשמלי|אין מתח|ציוד תקול/.test(description)
+    ? 'fault'
+    : 'event'
+}
+
 function fixTagForSeats(
   lanes: Lane[],
   history: ShiftSchedule[],
@@ -214,7 +222,7 @@ function normalizeAppData(data: AppData, module: 'selectors' | 'inspectors' = 's
     incidents: Array.isArray(data.incidents)
       ? data.incidents.map((incident) => ({
           ...incident,
-          kind: incident.kind === 'fault' ? 'fault' : 'event',
+          kind: inferIncidentKind(incident),
         }))
       : [],
   }
