@@ -167,6 +167,91 @@ function inferIncidentKind(incident: IncidentRecord): IncidentKind {
     : 'event'
 }
 
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function mergeEntityKey(item: unknown): string | null {
+  if (!item || typeof item !== 'object') return null
+  const value = item as Record<string, unknown>
+  if (typeof value.id === 'string') return `id:${value.id}`
+  if (typeof value.laneId === 'string') return `lane:${value.laneId}`
+  if (typeof value.startMinutes === 'number') return `start:${value.startMinutes}`
+  return null
+}
+
+function mergeConcurrentValue(base: unknown, local: unknown, remote: unknown): unknown {
+  if (sameValue(local, base)) return remote
+  if (sameValue(remote, base) || sameValue(local, remote)) return local
+
+  if (Array.isArray(base) && Array.isArray(local) && Array.isArray(remote)) {
+    const isEntityList = [...base, ...local, ...remote].every((item) => mergeEntityKey(item) !== null)
+    if (isEntityList) {
+      const baseById = new Map(base.map((item) => [mergeEntityKey(item)!, item]))
+      const localById = new Map(local.map((item) => [mergeEntityKey(item)!, item]))
+      const remoteById = new Map(remote.map((item) => [mergeEntityKey(item)!, item]))
+      const order = [...remote.map((item) => mergeEntityKey(item)!), ...local.map((item) => mergeEntityKey(item)!)]
+      const merged: unknown[] = []
+      for (const id of new Set(order)) {
+        const before = baseById.get(id)
+        const ours = localById.get(id)
+        const theirs = remoteById.get(id)
+        if (ours === undefined && theirs === undefined) continue
+        if (ours === undefined) {
+          if (before !== undefined && sameValue(theirs, before)) continue
+          merged.push(theirs)
+          continue
+        }
+        if (theirs === undefined) {
+          if (before === undefined || !sameValue(ours, before)) merged.push(ours)
+          continue
+        }
+        merged.push(mergeConcurrentValue(before, ours, theirs))
+      }
+      return merged
+    }
+
+    const isPrimitiveList = [...base, ...local, ...remote].every(
+      (item) => item == null || typeof item !== 'object',
+    )
+    if (isPrimitiveList) {
+      const baseSet = new Set(base)
+      const localSet = new Set(local)
+      const remoteSet = new Set(remote)
+      const values = [...remote, ...local]
+      return [...new Set(values)].filter((item) => {
+        const wasPresent = baseSet.has(item)
+        const localChanged = localSet.has(item) !== wasPresent
+        return localChanged ? localSet.has(item) : remoteSet.has(item)
+      })
+    }
+    return local
+  }
+
+  if (
+    base && local && remote &&
+    typeof base === 'object' && typeof local === 'object' && typeof remote === 'object' &&
+    !Array.isArray(base) && !Array.isArray(local) && !Array.isArray(remote)
+  ) {
+    const before = base as Record<string, unknown>
+    const ours = local as Record<string, unknown>
+    const theirs = remote as Record<string, unknown>
+    const merged: Record<string, unknown> = {}
+    for (const key of new Set([...Object.keys(before), ...Object.keys(ours), ...Object.keys(theirs)])) {
+      const value = mergeConcurrentValue(before[key], ours[key], theirs[key])
+      if (value !== undefined) merged[key] = value
+    }
+    return merged
+  }
+
+  // When both sides changed the same scalar field, keep the change the user just made.
+  return local
+}
+
+function mergeConcurrentAppData(base: AppData, local: AppData, remote: AppData): AppData {
+  return mergeConcurrentValue(base, local, remote) as AppData
+}
+
 function fixTagForSeats(
   lanes: Lane[],
   history: ShiftSchedule[],
@@ -623,6 +708,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return cached ? normalizeAppData(cached, loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors') : null
   }, [])
   const [data, setData] = useState<AppData>(() => initialCache ?? emptyData)
+  const persistedDataRef = useRef<AppData>(initialCache ?? emptyData)
   const [loading, setLoading] = useState(() => !initialCache)
   const [refreshing, setRefreshing] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -731,6 +817,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     )
     skipNextSync.current = true
     dataRef.current = next
+    persistedDataRef.current = next
     setData(next)
     saveAppDataCache(next)
     return next
@@ -789,12 +876,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setDraft(null)
     clearDraftStorage()
     setData(emptyData)
+    dataRef.current = emptyData
+    persistedDataRef.current = emptyData
     navigate('/login', { replace: true })
   }, [navigate])
 
-  /**
-   * Serialize full-state saves; a 409 is surfaced instead of replaying a stale snapshot.
-   */
+  /** Serialize full-state saves and merge local edits onto the newest server revision. */
   const drainPersist = useCallback(async () => {
     if (persistInFlightRef.current) {
       await persistFlightRef.current
@@ -810,6 +897,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     persistFlightRef.current = flight
     setSyncing(true)
     let failed: unknown = null
+    let conflictRetries = 0
     try {
       while (pendingSaveRef.current) {
         const snapshot = pendingSaveRef.current
@@ -822,6 +910,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })
           skipNextSync.current = true
           dataRef.current = saved
+          persistedDataRef.current = saved
           setData(saved)
           saveAppDataCache(saved)
           setError(null)
@@ -835,16 +924,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
               e.current,
               loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
             )
+            const latestLocal = pendingSaveRef.current ?? snapshot
             pendingSaveRef.current = null
+            const rebased = normalizeAppData(
+              {
+                ...mergeConcurrentAppData(persistedDataRef.current, latestLocal, server),
+                revision: server.revision,
+              },
+              loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
+            )
+            persistedDataRef.current = server
             skipNextSync.current = true
-            dataRef.current = server
-            setData(server)
-            saveAppDataCache(server)
-            const conflictMessage =
-              'השמירה בוטלה כי הנתונים השתנו בשרת. הטעינה העדכנית הוצגה; יש לחזור על השינוי.'
-            setError(conflictMessage)
-            toast.error(conflictMessage)
-            throw e
+            dataRef.current = rebased
+            setData(rebased)
+            saveAppDataCache(rebased)
+            conflictRetries += 1
+            if (conflictRetries >= 3) {
+              const conflictMessage =
+                'נתוני השרת השתנו שוב בזמן השמירה. השינוי המקומי נשמר במסך; נסה לשמור שוב בעוד רגע.'
+              setError(conflictMessage)
+              toast.error(conflictMessage)
+              throw e
+            }
+            pendingSaveRef.current = rebased
+            setError(null)
+            toast.info('הנתונים השתנו במקביל; מיזגתי את השינויים ומנסה לשמור שוב.')
+            continue
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
           setError(msg)
@@ -1052,6 +1157,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setDraftDirty(false)
     setDraft(null)
     setData(emptyData)
+    dataRef.current = emptyData
+    persistedDataRef.current = emptyData
     navigate('/login', { replace: true })
   }, [navigate])
 
@@ -1073,6 +1180,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDraftDirty(false)
       setDraft(null)
       setData(emptyData)
+      dataRef.current = emptyData
+      persistedDataRef.current = emptyData
       setUser(updated)
       navigate('/', { replace: true })
     },
@@ -2843,6 +2952,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
           skipNextSync.current = true
           dataRef.current = saved
+          persistedDataRef.current = saved
           setData(saved)
           saveAppDataCache(saved)
         } catch (error) {
@@ -2997,6 +3107,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       skipNextSync.current = true
       dataRef.current = saved
+      persistedDataRef.current = saved
       setData(saved)
       saveAppDataCache(saved)
       draftBaselineRef.current = snapshotDraft(synced)
@@ -3056,6 +3167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         skipNextSync.current = true
         dataRef.current = saved
+        persistedDataRef.current = saved
         setData(saved)
         saveAppDataCache(saved)
         draftBaselineRef.current = snapshotDraft(closed)
@@ -3091,6 +3203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       skipNextSync.current = true
       dataRef.current = saved
+      persistedDataRef.current = saved
       setData(saved)
       saveAppDataCache(saved)
       setError(null)
@@ -3111,6 +3224,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       skipNextSync.current = true
       dataRef.current = saved
+      persistedDataRef.current = saved
       setData(saved)
       saveAppDataCache(saved)
       setError(null)
@@ -3611,6 +3725,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       skipNextSync.current = true
       dataRef.current = seeded
+      persistedDataRef.current = seeded
       setData(seeded)
       saveAppDataCache(seeded)
       draftBaselineRef.current = null
