@@ -226,6 +226,12 @@ export function StationMapPage() {
                     ) : (
                       <p className="mt-2 text-xs text-ink-soft">אין הסבר שמור לשיבוץ הזה.</p>
                     )}
+                    <div className="mt-3 rounded-lg border border-brand/20 bg-brand-soft/40 px-3 py-2">
+                      <p className="text-xs font-bold text-ink">מה הכריע?</p>
+                      <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+                        {explanation?.decision ?? 'פרטי ההכרעה המקוריים לא נשמרו בשיבוץ הזה, ולכן אי אפשר לקבוע בדיעבד מה הכריע.'}
+                      </p>
+                    </div>
                     {candidateRanking.length ? (
                       <details className="mt-3 rounded-lg border border-line bg-card px-3 py-2">
                         <summary className="cursor-pointer text-xs font-bold text-brand">
@@ -234,6 +240,16 @@ export function StationMapPage() {
                         <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
                           זהו סדר ההעדפה לפי הקריטריונים, לא ציון כולל יחיד. איזון הלוח עשוי לשנות את הבחירה הסופית.
                         </p>
+                        <details className="mt-2 rounded-lg bg-surface px-2.5 py-2">
+                          <summary className="cursor-pointer text-[11px] font-bold text-ink">מקרא קצר למדדים</summary>
+                          <dl className="mt-2 space-y-1.5 text-[11px] leading-relaxed text-ink-soft">
+                            <div><dt className="inline font-semibold text-ink">רוטציה: </dt><dd className="inline">ציון גבוה יותר משקף בדרך כלל יותר זמן מאז הביקור ופחות ביקורים אחרונים בעמדה.</dd></div>
+                            <div><dt className="inline font-semibold text-ink">ביקורים וזמן: </dt><dd className="inline">כמה פעמים ומתי העובד שובץ בעמדה הזו; נספרים בוקר, צהריים, לילה וסבבים.</dd></div>
+                            <div><dt className="inline font-semibold text-ink">עומס: </dt><dd className="inline">מדד עומס היסטורי משוקלל. האלגוריתם משווה אותו לפי סוג העמדה, לכן ערך נמוך לבדו לא מבטיח בחירה.</dd></div>
+                            <div><dt className="inline font-semibold text-ink">עמדות קשות: </dt><dd className="inline">מספר העמדות הקשות מתוך המשמרות שנכללו בחישוב.</dd></div>
+                            <div><dt className="inline font-semibold text-ink">מנוחה אחרי לילה: </dt><dd className="inline">האם המערכת התחשבה בצורך בהתאוששות, לפי סוג העמדה והכיסוי הזמין.</dd></div>
+                          </dl>
+                        </details>
                         <ol className="mt-2 space-y-2">
                           {candidateRanking.map((candidate) => (
                             <li key={candidate.workerId} className="rounded-lg bg-surface px-2.5 py-2">

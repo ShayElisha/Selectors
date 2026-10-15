@@ -33,6 +33,8 @@ export interface PlacementExplanation {
   workerId: string
   /** Hebrew bullet reasons grounded in the ranking math */
   reasons: string[]
+  /** Why this worker won in the full board build, when that was recorded. */
+  decision?: string
   /** Ordered preferences for this lane; this is not a single weighted score. */
   candidateRanking?: PlacementCandidateRank[]
 }
@@ -2887,6 +2889,7 @@ function buildFinalBoardExplanations(
   objective: AssignmentObjective = 'standard',
   lastSeatings?: Map<string, LaneLastSeating>,
   roster?: Map<string, Worker>,
+  decisionSourceKnown = true,
 ): PlacementExplanation[] {
   const explanations: PlacementExplanation[] = []
   const remainingAfter = new Set(orderedLanes.map((l) => l.id))
@@ -2947,26 +2950,35 @@ function buildFinalBoardExplanations(
           'הועבר לכאן בסיבוב שיפור של הלוח (החלפה בין עמדות לאיזון טוב יותר)',
         )
       }
+      const candidateRanking = ranked.map((candidate, candidateRank) => {
+        const profile = profiles.get(candidate.id)!
+        const rotation = rotationScoreFor(profile, lane.id)
+        return {
+          workerId: candidate.id,
+          rank: candidateRank + 1,
+          rotationScore: Math.round(rotation.rawScore),
+          laneVisits: profile.rotationLaneCounts.get(lane.id) ?? 0,
+          daysSinceLastVisit: rotation.daysSince,
+          recentLoad: profile.load,
+          hardPlacements: profile.hardCount,
+          shiftsSeen: profile.shiftsSeen,
+          needsRecovery: recoveringIds.has(candidate.id),
+          wasLastLaneOccupant: isLastLaneOccupant(candidate.id, lane.id, lastSeatings),
+        }
+      })
+      const decision = decisionSourceKnown
+        ? !greedySet.has(workerId)
+          ? 'איזון הלוח הכריע: האלגוריתם העביר את העובד לכאן בסיבוב שיפור כדי לשפר את האיזון הכולל.'
+          : rank === 0
+            ? 'העובד דורג ראשון בסדר ההעדפה המקומי לעמדה הזו.'
+            : 'סדר מילוי הנתיבים והזמינות בפועל הכריעו: העובד שובץ כשהגיע תור העמדה; מועמדים שדורגו לפניו כבר שובצו או לא היו פנויים.'
+        : undefined
       explanations.push({
         laneId: lane.id,
         workerId,
         reasons,
-        candidateRanking: ranked.map((candidate, candidateRank) => {
-          const profile = profiles.get(candidate.id)!
-          const rotation = rotationScoreFor(profile, lane.id)
-          return {
-            workerId: candidate.id,
-            rank: candidateRank + 1,
-            rotationScore: Math.round(rotation.rawScore),
-            laneVisits: profile.rotationLaneCounts.get(lane.id) ?? 0,
-            daysSinceLastVisit: rotation.daysSince,
-            recentLoad: profile.load,
-            hardPlacements: profile.hardCount,
-            shiftsSeen: profile.shiftsSeen,
-            needsRecovery: recoveringIds.has(candidate.id),
-            wasLastLaneOccupant: isLastLaneOccupant(candidate.id, lane.id, lastSeatings),
-          }
-        }),
+        decision,
+        candidateRanking,
       })
     }
   }
@@ -3521,6 +3533,7 @@ export function explainSavedBoard(input: {
     'standard',
     lastSeatings,
     roster,
+    false,
   )
 }
 

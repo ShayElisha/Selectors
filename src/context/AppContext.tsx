@@ -1334,6 +1334,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           laneId: item.laneId,
           workerId: item.workerId,
           reasons: item.reasons,
+          ...(item.decision ? { decision: item.decision } : {}),
           ...(item.candidateRanking ? { candidateRanking: item.candidateRanking } : {}),
         })),
       ...(d.earlyLeaveAt && Object.keys(d.earlyLeaveAt).length > 0

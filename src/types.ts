@@ -180,6 +180,7 @@ export interface ShiftSchedule {
     laneId: string
     workerId: string
     reasons: string[]
+    decision?: string
     candidateRanking?: {
       workerId: string
       rank: number
