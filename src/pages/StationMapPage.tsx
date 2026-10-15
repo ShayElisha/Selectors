@@ -30,6 +30,14 @@ function assignmentsForShift(shift: ShiftSchedule, roundIndex: number): LaneAssi
   return shift.assignments
 }
 
+function daysSinceLabel(days: number | null): string {
+  if (days == null) return 'אין ביקור קודם בחלון'
+  if (days === 0.5) return 'מוקדם יותר היום'
+  if (days === 1) return 'לפני יום'
+  if (days === 2) return 'לפני יומיים'
+  return `לפני ${days} ימים`
+}
+
 function StationCard({ station, active, onClick, workerNames }: {
   station: Station
   active: boolean
@@ -118,7 +126,12 @@ export function StationMapPage() {
     )
     for (const item of shift.explanations ?? []) {
       if (visibleExplanationReasons(item.reasons).length) {
-        explanationsByPlacement.set(`${item.laneId}:${item.workerId}`, item)
+        const key = `${item.laneId}:${item.workerId}`
+        explanationsByPlacement.set(key, {
+          ...explanationsByPlacement.get(key),
+          ...item,
+          candidateRanking: item.candidateRanking ?? explanationsByPlacement.get(key)?.candidateRanking,
+        })
       }
     }
     return [...explanationsByPlacement.values()]
@@ -199,6 +212,7 @@ export function StationMapPage() {
               {selectedStation.workerIds.map((id) => {
                 const explanation = assignmentExplanations.find((item) => item.laneId === selectedStation.lane.id && item.workerId === id)
                 const reasons = explanation ? visibleExplanationReasons(explanation.reasons) : []
+                const candidateRanking = explanation?.candidateRanking ?? []
                 return (
                   <div key={id} className="rounded-xl border border-line bg-surface/70 p-3">
                     <PersonChip name={workerNames.get(id) || 'עובד לא מזוהה'} />
@@ -212,6 +226,31 @@ export function StationMapPage() {
                     ) : (
                       <p className="mt-2 text-xs text-ink-soft">אין הסבר שמור לשיבוץ הזה.</p>
                     )}
+                    {candidateRanking.length ? (
+                      <details className="mt-3 rounded-lg border border-line bg-card px-3 py-2">
+                        <summary className="cursor-pointer text-xs font-bold text-brand">
+                          השוואת מועמדים ({candidateRanking.length})
+                        </summary>
+                        <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
+                          זהו סדר ההעדפה לפי הקריטריונים, לא ציון כולל יחיד. איזון הלוח עשוי לשנות את הבחירה הסופית.
+                        </p>
+                        <ol className="mt-2 space-y-2">
+                          {candidateRanking.map((candidate) => (
+                            <li key={candidate.workerId} className="rounded-lg bg-surface px-2.5 py-2">
+                              <p className="text-xs font-semibold text-ink">
+                                {candidate.rank}. {workerNames.get(candidate.workerId) || 'עובד לא מזוהה'}
+                                {candidate.workerId === id ? <span className="ms-1 text-ok">נבחר</span> : null}
+                              </p>
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-soft">
+                                רוטציה {candidate.rotationScore} · {candidate.laneVisits} ביקורים בעמדה · {daysSinceLabel(candidate.daysSinceLastVisit)} · עומס {candidate.recentLoad.toFixed(1)} · {candidate.hardPlacements} עמדות קשות מתוך {candidate.shiftsSeen} משמרות
+                                {candidate.needsRecovery ? ' · נשמר למנוחה אחרי לילה' : ''}
+                                {candidate.wasLastLaneOccupant ? ' · שובץ כאן לאחרונה' : ''}
+                              </p>
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
+                    ) : null}
                   </div>
                 )
               })}

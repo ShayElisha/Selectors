@@ -176,7 +176,23 @@ export interface ShiftSchedule {
    * Why each person was placed, saved with the shift.
    * Older shifts may omit this; the history screen can rebuild it.
    */
-  explanations?: { laneId: string; workerId: string; reasons: string[] }[]
+  explanations?: {
+    laneId: string
+    workerId: string
+    reasons: string[]
+    candidateRanking?: {
+      workerId: string
+      rank: number
+      rotationScore: number
+      laneVisits: number
+      daysSinceLastVisit: number | null
+      recentLoad: number
+      hardPlacements: number
+      shiftsSeen: number
+      needsRecovery: boolean
+      wasLastLaneOccupant: boolean
+    }[]
+  }[]
   /**
    * Present only after an explicit shift close.
    * The board cannot be edited or deleted once this is stored.

@@ -15,11 +15,26 @@ import type {
 } from './types'
 
 /** Why a specific worker was placed on a specific lane */
+export interface PlacementCandidateRank {
+  workerId: string
+  rank: number
+  rotationScore: number
+  laneVisits: number
+  daysSinceLastVisit: number | null
+  recentLoad: number
+  hardPlacements: number
+  shiftsSeen: number
+  needsRecovery: boolean
+  wasLastLaneOccupant: boolean
+}
+
 export interface PlacementExplanation {
   laneId: string
   workerId: string
   /** Hebrew bullet reasons grounded in the ranking math */
   reasons: string[]
+  /** Ordered preferences for this lane; this is not a single weighted score. */
+  candidateRanking?: PlacementCandidateRank[]
 }
 
 export interface AssignmentResult {
@@ -2932,7 +2947,27 @@ function buildFinalBoardExplanations(
           'הועבר לכאן בסיבוב שיפור של הלוח (החלפה בין עמדות לאיזון טוב יותר)',
         )
       }
-      explanations.push({ laneId: lane.id, workerId, reasons })
+      explanations.push({
+        laneId: lane.id,
+        workerId,
+        reasons,
+        candidateRanking: ranked.map((candidate, candidateRank) => {
+          const profile = profiles.get(candidate.id)!
+          const rotation = rotationScoreFor(profile, lane.id)
+          return {
+            workerId: candidate.id,
+            rank: candidateRank + 1,
+            rotationScore: Math.round(rotation.rawScore),
+            laneVisits: profile.rotationLaneCounts.get(lane.id) ?? 0,
+            daysSinceLastVisit: rotation.daysSince,
+            recentLoad: profile.load,
+            hardPlacements: profile.hardCount,
+            shiftsSeen: profile.shiftsSeen,
+            needsRecovery: recoveringIds.has(candidate.id),
+            wasLastLaneOccupant: isLastLaneOccupant(candidate.id, lane.id, lastSeatings),
+          }
+        }),
+      })
     }
   }
 
