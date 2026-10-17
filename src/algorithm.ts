@@ -2201,16 +2201,10 @@ function illegalBoardEval(
 }
 
 /**
- * Compare two legal boards.
- * Lexicographic order (does not drop soft rules — only prioritizes):
- * 1) fewer understaffed slots (maximize fill)
- * 2) fewer short returns onto hard lanes
- * 3) fewer night workers placed on a hard afternoon lane
- * 4) fewer hard seats that repeat whoever sat that hard lane last
- * 5) more idle (≥4 days off) workers on hard lanes
- * 6) fewer seats that repeat whoever sat that lane last
- * 7) fewer short returns on other lanes
- * 8) higher weighted soft score, then spacing / rotation / stability
+ * Compare two legal boards. Preserve staffing and lane-priority first, then
+ * optimize the same weighted quality score that is shown to managers. Policy
+ * metrics remain deterministic tie-breakers instead of silently overriding
+ * the displayed score.
  */
 export function isBoardBetter(
   next: BoardEvaluation,
@@ -2219,8 +2213,7 @@ export function isBoardBetter(
   if (!next.legal) return false
   if (!current.legal) return next.legal
 
-  // Staffing is the only priority above avoiding next-day lane repeats.
-  // Other safety and workload preferences are considered afterward.
+  // Staffing coverage and priority lanes remain the top-level operational goals.
   if (next.understaffedSlots !== current.understaffedSlots) {
     return next.understaffedSlots < current.understaffedSlots
   }
@@ -2233,62 +2226,41 @@ export function isBoardBetter(
     )
   }
 
+  // Do not let secondary preferences force a board with a lower displayed
+  // quality score. The optimizer's weights are the source of truth here.
+  if (next.score > current.score + 1e-6) return true
+  if (next.score < current.score - 1e-6) return false
+
   if (next.handoffTierPenalty !== current.handoffTierPenalty) {
     return next.handoffTierPenalty < current.handoffTierPenalty
   }
-
   if (next.recoveryOnHard !== current.recoveryOnHard) {
     return next.recoveryOnHard < current.recoveryOnHard
   }
-
-  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
-    return next.rotationRepeatCount < current.rotationRepeatCount
-  }
-
-  if (
-    next.objective === 'hardExperience' &&
-    next.components.hardBalance !== current.components.hardBalance
-  ) {
-    return next.components.hardBalance > current.components.hardBalance
-  }
-
-  if (
-    next.objective === 'loadFair' &&
-    next.components.workload !== current.components.workload
-  ) {
-    return next.components.workload > current.components.workload
-  }
-
-  if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
-    return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
-  }
-
-  if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
-    return next.sameDayLaneRepeatCount < current.sameDayLaneRepeatCount
-  }
-
-  if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
-    return next.lastOccupantOnHard < current.lastOccupantOnHard
-  }
-
-  if (next.idleOnHard !== current.idleOnHard) {
-    return next.idleOnHard > current.idleOnHard
-  }
-
   if (next.shortReturnOnHard !== current.shortReturnOnHard) {
     return next.shortReturnOnHard < current.shortReturnOnHard
   }
-
+  if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
+    return next.lastOccupantOnHard < current.lastOccupantOnHard
+  }
+  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
+    return next.rotationRepeatCount < current.rotationRepeatCount
+  }
+  if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
+    return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
+  }
+  if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
+    return next.sameDayLaneRepeatCount < current.sameDayLaneRepeatCount
+  }
+  if (next.idleOnHard !== current.idleOnHard) {
+    return next.idleOnHard > current.idleOnHard
+  }
   if (next.lastOccupantRepeats !== current.lastOccupantRepeats) {
     return next.lastOccupantRepeats < current.lastOccupantRepeats
   }
-
   if (next.shortReturnCount !== current.shortReturnCount) {
     return next.shortReturnCount < current.shortReturnCount
   }
-
-  if (next.score > current.score + 1e-6) return true
-  if (next.score < current.score - 1e-6) return false
 
   if (Math.abs(next.minDaysSince - current.minDaysSince) > 1e-9) {
     return next.minDaysSince > current.minDaysSince
