@@ -2201,10 +2201,9 @@ function illegalBoardEval(
 }
 
 /**
- * Compare two legal boards. Preserve staffing and lane-priority, then avoid
- * repeat placements before optimizing the weighted quality score shown to
- * managers. This prevents a small soft-score gain from repeatedly seating a
- * worker on the same lane when a legal, better-rotated alternative exists.
+ * Compare two legal boards using assignment rules only. The weighted quality
+ * score is reported after the board is selected and must never influence the
+ * assignment decision.
  */
 export function isBoardBetter(
   next: BoardEvaluation,
@@ -2226,8 +2225,7 @@ export function isBoardBetter(
     )
   }
 
-  // Repetition is minimized before soft score tradeoffs: prefer giving a
-  // worker a different lane and avoid same-day / consecutive-day repeats.
+  // Repetition is minimized before secondary rotation and balance preferences.
   if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
     return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
   }
@@ -2253,9 +2251,6 @@ export function isBoardBetter(
     return next.handoffTierPenalty < current.handoffTierPenalty
   }
 
-  if (next.score > current.score + 1e-6) return true
-  if (next.score < current.score - 1e-6) return false
-
   if (next.idleOnHard !== current.idleOnHard) {
     return next.idleOnHard > current.idleOnHard
   }
@@ -2268,11 +2263,6 @@ export function isBoardBetter(
   }
   if (Math.abs(next.totalRotation - current.totalRotation) > 1e-6) {
     return next.totalRotation > current.totalRotation
-  }
-  if (
-    Math.abs(next.components.stability - current.components.stability) > 1e-6
-  ) {
-    return next.components.stability > current.components.stability
   }
   return false
 }
@@ -4059,8 +4049,9 @@ export async function runAssignmentAlgorithmWithProgress(
     )
     totalEvaluations += candidate.searchStats?.evaluations ?? 0
     if (!compareBaseline) compareBaseline = candidate.assignments
-    // Score every candidate against the SAME reference board so starts are
-    // directly comparable (stability uses a fixed baseline).
+    // Evaluate every candidate against the SAME reference board so the
+    // stability measure uses a fixed baseline. Selection uses rule metrics,
+    // never the weighted quality score.
     const candidateEval = evaluateBoard(candidate.assignments, {
       ...evalBase,
       baselineAssignments: compareBaseline,
@@ -4077,10 +4068,8 @@ export async function runAssignmentAlgorithmWithProgress(
   if (!best) {
     return runAssignmentAlgorithm(activeLanes, presentWorkers, history, allLanes, ctx)
   }
-  // The multi-start selector scores every candidate against one fixed
-  // baseline. Recompute the returned quality from the winning assignments
-  // and that same baseline so the manager never sees a score from a different
-  // candidate/run.
+  // Calculate quality only for the winning assignment, against the fixed
+  // baseline used for its stability measure.
   const finalEvaluation = evaluateBoard(best.assignments, {
     ...evalBase,
     baselineAssignments: compareBaseline ?? best.assignments,

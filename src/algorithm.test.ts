@@ -735,6 +735,8 @@ describe('assignment algorithm — hard constraints & soft objectives', () => {
       baselineAssignments: greedy.assignments,
     }
     const before = evaluateBoard(greedy.assignments, ctx)
+    expect(isBoardBetter({ ...before, score: 100 }, before)).toBe(false)
+    expect(isBoardBetter(before, { ...before, score: 0 })).toBe(false)
     const opt = runMultiPassOptimization({
       assignments: greedy.assignments,
       unassignedWorkerIds: greedy.unassignedWorkerIds,
