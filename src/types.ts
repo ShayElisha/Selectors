@@ -48,6 +48,8 @@ export interface Lane {
    * Several ranges are allowed, e.g. 06:00–08:00 and 10:00–12:00.
    */
   activeHours?: { start: number; end: number }[]
+  /** Exclude this lane from automatic and manual assignment in rounds mode. */
+  roundsDisabled?: boolean
 }
 
 export interface LaneAssignment {

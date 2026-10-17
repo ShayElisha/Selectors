@@ -769,7 +769,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const laneHoursKey = data.lanes
     .map(
       (lane) =>
-        `${lane.id}:${(lane.activeHours ?? [])
+        `${lane.id}:${lane.roundsDisabled ? 'rounds-off' : 'rounds-on'}:${(lane.activeHours ?? [])
           .map((span) => `${span.start}-${span.end}`)
           .join(',')}`,
     )
@@ -1562,6 +1562,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!d) return d
       const has = d.activeLaneIds.includes(laneId)
       const lane = data.lanes.find((l) => l.id === laneId)
+      if (usesRounds(d) && lane?.roundsDisabled && !has) return d
       const turningOffGate = has && lane && isGateManagerLane(lane)
       const activeLaneIds = has
         ? d.activeLaneIds.filter((id) => id !== laneId)
@@ -1582,7 +1583,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDraft((d) => {
         if (!d) return d
         const known = new Set(data.lanes.map((l) => l.id))
-        let activeLaneIds = laneIds.filter((id) => known.has(id))
+        let activeLaneIds = laneIds.filter((id) => {
+          const lane = data.lanes.find((item) => item.id === id)
+          return known.has(id) && !(usesRounds(d) && lane?.roundsDisabled)
+        })
         const nextOverrides =
           staffingOverrides != null
             ? normalizeStaffingOverrides(staffingOverrides)
@@ -1852,7 +1856,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             activeLaneIds: data.lanes
-              .filter((l) => !isGateManagerLane(l))
+              .filter((l) => !isGateManagerLane(l) && !(usesRounds(d) && l.roundsDisabled))
               .map((l) => l.id),
           },
           data.lanes,

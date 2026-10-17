@@ -15,6 +15,7 @@ import {
   Minus,
   MoreHorizontal,
   Plus,
+  Settings2,
   Trash2,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -60,6 +61,7 @@ const emptyForm = (): Omit<Lane, 'id'> => ({
   intensity: 'medium',
   afternoonHandoff: false,
   activeHours: [],
+  roundsDisabled: false,
 })
 
 function minutesToInput(minutes: number): string {
@@ -230,6 +232,7 @@ function LaneForm({
   workers,
   excludeId,
   dirty,
+  showRoundsOption,
   onSave,
   onCancel,
 }: {
@@ -241,6 +244,7 @@ function LaneForm({
   workers: import('../types').Worker[]
   excludeId?: string
   dirty: boolean
+  showRoundsOption: boolean
   onSave: () => void
   onCancel: () => void
 }) {
@@ -248,6 +252,9 @@ function LaneForm({
   const nameId = useId()
   const nameErrId = useId()
   const [touched, setTouched] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => Boolean(form.activeHours?.length || form.intensity !== 'medium' || form.roundsDisabled),
+  )
   const baselineIntensity = useRef<Intensity | null>(null)
   const baselineCerts = useRef<string[] | null>(null)
   const baselineStd = useRef<StaffingStandard | null>(null)
@@ -371,13 +378,27 @@ function LaneForm({
           </div>
         </div>
 
-        <div>
+        <div className="sm:col-span-2">
+          <button
+            type="button"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((open) => !open)}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:border-brand/30 hover:bg-brand/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          >
+            <Settings2 className="size-4 text-brand" aria-hidden />
+            הגדרות מתקדמות
+            <ChevronDown className={`size-4 text-ink-soft transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden />
+          </button>
+          <p className="mt-1 text-xs text-ink-soft">שעות פעילות, השפעה על העומס והשתתפות בסבבים</p>
+        </div>
+
+        <div className={advancedOpen ? '' : 'hidden'}>
           <p className="mb-1.5 text-xs font-medium text-ink-soft sm:text-sm">
-            דרגת עצימות
+            עומס הנתיב
           </p>
           <div
             role="radiogroup"
-            aria-label="דרגת עצימות"
+            aria-label="עומס הנתיב"
             className="flex flex-wrap gap-1.5"
           >
             {(['easy', 'medium', 'hard'] as const).map((value) => {
@@ -403,7 +424,7 @@ function LaneForm({
           </p>
         </div>
 
-        <div className="sm:col-span-2">
+        <div className={`sm:col-span-2 ${advancedOpen ? '' : 'hidden'}`}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-medium text-ink-soft sm:text-sm">
@@ -491,6 +512,32 @@ function LaneForm({
             </ul>
           )}
         </div>
+
+        {showRoundsOption ? (
+          <div className={`sm:col-span-2 ${advancedOpen ? '' : 'hidden'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-card px-3 py-3">
+              <div>
+                <p className="text-sm font-semibold text-ink">סבבים בנתיב</p>
+                <p className="mt-1 text-[13px] text-ink-soft">
+                  {form.roundsDisabled
+                    ? 'הנתיב לא ייכלל בשיבוץ במצב סבבים.'
+                    : 'הנתיב ייכלל בשיבוץ במצב סבבים.'}
+                  {' '}השינוי חל על שיבוצים חדשים.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-label="השתתפות הנתיב בסבבים"
+                aria-checked={!form.roundsDisabled}
+                onClick={() => setForm((f) => ({ ...f, roundsDisabled: !f.roundsDisabled }))}
+                className={`relative h-8 w-14 shrink-0 rounded-full transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${form.roundsDisabled ? 'bg-line' : 'bg-brand'}`}
+              >
+                <span className={`absolute top-1 size-6 rounded-full bg-card shadow transition-all ${form.roundsDisabled ? 'start-1' : 'start-7'}`} />
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="sm:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-card px-3 py-3">
@@ -744,7 +791,7 @@ function SortHeader({
 }
 
 export function LanesPage() {
-  const { data, loading, error, addLane, updateLane, deleteLane } = useApp()
+  const { data, loading, error, addLane, updateLane, deleteLane, assignmentModes, module } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState(emptyForm())
@@ -828,6 +875,7 @@ export function LanesPage() {
         intensity: l.intensity,
         afternoonHandoff: Boolean(l.afternoonHandoff),
         activeHours: (l.activeHours ?? []).map((span) => ({ ...span })),
+        roundsDisabled: Boolean(l.roundsDisabled),
       }
       setForm(next)
       setBaseline(next)
@@ -861,6 +909,7 @@ export function LanesPage() {
       name: form.name.trim(),
       afternoonHandoff: Boolean(form.afternoonHandoff) || undefined,
       activeHours: activeHours.length > 0 ? activeHours : undefined,
+      roundsDisabled: Boolean(form.roundsDisabled) || undefined,
     }
     if (editingLane) {
       updateLane({
@@ -892,6 +941,7 @@ export function LanesPage() {
         catalog={data.certificationsCatalog}
         lanes={data.lanes}
         workers={data.workers}
+        showRoundsOption={assignmentModes[module] === 'rounds'}
         excludeId={editingLane?.id}
         dirty={dirty}
         onSave={save}

@@ -82,7 +82,7 @@ export function selectorLanes(lanes: Lane[], activeLaneIds: string[]): Lane[] {
   const out: Lane[] = []
   for (const id of activeLaneIds) {
     const lane = byId.get(id)
-    if (!lane || isGateManagerLane(lane)) continue
+    if (!lane || isGateManagerLane(lane) || lane.roundsDisabled) continue
     out.push(lane)
   }
   return out.sort(compareLaneNames)
@@ -575,11 +575,11 @@ export function applyLaneActivityHours(
       const lane = byId.get(assignment.laneId)
       const open =
         !lane ||
-        laneOpenDuring(
+        (!lane.roundsDisabled && laneOpenDuring(
           lane.activeHours,
           round.startMinutes,
           round.endMinutes,
-        )
+        ))
       if (!open) {
         if (assignment.workerIds.some(Boolean)) {
           cleared = true
@@ -587,7 +587,7 @@ export function applyLaneActivityHours(
         }
         return assignment
       }
-      if (!lane) return assignment
+      if (!lane || lane.roundsDisabled) return assignment
       const standard = effectiveStaffingStandard(lane, overrides)
       const filled = assignment.workerIds.filter(Boolean).length
       if (filled < standard) emptySeats += standard - filled

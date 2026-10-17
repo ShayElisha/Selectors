@@ -222,6 +222,7 @@ export function formsLaneEqual(
   if (a.staffingStandard !== b.staffingStandard) return false
   if (a.intensity !== b.intensity) return false
   if (Boolean(a.afternoonHandoff) !== Boolean(b.afternoonHandoff)) return false
+  if (Boolean(a.roundsDisabled) !== Boolean(b.roundsDisabled)) return false
   const hoursA = a.activeHours ?? []
   const hoursB = b.activeHours ?? []
   if (hoursA.length !== hoursB.length) return false

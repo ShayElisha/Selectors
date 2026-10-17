@@ -40,6 +40,14 @@ describe('selectorLanes', () => {
       'b',
     ])
   })
+
+  it('excludes lanes disabled for rounds', () => {
+    const lanes = [
+      lane('a', 'נתיב א'),
+      { ...lane('b', 'נתיב ב'), roundsDisabled: true },
+    ]
+    expect(selectorLanes(lanes, ['a', 'b']).map((item) => item.id)).toEqual(['a'])
+  })
 })
 
 describe('buildRoundWindows', () => {
@@ -258,6 +266,22 @@ describe('personal windows', () => {
     expect(applied.warnings.some((warning) => warning.startsWith('נותרו'))).toBe(
       false,
     )
+  })
+
+  it('clears a disabled lane from open rounds without counting empty seats', () => {
+    const applied = applyLaneActivityHours(
+      [{
+        startMinutes: 6 * 60,
+        endMinutes: 8 * 60,
+        label: '06:00–08:00',
+        assignments: [{ laneId: 'a', workerIds: ['w1'] }],
+      }],
+      [{ ...lane('a', 'נתיב'), roundsDisabled: true }],
+      [],
+    )
+    expect(applied.changed).toBe(true)
+    expect(applied.rounds[0]?.assignments[0]?.workerIds).toEqual([])
+    expect(applied.warnings).toEqual([])
   })
 })
 

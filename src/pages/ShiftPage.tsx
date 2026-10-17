@@ -228,8 +228,8 @@ export function ShiftPage() {
   }, [draft?.id])
 
   const selectableLanes = useMemo(
-    () => managedLanes(data.lanes).sort(compareLaneNames),
-    [data.lanes],
+    () => managedLanes(data.lanes).filter((lane) => !(draft && usesRounds(draft) && lane.roundsDisabled)).sort(compareLaneNames),
+    [data.lanes, draft],
   )
 
   const exportLines = useMemo(() => {
@@ -362,7 +362,7 @@ export function ShiftPage() {
     )
     const laneIds = draft.activeLaneIds.filter((id) => {
       const lane = data.lanes.find((l) => l.id === id)
-      return !lane || !isGateManagerLane(lane)
+      return (!lane || !isGateManagerLane(lane)) && !(usesRounds(draft) && lane?.roundsDisabled)
     })
     return computeFeasibilityPreview(
       data.lanes,
@@ -382,7 +382,7 @@ export function ShiftPage() {
     draft
       ? draft.activeLaneIds.filter((id) => {
           const lane = data.lanes.find((l) => l.id === id)
-          return lane && !isGateManagerLane(lane)
+          return lane && !isGateManagerLane(lane) && !(usesRounds(draft) && lane.roundsDisabled)
         }).length
       : 0,
   )

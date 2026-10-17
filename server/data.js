@@ -140,6 +140,7 @@ function normalizeLane(l) {
         ? l.intensity
         : "medium",
     afternoonHandoff: Boolean(l.afternoonHandoff),
+    roundsDisabled: Boolean(l.roundsDisabled),
     ...(Array.isArray(l.activeHours) && l.activeHours.length > 0
       ? {
           activeHours: l.activeHours
