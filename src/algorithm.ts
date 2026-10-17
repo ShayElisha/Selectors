@@ -202,8 +202,8 @@ export interface MultiPassOptimizationResult {
 /** Soft objective weights for evaluateBoard (sum ≈ 1). */
 export const DEFAULT_BOARD_WEIGHTS = {
   /** Dominant when staffing is equal — prefer who was on the lane longest ago. */
-  rotation: 0.42,
-  workload: 0.05,
+  rotation: 0.45,
+  workload: 0.02,
   recovery: 0.15,
   hardBalance: 0.07,
   handoff: 0.08,
@@ -218,8 +218,8 @@ export const DEFAULT_BOARD_WEIGHTS = {
 
 /** Same keys, with load balance outweighing rotation. */
 export const LOAD_FAIR_BOARD_WEIGHTS = {
-  rotation: 0.14,
-  workload: 0.4,
+  rotation: 0.39,
+  workload: 0.15,
   recovery: 0.12,
   hardBalance: 0.08,
   handoff: 0.08,
@@ -235,8 +235,8 @@ export const LOAD_FAIR_BOARD_WEIGHTS = {
  * when the objective is hardExperience.
  */
 export const HARD_EXPERIENCE_BOARD_WEIGHTS = {
-  rotation: 0.12,
-  workload: 0.06,
+  rotation: 0.16,
+  workload: 0.02,
   recovery: 0.12,
   hardBalance: 0.36,
   handoff: 0.08,
@@ -2201,10 +2201,10 @@ function illegalBoardEval(
 }
 
 /**
- * Compare two legal boards. Preserve staffing and lane-priority first, then
- * optimize the same weighted quality score that is shown to managers. Policy
- * metrics remain deterministic tie-breakers instead of silently overriding
- * the displayed score.
+ * Compare two legal boards. Preserve staffing and lane-priority, then avoid
+ * repeat placements before optimizing the weighted quality score shown to
+ * managers. This prevents a small soft-score gain from repeatedly seating a
+ * worker on the same lane when a legal, better-rotated alternative exists.
  */
 export function isBoardBetter(
   next: BoardEvaluation,
@@ -2226,37 +2226,38 @@ export function isBoardBetter(
     )
   }
 
-  // Do not let secondary preferences force a board with a lower displayed
-  // quality score. The optimizer's weights are the source of truth here.
-  if (next.score > current.score + 1e-6) return true
-  if (next.score < current.score - 1e-6) return false
-
-  if (next.handoffTierPenalty !== current.handoffTierPenalty) {
-    return next.handoffTierPenalty < current.handoffTierPenalty
-  }
-  if (next.recoveryOnHard !== current.recoveryOnHard) {
-    return next.recoveryOnHard < current.recoveryOnHard
-  }
-  if (next.shortReturnOnHard !== current.shortReturnOnHard) {
-    return next.shortReturnOnHard < current.shortReturnOnHard
-  }
-  if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
-    return next.lastOccupantOnHard < current.lastOccupantOnHard
-  }
-  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
-    return next.rotationRepeatCount < current.rotationRepeatCount
-  }
+  // Repetition is minimized before soft score tradeoffs: prefer giving a
+  // worker a different lane and avoid same-day / consecutive-day repeats.
   if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
     return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
   }
   if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
     return next.sameDayLaneRepeatCount < current.sameDayLaneRepeatCount
   }
-  if (next.idleOnHard !== current.idleOnHard) {
-    return next.idleOnHard > current.idleOnHard
+  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
+    return next.rotationRepeatCount < current.rotationRepeatCount
   }
   if (next.lastOccupantRepeats !== current.lastOccupantRepeats) {
     return next.lastOccupantRepeats < current.lastOccupantRepeats
+  }
+  if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
+    return next.lastOccupantOnHard < current.lastOccupantOnHard
+  }
+  if (next.shortReturnOnHard !== current.shortReturnOnHard) {
+    return next.shortReturnOnHard < current.shortReturnOnHard
+  }
+  if (next.recoveryOnHard !== current.recoveryOnHard) {
+    return next.recoveryOnHard < current.recoveryOnHard
+  }
+  if (next.handoffTierPenalty !== current.handoffTierPenalty) {
+    return next.handoffTierPenalty < current.handoffTierPenalty
+  }
+
+  if (next.score > current.score + 1e-6) return true
+  if (next.score < current.score - 1e-6) return false
+
+  if (next.idleOnHard !== current.idleOnHard) {
+    return next.idleOnHard > current.idleOnHard
   }
   if (next.shortReturnCount !== current.shortReturnCount) {
     return next.shortReturnCount < current.shortReturnCount
@@ -4076,10 +4077,25 @@ export async function runAssignmentAlgorithmWithProgress(
   if (!best) {
     return runAssignmentAlgorithm(activeLanes, presentWorkers, history, allLanes, ctx)
   }
+  // The multi-start selector scores every candidate against one fixed
+  // baseline. Recompute the returned quality from the winning assignments
+  // and that same baseline so the manager never sees a score from a different
+  // candidate/run.
+  const finalEvaluation = evaluateBoard(best.assignments, {
+    ...evalBase,
+    baselineAssignments: compareBaseline ?? best.assignments,
+  })
   const passes = best.searchStats?.passes ?? 0
   const checkNote = `נבדקו ${totalEvaluations} לוחות ב־${starts} התחלות ועד ${passes} סבבי שיפור לפני שהשיבוץ הוצג`
   return {
     ...best,
+    quality: {
+      score: finalEvaluation.score,
+      components: finalEvaluation.components,
+      weights: weightsForObjective(objective),
+      understaffedSlots: finalEvaluation.understaffedSlots,
+      legal: finalEvaluation.legal,
+    },
     warnings: best.warnings.includes(checkNote)
       ? best.warnings
       : [...best.warnings, checkNote],
