@@ -611,6 +611,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
             activeView={view}
             onNavigate={go}
           />
+          <span className="mx-1 h-5 w-px shrink-0 bg-line/80" aria-hidden />
+          <button
+            type="button"
+            onClick={() => navigate('/help')}
+            className="relative inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[13px] text-ink-soft transition-all duration-200 hover:bg-surface/70 hover:text-ink"
+          >
+            <CircleHelp className="size-[17px] shrink-0 opacity-80" aria-hidden />
+            <span className="whitespace-nowrap">עזרה</span>
+          </button>
         </div>
       </nav>
 
@@ -666,6 +675,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   </button>
                 )
               })}
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false)
+                  navigate('/help')
+                }}
+                className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-ink transition hover:border-brand/20"
+              >
+                <CircleHelp className="size-[18px] shrink-0" aria-hidden />
+                עזרה
+              </button>
             </div>
           </div>
         </div>
