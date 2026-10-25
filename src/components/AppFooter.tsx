@@ -7,7 +7,7 @@ const YEAR = new Date().getFullYear()
 
 const FOOTER_LINKS = [
   { to: '/privacy', label: 'מדיניות שימוש ופרטיות' },
-  { to: '/help', label: 'שאלות נפוצות' },
+  { to: '/help', label: 'עזרה' },
   { to: '/report', label: 'דיווח תקלה' },
 ] as const
 

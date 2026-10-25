@@ -3,12 +3,21 @@ import { ArrowRight } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { AppFooter } from './AppFooter'
 
-export function PublicPage({ children }: { children: React.ReactNode }) {
+export function PublicPage({
+  children,
+  wide = false,
+}: {
+  children: React.ReactNode
+  /** Slightly wider column for long guides (help). */
+  wide?: boolean
+}) {
   const { user } = useApp()
   const backTo = user?.role === 'super_admin' ? '/admin' : user ? '/' : '/login'
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-8 sm:py-10">
+    <div
+      className={`mx-auto flex min-h-dvh flex-col px-4 py-8 sm:py-10 ${wide ? 'max-w-3xl' : 'max-w-2xl'}`}
+    >
       <Link
         to={backTo}
         className="mb-5 inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-brand hover:text-brand-deep"

@@ -17,7 +17,7 @@ function Missing({ standalone }: { standalone?: boolean }) {
         </Link>
         {!standalone ? (
           <Link to="/help" className="ui-btn ui-btn-ghost">
-            שאלות נפוצות
+            עזרה
           </Link>
         ) : (
           <Link to="/login" className="ui-btn ui-btn-ghost">

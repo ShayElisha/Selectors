@@ -3,14 +3,93 @@ import { Link } from 'react-router-dom'
 import { PublicPage } from '../components/PublicPage'
 import { SectionCard } from '../components/ui'
 
-const QUESTIONS: { q: string; a: ReactNode }[] = [
+type TocItem = { id: string; label: string }
+
+const TOC: TocItem[] = [
+  { id: 'intro', label: 'מה זה שיבוצון' },
+  { id: 'login', label: 'התחברות וחשבון' },
+  { id: 'modules', label: 'בודקים וסלקטורים' },
+  { id: 'home', label: 'המסך הראשי' },
+  { id: 'shift', label: 'שיבוץ משמרת' },
+  { id: 'live', label: 'במהלך המשמרת' },
+  { id: 'workers', label: 'אנשים' },
+  { id: 'lanes', label: 'נתיבים' },
+  { id: 'certs', label: 'הסמכות' },
+  { id: 'briefings', label: 'תדריכים' },
+  { id: 'incidents', label: 'אירועים ותקלות' },
+  { id: 'tracking', label: 'מעקב נתיבים' },
+  { id: 'analytics', label: 'סטטיסטיקות' },
+  { id: 'history', label: 'היסטוריה' },
+  { id: 'audit', label: 'יומן' },
+  { id: 'brokers', label: 'עמילי מכס' },
+  { id: 'models', label: 'חלונות משמרת' },
+  { id: 'settings', label: 'הגדרות שיבוץ' },
+  { id: 'export', label: 'ייצוא ושיתוף' },
+  { id: 'glossary', label: 'מילון קצר' },
+  { id: 'faq', label: 'שאלות נפוצות' },
+]
+
+function BulletList({ items }: { items: ReactNode[] }) {
+  return (
+    <ul className="list-disc space-y-2 pr-5 text-sm leading-relaxed text-ink-soft">
+      {items.map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
+  )
+}
+
+function Steps({ items }: { items: string[] }) {
+  return (
+    <ol className="list-decimal space-y-2 pr-5 text-sm leading-relaxed text-ink-soft">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ol>
+  )
+}
+
+function HelpSection({
+  id,
+  title,
+  subtitle,
+  children,
+}: {
+  id: string
+  title: string
+  subtitle?: string
+  children: ReactNode
+}) {
+  return (
+    <section id={id} className="scroll-mt-6">
+      <SectionCard title={title} subtitle={subtitle}>
+        <div className="space-y-3 text-sm leading-relaxed text-ink-soft">
+          {children}
+        </div>
+      </SectionCard>
+    </section>
+  )
+}
+
+function AppLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Link
+      to={to}
+      className="font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand"
+    >
+      {children}
+    </Link>
+  )
+}
+
+const FAQ: { q: string; a: ReactNode }[] = [
   {
     q: 'מה זה שיבוצון?',
-    a: 'כלי פנימי לשיבוץ בודקים וסלקטורים לנתיבים בשער יציאה. המערכת שומרת אנשים, הסמכות, נתיבים ואת היסטוריית המשמרות.',
+    a: 'כלי פנימי למנהלים לשיבוץ בודקים וסלקטורים לנתיבים בשער יציאה. המערכת שומרת אנשים, הסמכות, נתיבים והיסטוריית משמרות.',
   },
   {
     q: 'איך מתחברים?',
-    a: 'עם מספר הטלפון של חשבון מנהל, ואז סיסמה. בכניסה הראשונה, אחרי סיסמה זמנית מהמייל, בוחרים סיסמה קבועה.',
+    a: 'עם מספר הטלפון של חשבון מנהל ואז סיסמה. בכניסה הראשונה, אחרי סיסמה זמנית מהמייל, בוחרים סיסמה קבועה.',
   },
   {
     q: 'שכחתי את הסיסמה.',
@@ -18,7 +97,7 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
   },
   {
     q: 'איך מחליפים סיסמה כשכבר מחוברים?',
-    a: 'מתפריט השם בפינה, בחרו «החלפת סיסמה». צריך את הסיסמה הנוכחית וסיסמה חדשה שעומדת בכללים.',
+    a: 'מתפריט השם בפינה בחרו «החלפת סיסמה». צריך את הסיסמה הנוכחית וסיסמה חדשה שעומדת בכללים.',
   },
   {
     q: 'למה אדם לא שובץ לנתיב?',
@@ -28,15 +107,9 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
     q: 'איך נקבע מי יושב איפה?',
     a: (
       <>
-        קודם כל הכללים הקשיחים (נוכחות, הסמכה, תקן). אחר כך העדפות כמו רוטציה
+        קודם הכללים הקשיחים (נוכחות, הסמכה, תקן). אחר כך העדפות כמו רוטציה
         ופיזור עומס. ההסבר המלא נמצא{' '}
-        <Link
-          to="/algorithm"
-          className="font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand"
-        >
-          בכללי השיבוץ
-        </Link>
-        .
+        <AppLink to="/algorithm">בכללי השיבוץ</AppLink>.
       </>
     ),
   },
@@ -50,21 +123,22 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
   },
   {
     q: 'איפה רואים את הפרטים של אדם?',
-    a: 'במאגר האנשים, לחצו על השם. נפתח פרופיל עם הסמכות, הנתיבים שהוא כשיר להם, והמשמרות האחרונות.',
+    a: 'במאגר האנשים לחצו על השם. נפתח פרופיל עם הסמכות, הנתיבים שהוא כשיר להם, והמשמרות האחרונות.',
+  },
+  {
+    q: 'למה אי אפשר לייצא את הלוח?',
+    a: 'ייצוא רשמי אפשרי רק אחרי שהמשמרת נשמרה בהיסטוריה ואין טיוטה לא שמורה. שמרו קודם, ואז ייצאו.',
+  },
+  {
+    q: 'מה קורה אחרי סגירת משמרת (חתימה)?',
+    a: 'הלוח ננעל — אי אפשר לערוך או למחוק. אם צריך שינוי, פתחו משמרת חדשה או פנו להיסטוריה לפי הכללים בארגון.',
   },
   {
     q: 'מצאתי תקלה.',
     a: (
       <>
-        אפשר לשלוח{' '}
-        <Link
-          to="/report"
-          className="font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand"
-        >
-          דיווח תקלה
-        </Link>
-        {' '}
-        מהפוטר. תארו מה קרה ובאיזה מסך.
+        אפשר לשלוח <AppLink to="/report">דיווח תקלה</AppLink> מהפוטר. תארו מה
+        קרה ובאיזה מסך.
       </>
     ),
   },
@@ -72,20 +146,403 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
 
 export function HelpPage() {
   return (
-    <PublicPage>
-      <SectionCard
-        title="שאלות נפוצות"
-        subtitle="תשובות קצרות על התחברות, שיבוץ והשימוש היומיומי."
-      >
-        <div className="space-y-5">
-          {QUESTIONS.map((item) => (
-            <section key={item.q}>
-              <h2 className="font-display text-base font-bold text-ink">{item.q}</h2>
-              <p className="mt-1 text-sm leading-relaxed text-ink-soft">{item.a}</p>
-            </section>
-          ))}
-        </div>
-      </SectionCard>
+    <PublicPage wide>
+      <div className="space-y-4">
+        <SectionCard
+          title="מדריך למשתמש"
+          subtitle="הסברים פשוטים על כל חלק במערכת — מהמסך הראשי ועד ייצוא הלוח."
+        >
+          <p className="text-sm leading-relaxed text-ink-soft">
+            שיבוצון מיועד למנהלים בשער יציאה. כאן תמצאו הסבר קצר על כל מסך,
+            ומה לעשות ביום־יום. לפרטים על איך האלגוריתם בוחר אנשים — ראו{' '}
+            <AppLink to="/algorithm">כללי השיבוץ</AppLink>.
+          </p>
+          <nav
+            aria-label="תוכן העניינים"
+            className="mt-4 rounded-xl border border-line/70 bg-surface/60 p-3 sm:p-4"
+          >
+            <p className="mb-2 text-xs font-semibold text-ink">מעבר מהיר</p>
+            <div className="flex flex-wrap gap-1.5">
+              {TOC.map((item) => (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  className="rounded-lg border border-line/70 bg-card px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-brand/30 hover:text-brand sm:text-xs"
+                >
+                  {item.label}
+                </a>
+              ))}
+            </div>
+          </nav>
+        </SectionCard>
+
+        <HelpSection
+          id="intro"
+          title="מה זה שיבוצון"
+          subtitle="במילים פשוטות"
+        >
+          <p>
+            שיבוצון עוזר לכם לבנות לוח שיבוץ לנתיבים: מי נוכח, מי כשיר, ומי
+            יושב איפה — בצורה הוגנת יותר ומהירה יותר משיבוץ ידני מאפס.
+          </p>
+          <BulletList
+            items={[
+              'שומרים אנשים, הסמכות ונתיבים במקום אחד.',
+              'מריצים שיבוץ אוטומטי כנקודת פתיחה, ואז אפשר לתקן ידנית.',
+              'שומרים היסטוריה, מייצאים ללוח או לוואטסאפ, ועוקבים אחרי עומס לאורך זמן.',
+              'המערכת לא מחליפה את המנהל — היא נותנת לו לוח מוכן ומוסבר.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="login"
+          title="התחברות וחשבון"
+          subtitle="כניסה, סיסמה ואיפוס"
+        >
+          <Steps
+            items={[
+              'נכנסים עם מספר טלפון של חשבון מנהל ועם סיסמה.',
+              'בכניסה הראשונה אחרי סיסמה זמנית מהמייל — בוחרים סיסמה קבועה.',
+              'שכחתם סיסמה? במסך ההתחברות בחרו איפוס — נשלחת סיסמה זמנית למייל.',
+              'כשכבר מחוברים: מתפריט השם בחרו «החלפת סיסמה».',
+            ]}
+          />
+          <p>
+            סיסמה חדשה צריכה להיות חזקה מספיק (לפחות 8 תווים, אות גדולה, ספרה
+            וסימן). ארגון חדש נרשם במסך הרישום וממתין לאישור מנהל המערכת.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="modules"
+          title="בודקים וסלקטורים"
+          subtitle="שתי חלקות באותו ארגון"
+        >
+          <p>
+            לארגון יכולים להיות שני מודולים נפרדים: <strong>בודקים</strong> ו־
+            <strong>סלקטורים</strong>. מחליפים ביניהם מהכותרת למעלה (כשיש גישה
+            לשניהם).
+          </p>
+          <BulletList
+            items={[
+              'בודקים — לרוב שיבוץ אחד לכל המשמרת (אדם יושב בנתיב עד הסוף).',
+              'סלקטורים — לרוב סבבים של כשעתיים, עם אפשרות לחלון שעות אישי.',
+              'הנתונים של כל מודול נשמרים בנפרד (אנשים, נתיבים, היסטוריה).',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="home"
+          title="המסך הראשי"
+          subtitle="מה רואים כשנכנסים"
+        >
+          <BulletList
+            items={[
+              'איזו משמרת רצה עכשיו לפי השעון ומודלי המשמרת של הארגון.',
+              'תצוגה מהירה של הלוח הנוכחי (אם כבר יש שיבוץ שמור).',
+              'טיוטות שלא נשמרו, הודעות מערכת, וקיצורי דרך להמשך עבודה.',
+              'משם אפשר לקפוץ ישר למסך השיבוץ או לייצוא.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="shift"
+          title="שיבוץ משמרת"
+          subtitle="המסך המרכזי — אשף + לוח"
+        >
+          <p>כך בדרך כלל בונים משמרת:</p>
+          <Steps
+            items={[
+              'בוחרים תאריך וסוג משמרת (בוקר / צהריים / לילה וכו׳).',
+              'בוחרים אילו נתיבים פתוחים היום, ואם צריך — מתקנים תקן ליום.',
+              'מסמנים מי נוכח. אפשר למנות מנהל שער ולתת חלון שעות אישי.',
+              'רואים אם הכיסוי מספיק (תקין / דחוק / חסר).',
+              'מריצים שיבוץ אוטומטי — עם סרגל התקדמות עד שהלוח מוכן.',
+              'מתקנים ידנית אם צריך, שומרים, מייצאים או סוגרים בחתימה.',
+            ]}
+          />
+          <p>
+            לכל אדם ששובץ יש הסבר קצר למה הוא נבחר. אפשר לפתוח אותו מהלוח.
+            פירוט מלא של הכללים:{' '}
+            <AppLink to="/algorithm">כללי השיבוץ</AppLink>.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="live"
+          title="במהלך המשמרת"
+          subtitle="יציאה מוקדמת, מילוי חוזר, סגירה ומסירה"
+        >
+          <BulletList
+            items={[
+              <>
+                <strong>מנהל שער</strong> — מנהל נוכח שממונה למשמרת יושב בעמדת
+                «מנהל שער» ולא נספר כאדם פנוי לנתיבים הרגילים.
+              </>,
+              <>
+                <strong>יציאה מוקדמת / ביטול / אי־הגעה</strong> — מסמנים מתי
+                אדם ירד. העומס שלו מחושב לפי השעות שבאמת ישב.
+              </>,
+              <>
+                <strong>מילוי אוטומטי (שיקום)</strong> — כשמישהו יורד באמצע,
+                המערכת מציעה איך למלא את הנתיבים שוב. אפשר לאשר או לתקן ידנית.
+              </>,
+              <>
+                <strong>סגירת משמרת</strong> — מקלידים את השם המלא לחתימה. אחרי
+                זה הלוח ננעל.
+              </>,
+              <>
+                <strong>מסירה למשמרת הבאה</strong> — טקסט מוכן עם הערות, חסרים
+                ומי שממשיך.
+              </>,
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="workers"
+          title="אנשים (בודקים / סגל)"
+          subtitle="מאגר כוח האדם"
+        >
+          <BulletList
+            items={[
+              'מוסיפים אדם עם שם, טלפון, הסמכות וסטטוס (פעיל / לא פעיל / בארכיון).',
+              'מסמנים אם הוא בודק/סלקטור בשיבוץ, ואם הוא מנהל שיכול להתחבר.',
+              'לחיצה על השם פותחת פרופיל: הסמכות, נתיבים כשירים, משמרות אחרונות.',
+              'רק אנשים פעילים ונוכחים נכנסים לשיבוץ האוטומטי.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection id="lanes" title="נתיבים" subtitle="העמדות בשער">
+          <BulletList
+            items={[
+              <>
+                <strong>תקן</strong> — כמה אנשים מקסימום יכולים לשבת בנתיב
+                (1–5). במשמרת אפשר לבחור פחות ליום מסוים.
+              </>,
+              <>
+                <strong>הסמכות נדרשות</strong> — חייבים את כולן כדי להיות
+                כשירים לנתיב.
+              </>,
+              <>
+                <strong>עוצמה</strong> — קל / בינוני / קשה. משפיעה על סדר
+                המילוי ועל חישוב העומס.
+              </>,
+              <>
+                <strong>החלפת צהריים</strong> — סימון לנתיבים שמעדיפים מי שמגיע
+                רק לצהריים (ולא מי שממשיך מבוקר).
+              </>,
+              <>
+                <strong>שעות פעילות</strong> — אצל סלקטורים הנתיב נפתח רק
+                בטווחים שציינתם.
+              </>,
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="certs"
+          title="הסמכות"
+          subtitle="הקטלוג המשותף"
+        >
+          <p>
+            כאן מגדירים את רשימת ההסמכות של הארגון (למשל דרכונים, בידוק, נתיב
+            מהיר). אחר כך משייכים אותן לאנשים ולנתיבים. בלי הסמכה מתאימה —
+            האדם לא ייכנס לנתיב שדורש אותה.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="briefings"
+          title="תדריכים"
+          subtitle="תוכן משותף לצוות"
+        >
+          <BulletList
+            items={[
+              'סעיפי תדריך שאפשר לערוך יחד — כותרת, תוכן, סדר, וכוכב לחשיבות.',
+              'בנק שאלות לבודקים — שאלה ותשובה מילולית לתדרוך / תרגול.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="incidents"
+          title="אירועים ותקלות"
+          subtitle="יומן תפעולי"
+        >
+          <p>
+            רושמים תקלה או אירוע ציוד: כותרת, תיאור, חומרה (נמוך עד קריטי)
+            וסטטוס (פתוח / בטיפול / נסגר). אפשר לשייך לנתיב או למשמרת ולהוסיף
+            הערות טיפול.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="tracking"
+          title="מעקב נתיבים"
+          subtitle="מי ישב איפה לאחרונה"
+        >
+          <BulletList
+            items={[
+              'מפת חום: כמה פעמים כל אדם ישב בכל נתיב.',
+              'אפשר לסנן, למיין, ולהשוות עומס לממוצע הצוות.',
+              'מיועד לבדוק ריכוז חוזר באותו נתיב ולתקן מגמות לאורך זמן.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="analytics"
+          title="סטטיסטיקות ואנליזה"
+          subtitle="הוגנות ועומס"
+        >
+          <BulletList
+            items={[
+              'עומס לפי משפחות משמרת (בוקר / צהריים / לילה) וספירות קשה/קל.',
+              'פער הוגנות בין אנשים — כדי לראות מי עמוס מדי ומי פחות.',
+              'אירועים כמו «קשה אחרי לילה» וריכוז חוזר בנתיב.',
+              'אפשר לייצא ל־Excel או CSV.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="history"
+          title="היסטוריה"
+          subtitle="משמרות קודמות"
+        >
+          <BulletList
+            items={[
+              'רואים משמרות שנשמרו, פותחים לוח ישן, ומשווים תצוגות.',
+              'אפשר לשחזר גרסה קודמת של משמרת (אם נשמרו גרסאות).',
+              'היסטוריה משמשת גם את האלגוריתם — רוטציה ועומס על כ־14 יום אחורה.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="audit"
+          title="יומן"
+          subtitle="מי שינה מה"
+        >
+          <p>
+            כל שמירה ושינוי חשוב נרשמים כאן. שימושי לבדיקה אחרי מחלוקת על
+            שיבוץ, או כדי להבין מי ערך ידנית אחרי הריצה האוטומטית. אפשר לייצא
+            את היומן לקובץ.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="brokers"
+          title="עמילי מכס"
+          subtitle="ספר טלפונים לחיוג"
+        >
+          <p>
+            מאגר חברות ואנשי קשר עם מספרים לחיוג מהיר. לא קשור ישירות לשיבוץ
+            האוטומטי — כלי עזר לתפעול היומיומי בשער.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="models"
+          title="חלונות משמרת"
+          subtitle="מתי מתחילה ונגמרת כל משמרת"
+        >
+          <p>
+            כאן מגדירים את שמות וטווחי השעות של המשמרות בארגון (למשל בוקר
+            06:00–15:00). המסך הראשי משתמש בזה כדי לדעת איזו משמרת «רצה עכשיו».
+            אם הרשימה ריקה — נעשה שימוש בברירות המחדל של המערכת.
+          </p>
+        </HelpSection>
+
+        <HelpSection
+          id="settings"
+          title="הגדרות שיבוץ"
+          subtitle="איך החלקה משבצת"
+        >
+          <BulletList
+            items={[
+              'בחירה בין שיבוץ אחד לכל המשמרת לבין סבבים מתחלפים.',
+              'ההגדרה נשמרת עם כל משמרת חדשה — שינוי מאוחר לא משכתב היסטוריה ישנה.',
+              'שינוי מצבי שיבוץ זמין למנהל הארגון.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection
+          id="export"
+          title="ייצוא ושיתוף"
+          subtitle="לוח, וואטסאפ וקבצים"
+        >
+          <BulletList
+            items={[
+              'ייצוא תמונת לוח (PNG) בסגנון רשמי לשיתוף או הדפסה.',
+              'טקסט מוכן לוואטסאפ, כולל הערות לנתיבים.',
+              'ייצוא אנליטיקה, מעקב, יומן ואירועים ל־Excel/CSV.',
+              'ייצוא הלוח הרשמי נפתח רק אחרי שמירה להיסטוריה ובלי טיוטה פתוחה.',
+            ]}
+          />
+        </HelpSection>
+
+        <HelpSection id="glossary" title="מילון קצר" subtitle="מילים שחוזרות במערכת">
+          <BulletList
+            items={[
+              <>
+                <strong>תקן</strong> — כמה אנשים צריכים / יכולים לשבת בנתיב.
+              </>,
+              <>
+                <strong>רוטציה</strong> — להרחיק אדם מנתיב שהוא ישב בו לאחרונה.
+              </>,
+              <>
+                <strong>עומס</strong> — ציון כמה «כבד» היה לאדם בימים האחרונים.
+              </>,
+              <>
+                <strong>סבב</strong> — בלוק זמן קצר (בדרך כלל ~שעתיים) בשיבוץ
+                סלקטורים.
+              </>,
+              <>
+                <strong>החלפת צהריים</strong> — העדפה למי שמגיע רק לצהריים
+                בנתיב מסומן.
+              </>,
+              <>
+                <strong>שיקום / מילוי אוטומטי</strong> — הצעת לוח חדש אחרי
+                יציאה באמצע משמרת.
+              </>,
+              <>
+                <strong>חתימה / סגירה</strong> — נעילת הלוח בסוף המשמרת.
+              </>,
+            ]}
+          />
+        </HelpSection>
+
+        <section id="faq" className="scroll-mt-6">
+          <SectionCard
+            title="שאלות נפוצות"
+            subtitle="תשובות קצרות על התחברות, שיבוץ ושימוש יומיומי."
+          >
+            <div className="space-y-5">
+              {FAQ.map((item) => (
+                <section key={item.q}>
+                  <h3 className="font-display text-base font-bold text-ink">
+                    {item.q}
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+                    {item.a}
+                  </p>
+                </section>
+              ))}
+            </div>
+            <p className="mt-6 text-sm leading-relaxed text-ink-soft">
+              עדיין תקועים? שלחו <AppLink to="/report">דיווח תקלה</AppLink> עם
+              תיאור המסך והפעולה שניסיתם.
+            </p>
+          </SectionCard>
+        </section>
+      </div>
     </PublicPage>
   )
 }

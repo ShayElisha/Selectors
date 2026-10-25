@@ -27,6 +27,7 @@ import {
   ClipboardPenLine,
   Box,
   Siren,
+  CircleHelp,
 } from 'lucide-react'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -505,6 +506,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
                         {module === 'inspectors' ? 'בודקים' : 'סלקטורים'}
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileOpen(false)
+                        navigate('/help')
+                      }}
+                      className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-surface hover:text-ink"
+                    >
+                      <CircleHelp className="size-4 shrink-0" aria-hidden />
+                      עזרה ומדריך
+                    </button>
                     <button
                       type="button"
                       role="menuitem"
