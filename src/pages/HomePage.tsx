@@ -32,6 +32,7 @@ import {
 import { fetchAuditLogs, fetchSystemMessagesRemote, postAuditEvent } from '../api'
 import { fetchShiftHandoffs } from '../api'
 import type { SystemMessage } from '../api'
+import { WorkerNoticeComposer } from '../components/WorkerNoticeComposer'
 import { downloadBoardImage, type ExportLaneLine } from '../lib/export'
 import {
   daysBetweenLocal,
@@ -518,6 +519,7 @@ export function HomePage() {
           </ul>
         </section>
       ) : null}
+      {user?.role === 'org_manager' ? <WorkerNoticeComposer /> : null}
       {/* 1. Compact status bar */}
       <section
         className="flex flex-col gap-3 rounded-2xl border border-brand/15 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 shadow-[var(--shadow-panel)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-5"

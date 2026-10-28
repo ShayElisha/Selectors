@@ -548,7 +548,13 @@ export interface WorkerHomeResponse {
     status: string
   }
   module: 'selectors' | 'inspectors'
-  slot: { date: string; shiftType: string; windowLabel: string }
+  slot: {
+    date: string
+    shiftType: string
+    windowLabel: string
+    startMinutes?: number | null
+    endMinutes?: number | null
+  }
   shift: {
     id: string
     date: string
@@ -584,6 +590,7 @@ export interface WorkerHomeResponse {
   }
   gateManager: { id: string; fullName: string; phone: string } | null
   now?: {
+    phase: 'upcoming' | 'active' | 'none' | string
     serverNow: string
     clockMinutes: number
     currentRound: {
@@ -608,6 +615,8 @@ export interface WorkerHomeResponse {
     }[]
     minutesToRoundEnd: number | null
     roundEndsAt: string | null
+    minutesToShiftStart: number | null
+    shiftStartsAt: string | null
     minutesToShiftEnd: number | null
     shiftEndsAt: string | null
     shiftStartMinutes: number

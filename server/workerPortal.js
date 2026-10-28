@@ -9,12 +9,34 @@ function httpError(message, status) {
   return err
 }
 
+const IL_TZ = 'Asia/Jerusalem'
+
+function israelParts(d = new Date()) {
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: IL_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const parts = Object.fromEntries(
+    fmt.formatToParts(d).map((p) => [p.type, p.value]),
+  )
+  const hour = Number(parts.hour === '24' ? '0' : parts.hour)
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: hour * 60 + Number(parts.minute),
+  }
+}
+
 function toDateISO(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return israelParts(d).date
 }
 
 function localMinutes(d = new Date()) {
-  return d.getHours() * 60 + d.getMinutes()
+  return israelParts(d).minutes
 }
 
 function currentSlotFromModels(models, now = new Date()) {
@@ -165,60 +187,101 @@ function shiftBounds(shiftType, models) {
   )
 }
 
-/** Present + past only — future shifts that have not started yet are hidden. */
-function shiftHasStarted(shift, models, now = new Date()) {
-  if (!shift?.date) return false
-  const today = toDateISO(now)
-  if (shift.date < today) return true
-  if (shift.date > today) return false
-  const { start } = shiftBounds(shift.shiftType, models)
-  return localMinutes(now) >= start
-}
-
-function normalizeClockSpan(start, end, clock) {
-  let endAdj = end
-  let clockAdj = clock
-  if (endAdj <= start) endAdj += 24 * 60
-  if (clockAdj < start && endAdj > 24 * 60) clockAdj += 24 * 60
-  return { start, end: endAdj, clock: clockAdj }
-}
-
-function atLocalIso(dateISO, minutesFromMidnight) {
-  const day = 24 * 60
-  const extraDays = Math.floor(minutesFromMidnight / day)
-  const m = ((minutesFromMidnight % day) + day) % day
+/** Absolute minutes from a fixed epoch day for sorting/comparisons. */
+function absoluteMinutes(dateISO, minutesFromMidnight) {
   const [y, mo, d] = String(dateISO)
     .split('-')
     .map((part) => Number(part))
-  const dt = new Date(
-    y,
-    mo - 1,
-    d + extraDays,
-    Math.floor(m / 60),
-    m % 60,
-    0,
-    0,
-  )
-  return dt.toISOString()
+  const utcDay = Date.UTC(y, mo - 1, d) / 60000
+  return utcDay + Number(minutesFromMidnight)
 }
 
-function buildNowContext(shift, placement, models, slot, now = new Date()) {
+function shiftStartAbs(shift, models) {
+  const { start } = shiftBounds(shift.shiftType, models)
+  return absoluteMinutes(shift.date, start)
+}
+
+function shiftEndAbs(shift, models) {
+  const { start, end } = shiftBounds(shift.shiftType, models)
+  const endAdj = end <= start ? end + 24 * 60 : end
+  return absoluteMinutes(shift.date, endAdj)
+}
+
+function nowAbs(now = new Date()) {
+  const { date, minutes } = israelParts(now)
+  return absoluteMinutes(date, minutes)
+}
+
+/** Present + past only — future shifts that have not started yet are hidden. */
+function shiftHasStarted(shift, models, now = new Date()) {
+  if (!shift?.date) return false
+  return nowAbs(now) >= shiftStartAbs(shift, models)
+}
+
+function shiftHasEnded(shift, models, now = new Date()) {
+  if (!shift?.date) return true
+  return nowAbs(now) >= shiftEndAbs(shift, models)
+}
+
+function minutesUntilAbs(targetAbs, now = new Date()) {
+  return Math.max(0, Math.round(targetAbs - nowAbs(now)))
+}
+
+function isoAfterMinutes(now, minutes) {
+  return new Date(now.getTime() + Math.max(0, minutes) * 60_000).toISOString()
+}
+
+/**
+ * Active shift if currently running; otherwise the next upcoming assignment.
+ */
+function findRelevantShift(history, workerId, models, now = new Date()) {
+  const list = (history || [])
+    .filter((s) => workerTouchedShift(s, workerId))
+    .filter((s) => !shiftHasEnded(s, models, now))
+    .sort((a, b) => shiftStartAbs(a, models) - shiftStartAbs(b, models))
+
+  const active = list.find((s) => shiftHasStarted(s, models, now))
+  if (active) return { shift: active, phase: 'active' }
+
+  const upcoming = list[0] || null
+  if (upcoming) return { shift: upcoming, phase: 'upcoming' }
+
+  return { shift: null, phase: 'none' }
+}
+
+function buildNowContext(shift, placement, models, slot, phase, now = new Date()) {
   const clock = localMinutes(now)
   const date = shift?.date || slot?.date || toDateISO(now)
   const shiftType = shift?.shiftType || slot?.shiftType
   const bounds = shiftBounds(shiftType, models)
-  const shiftSpan = normalizeClockSpan(bounds.start, bounds.end, clock)
-  const minutesToShiftEnd = Math.max(0, Math.round(shiftSpan.end - shiftSpan.clock))
+  const resolvedPhase =
+    phase ||
+    (shift
+      ? shiftHasStarted(shift, models, now)
+        ? 'active'
+        : 'upcoming'
+      : 'none')
+
+  let minutesToShiftStart = null
+  let minutesToShiftEnd = null
+  if (shift) {
+    minutesToShiftStart =
+      resolvedPhase === 'upcoming'
+        ? minutesUntilAbs(shiftStartAbs(shift, models), now)
+        : 0
+    minutesToShiftEnd = minutesUntilAbs(shiftEndAbs(shift, models), now)
+  }
 
   let currentRound = null
-  if (placement?.rounds?.length) {
+  if (resolvedPhase === 'active' && placement?.rounds?.length) {
+    const nowA = nowAbs(now)
     for (const round of placement.rounds) {
-      const span = normalizeClockSpan(
-        Number(round.startMinutes),
-        Number(round.endMinutes),
-        clock,
-      )
-      if (span.clock >= span.start && span.clock < span.end) {
+      const startA = absoluteMinutes(date, Number(round.startMinutes))
+      let endMinutes = Number(round.endMinutes)
+      if (endMinutes <= Number(round.startMinutes)) endMinutes += 24 * 60
+      const endA = absoluteMinutes(date, endMinutes)
+      if (nowA >= startA && nowA < endA) {
+        const minutesRemaining = Math.max(0, Math.round(endA - nowA))
         currentRound = {
           label: round.label,
           startMinutes: round.startMinutes,
@@ -230,32 +293,47 @@ function buildNowContext(shift, placement, models, slot, now = new Date()) {
             intensity: a.intensity,
             notes: a.notes || '',
           })),
-          minutesRemaining: Math.max(0, Math.round(span.end - span.clock)),
-          endsAt: atLocalIso(date, span.end),
+          minutesRemaining,
+          endsAt: isoAfterMinutes(now, minutesRemaining),
         }
         break
       }
     }
   }
 
-  const activeLanes = currentRound
-    ? currentRound.lanes
-    : (placement?.lanes || []).map((a) => ({
-        laneId: a.laneId,
-        laneName: a.laneName,
-        intensity: a.intensity,
-        notes: a.notes || '',
-      }))
+  const activeLanes =
+    resolvedPhase === 'active'
+      ? currentRound
+        ? currentRound.lanes
+        : (placement?.lanes || []).map((a) => ({
+            laneId: a.laneId,
+            laneName: a.laneName,
+            intensity: a.intensity,
+            notes: a.notes || '',
+          }))
+      : (placement?.lanes || []).map((a) => ({
+          laneId: a.laneId,
+          laneName: a.laneName,
+          intensity: a.intensity,
+          notes: a.notes || '',
+        }))
 
   return {
+    phase: resolvedPhase,
     serverNow: now.toISOString(),
     clockMinutes: clock,
     currentRound,
     activeLanes,
     minutesToRoundEnd: currentRound ? currentRound.minutesRemaining : null,
     roundEndsAt: currentRound?.endsAt || null,
-    minutesToShiftEnd: shift ? minutesToShiftEnd : null,
-    shiftEndsAt: shift ? atLocalIso(date, shiftSpan.end) : null,
+    minutesToShiftStart,
+    shiftStartsAt:
+      minutesToShiftStart != null && resolvedPhase === 'upcoming'
+        ? isoAfterMinutes(now, minutesToShiftStart)
+        : null,
+    minutesToShiftEnd,
+    shiftEndsAt:
+      minutesToShiftEnd != null ? isoAfterMinutes(now, minutesToShiftEnd) : null,
     shiftStartMinutes: bounds.start,
     shiftEndMinutes: bounds.end,
   }
@@ -399,9 +477,33 @@ export async function getWorkerHome(req) {
     staffKind: actor.staffKind || 'selector',
     status: 'active',
   }
-  const slot =
-    currentSlotFromModels(state.shiftModels) || fallbackSlot(scope.module)
-  const shift = findMyShift(state.history, actor.id, slot.date, slot.shiftType)
+  const now = new Date()
+  const clockSlot =
+    currentSlotFromModels(state.shiftModels, now) ||
+    fallbackSlot(scope.module, now)
+  const relevant = findRelevantShift(
+    state.history,
+    actor.id,
+    state.shiftModels,
+    now,
+  )
+  const shift = relevant.shift
+  const phase = relevant.phase
+  const bounds = shift
+    ? shiftBounds(shift.shiftType, state.shiftModels)
+    : null
+  const slot = shift
+    ? {
+        date: shift.date,
+        shiftType: String(shift.shiftType),
+        windowLabel:
+          (state.shiftModels || []).find(
+            (m) => String(m.id) === String(shift.shiftType),
+          )?.name ||
+          clockSlot.windowLabel ||
+          String(shift.shiftType),
+      }
+    : clockSlot
   const placement = myPlacement(shift, actor.id, state.lanes)
   const gateId = shift?.gateManagerWorkerId
   const gate = gateId
@@ -410,19 +512,23 @@ export async function getWorkerHome(req) {
   const drop = (shift?.shiftDrops || []).find((d) => d.workerId === actor.id) || null
   const windowAdj = shift?.windowAdjustments?.[actor.id] || null
   const earlyLeaveAt = shift?.earlyLeaveAt?.[actor.id]
-  const now = new Date()
   const nowContext = buildNowContext(
     shift,
     placement,
     state.shiftModels,
     slot,
+    phase,
     now,
   )
 
   return {
     me,
     module: scope.module,
-    slot,
+    slot: {
+      ...slot,
+      startMinutes: bounds?.start ?? null,
+      endMinutes: bounds?.end ?? null,
+    },
     shift: shift
       ? {
           id: shift.id,
@@ -475,10 +581,18 @@ export async function updateWorkerStatus(req, body) {
     throw httpError('ניתן רק לסמן הגעה', 400)
   }
   const state = await readState(scope)
-  const slot =
-    currentSlotFromModels(state.shiftModels) || fallbackSlot(scope.module)
-  const shift = findMyShift(state.history, actor.id, slot.date, slot.shiftType)
-  if (!shift) throw httpError('לא נמצאה משמרת פתוחה עבורכם היום', 404)
+  const now = new Date()
+  const relevant = findRelevantShift(
+    state.history,
+    actor.id,
+    state.shiftModels,
+    now,
+  )
+  const shift = relevant.shift
+  if (!shift) throw httpError('לא נמצאה משמרת פתוחה עבורכם', 404)
+  if (relevant.phase === 'upcoming') {
+    throw httpError('המשמרת עדיין לא התחילה — אפשר לסמן הגעה מתחילת המשמרת', 409)
+  }
   if (shift.signOff) {
     throw httpError('המשמרת נסגרה ואין אפשרות לעדכן סטטוס', 409)
   }

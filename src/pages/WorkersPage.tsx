@@ -58,8 +58,8 @@ import {
   type StatusTab,
   type WorkerSortKey,
 } from '../lib/workersHelpers'
-import { createWorkerNoticeRemote } from '../api'
 import { notify } from '../lib/notify'
+import { WorkerNoticeComposer } from '../components/WorkerNoticeComposer'
 import type { Lane, StaffKind, Worker, WorkerStatus } from '../types'
 
 const emptyForm = (staffKind: StaffKind = 'selector'): Omit<Worker, 'id'> => ({
@@ -938,9 +938,6 @@ export function WorkersPage() {
   const [certFilters, setCertFilters] = useState<string[]>([])
   const [sortKey, setSortKey] = useState<WorkerSortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
-  const [noticeTitle, setNoticeTitle] = useState('')
-  const [noticeBody, setNoticeBody] = useState('')
-  const [noticeBusy, setNoticeBusy] = useState(false)
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [deleteTyped, setDeleteTyped] = useState('')
   const [pendingSave, setPendingSave] = useState<Omit<Worker, 'id'> | null>(
@@ -1249,64 +1246,11 @@ export function WorkersPage() {
     )
   }
 
-  const sendWorkerNotice = async () => {
-    const title = noticeTitle.trim()
-    const body = noticeBody.trim()
-    if (title.length < 2 || body.length < 2) {
-      notify.warning('נא למלא כותרת ותוכן להודעה')
-      return
-    }
-    setNoticeBusy(true)
-    try {
-      await createWorkerNoticeRemote({ title, body })
-      setNoticeTitle('')
-      setNoticeBody('')
-      notify.success('ההודעה נשלחה לפורטל העובדים')
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'שליחת ההודעה נכשלה')
-    } finally {
-      setNoticeBusy(false)
-    }
-  }
-
   return (
     <div className="workers-print-root space-y-4">
-      <SectionCard
-        title="הודעה לעובדים"
-        subtitle="תופיע בפעמון ההתראות בפורטל העובדים של המודול הנוכחי."
-      >
-        <div className="space-y-3 no-print">
-          <label className="block text-sm">
-            <span className="text-ink-soft">כותרת</span>
-            <input
-              className="ui-field mt-1"
-              value={noticeTitle}
-              maxLength={120}
-              onChange={(e) => setNoticeTitle(e.target.value)}
-              placeholder="לדוגמה: עדכון למשמרת הערב"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-ink-soft">תוכן</span>
-            <textarea
-              className="ui-field mt-1 min-h-24 resize-y"
-              value={noticeBody}
-              maxLength={2000}
-              onChange={(e) => setNoticeBody(e.target.value)}
-              placeholder="הודעה קצרה שתוצג לעובדים עם גישת התחברות"
-            />
-          </label>
-          <button
-            type="button"
-            className="ui-btn ui-btn-primary"
-            disabled={noticeBusy}
-            onClick={() => void sendWorkerNotice()}
-          >
-            <Mail className="size-4" aria-hidden />
-            {noticeBusy ? 'שולח…' : 'שליחה לפורטל העובדים'}
-          </button>
-        </div>
-      </SectionCard>
+      <div className="no-print">
+        <WorkerNoticeComposer />
+      </div>
 
       <SectionCard
         title="מאגר בודקים"
