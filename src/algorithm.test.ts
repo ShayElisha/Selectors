@@ -1651,6 +1651,99 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
     expect(customsIds).toEqual(['o'])
   })
 
+  it('puts last night’s worker on the afternoon handoff seat before other afternoon arrivals', () => {
+    const nightWorker = worker('n', 'NightArrival')
+    const restedArrival = worker('r', 'RestedArrival')
+    const morningOccupant = worker('c', 'Continuer')
+    const history = [
+      shift(
+        'night',
+        '2026-03-09',
+        'night',
+        [{ laneId: 'easy', workerIds: ['n'] }],
+        ['n'],
+        ['easy'],
+      ),
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['c'] }],
+        ['c'],
+        ['customs'],
+      ),
+      // Rested arrival sat customs recently — would win on rotation alone.
+      shift(
+        'prev',
+        '2026-02-20',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['n'] }],
+        ['n'],
+        ['customs'],
+      ),
+      shift(
+        'prev2',
+        '2026-03-01',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['r'] }],
+        ['r'],
+        ['customs'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs, easy],
+      [nightWorker, restedArrival, morningOccupant],
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 77 },
+    )
+    const customsIds =
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds ?? []
+    expect(customsIds).toEqual(['n'])
+    const note = result.explanations.find(
+      (item) => item.workerId === 'n' && item.laneId === 'customs',
+    )
+    expect(
+      note?.reasons.some((reason) => reason.includes('אחרי לילה')),
+    ).toBe(true)
+  })
+
+  it('still prefers night→afternoon for handoff even when an easy lane is open', () => {
+    const nightWorker = worker('n', 'NightArrival')
+    const other = worker('o', 'OtherAfternoon')
+    const history = [
+      shift(
+        'night',
+        '2026-03-09',
+        'night',
+        [{ laneId: 'hard', workerIds: ['n'] }],
+        ['n'],
+        ['hard'],
+      ),
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [{ laneId: 'customs', workerIds: ['c'] }],
+        ['c'],
+        ['customs'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [customs, easy],
+      [nightWorker, other],
+      history,
+      [customs, easy],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 88 },
+    )
+    expect(
+      result.assignments.find((a) => a.laneId === 'customs')?.workerIds,
+    ).toEqual(['n'])
+    expect(
+      result.assignments.find((a) => a.laneId === 'easy')?.workerIds,
+    ).toEqual(['o'])
+  })
+
   it('ranks same-tier candidates by whoever sat at the seat longest ago', () => {
     const recent = worker('r', 'Recent')
     const far = worker('f', 'Far')
@@ -1775,6 +1868,60 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
     ).toBe(true)
     expect(note?.reasons.some((reason) => reason.includes('מספרים מול'))).toBe(true)
     expect(note?.reasons.some((reason) => reason.includes('לילה'))).toBe(true)
+  })
+
+  it('keeps the last medium-lane occupant off that seat when anyone else is qualified', () => {
+    const last = worker('last', 'אחרון')
+    const other = worker('other', 'אחר')
+    const medium = lane('medium', 'בינוני', { intensity: 'medium' })
+    const history = [
+      shift(
+        'prev',
+        '2026-03-14',
+        'morning',
+        [{ laneId: 'medium', workerIds: ['last'] }],
+        ['last'],
+        ['medium'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [medium, easy],
+      [last, other],
+      history,
+      [medium, easy],
+      { date: '2026-03-16', shiftType: 'morning', rngSeed: 45, roster: [last, other] },
+    )
+    expect(
+      result.assignments.find((row) => row.laneId === 'medium')?.workerIds[0],
+    ).toBe('other')
+    expect(
+      result.assignments.find((row) => row.laneId === 'easy')?.workerIds[0],
+    ).toBe('last')
+  })
+
+  it('avoids a 4-day short return when a never-visited alternative exists', () => {
+    const recent = worker('recent', 'חזרה')
+    const fresh = worker('fresh', 'חדש')
+    const history = [
+      shift(
+        'prev',
+        '2026-03-12',
+        'morning',
+        [{ laneId: 'easy', workerIds: ['recent'] }],
+        ['recent'],
+        ['easy'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [easy],
+      [recent, fresh],
+      history,
+      [easy],
+      { date: '2026-03-16', shiftType: 'morning', rngSeed: 46 },
+    )
+    expect(result.assignments.find((row) => row.laneId === 'easy')?.workerIds).toEqual([
+      'fresh',
+    ])
   })
 
   it('falls back to another morning continuer only when the occupant does not continue', () => {

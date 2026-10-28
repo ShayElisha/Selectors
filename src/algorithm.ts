@@ -267,6 +267,16 @@ export interface BoardEvaluation {
   priorityUnderstaffingPenalty: number
   /** Sum of afternoon handoff tiers; lower tiers are preferred. */
   handoffTierPenalty: number
+  /**
+   * Night→afternoon people seated on handoff lanes. Higher is better —
+   * keeps last-night workers on החלפת צהריים through optimization.
+   */
+  nightOnHandoff: number
+  /**
+   * Night→afternoon people seated off handoff while a handoff seat exists.
+   * Lower is better.
+   */
+  nightAwayFromHandoff: number
   /** Placements returning to a lane visited within the rotation window. */
   rotationRepeatCount: number
   /** Same-day returns to a non-handoff lane; lower is better. */
@@ -321,10 +331,11 @@ const ROTATION_SOFT_THRESHOLD = 40
 /** Bucket width for rotation ranking — lets load/hard compete inside a band. */
 const ROTATION_SCORE_BUCKET = 5
 /**
- * Short return to the same lane (day shifts): avoid when a better-spaced
- * qualified alternative exists. Also used for board warnings.
+ * Soft short-return window: avoid reseating someone on a lane they held
+ * this recently when a qualified alternative exists. Still not a hard block —
+ * תקן coverage wins if nobody else can fill the seat.
  */
-export const SHORT_RETURN_DAYS = 2
+export const SHORT_RETURN_DAYS = 5
 /**
  * On a hard lane, prefer someone whose recent load is lower by at least this
  * many points (about two weeks). Smaller gaps stay with rotation and hard-count balance.
@@ -350,7 +361,8 @@ export const LAST_OCCUPANT_WINDOW_DAYS = ROTATION_LOOKBACK_DAYS
 /** Only treat versatility as decisive when the gap is at least this many open lanes. */
 const VERSATILITY_MIN_GAP = 2
 /** Per weighted day-visit in the rotation window (grows with repeat volume). */
-const ROTATION_VOLUME_PENALTY_PER_VISIT = 7
+/** Heavier volume penalty so recent / repeated lane visits lose sooner. */
+const ROTATION_VOLUME_PENALTY_PER_VISIT = 10
 
 /** Recent lane visits matter more, while older visits still contribute to rotation. */
 function rotationRecencyWeight(daysSince: number): number {
@@ -533,6 +545,11 @@ export interface WorkerHistoryProfile {
   lastWasHard: boolean
   lastShiftType: ShiftType | null
   shiftsSeen: number
+  /**
+   * True when this afternoon placement follows a night shift yesterday.
+   * Prefer these people for afternoon-handoff seats (and easy rest seats).
+   */
+  afternoonAfterNight: boolean
 }
 
 /**
@@ -1210,6 +1227,7 @@ export function buildWorkerProfile(
     lastWasHard: false,
     lastShiftType: null,
     shiftsSeen: 0,
+    afternoonAfterNight: false,
   }
 
   let capturedLastShift = false
@@ -1394,20 +1412,27 @@ export function buildWorkerProfile(
   profile.load = Math.round(profile.load * 10) / 10
   profile.loadInSameShiftType =
     Math.round(profile.loadInSameShiftType * 10) / 10
+  profile.afternoonAfterNight = needsAfternoonNightRecovery(
+    workerId,
+    history,
+    currentDate,
+    currentShiftType,
+  )
 
   return profile
 }
 
 /**
  * Ranking for a lane (lower compare result = better). Order:
- * 1) afternoon handoff
- * 2) night→afternoon recovery (ahead of rotation, so last night's worker gets the lighter lane)
- * 3) short-return avoidance (almost-hard when alternatives exist in sort set)
- * 4) standard objective: do not repeat whoever sat this lane last
- * 5) hard lanes: idle ≥ IDLE_HARD_REST_DAYS, then clearly lower recent load
- * 6) Maximum Distance rotation — raw score (not continuous)
- * 7) load / hard balance by intensity (relative hard rate)
- * 8) versatility buckets (transitive)
+ * 1) afternoon handoff tier
+ * 2) on handoff seats: night→afternoon people before other same-tier candidates
+ * 3) night→afternoon recovery on easy / away from hard
+ * 4) short-return avoidance (almost-hard when alternatives exist in sort set)
+ * 5) standard objective: do not repeat whoever sat this lane last
+ * 6) hard lanes: idle ≥ IDLE_HARD_REST_DAYS, then clearly lower recent load
+ * 7) Maximum Distance rotation — raw score (not continuous)
+ * 8) load / hard balance by intensity (relative hard rate)
+ * 9) versatility buckets (transitive)
  */
 function compareForLane(
   a: Worker,
@@ -1429,11 +1454,18 @@ function compareForLane(
   const pb = profiles.get(b.id)!
 
   const objective = opts.objective ?? 'standard'
+  const afternoonShift = isAfternoonShift(currentShiftType)
 
-  if (lane.afternoonHandoff && currentShiftType === 'afternoon') {
+  if (lane.afternoonHandoff && afternoonShift) {
     const ta = afternoonHandoffTier(a.id, lane.id, morning)
     const tb = afternoonHandoffTier(b.id, lane.id, morning)
     if (ta !== tb) return ta - tb
+    // Same handoff tier: last night's worker belongs on החלפת צהריים first.
+    if (!relaxNightRecovery) {
+      const aNight = pa.afternoonAfterNight ? 1 : 0
+      const bNight = pb.afternoonAfterNight ? 1 : 0
+      if (aNight !== bNight) return bNight - aNight
+    }
     // Inside the same handoff tier, the person away from this seat longer wins.
     const handoffRa = rotationScoreFor(pa, lane.id).rawScore
     const handoffRb = rotationScoreFor(pb, lane.id).rawScore
@@ -1450,20 +1482,25 @@ function compareForLane(
   const bNextDay = pb.daysSinceLastVisit.get(lane.id) === 1 ? 1 : 0
   if (aNextDay !== bNextDay) return aNextDay - bNextDay
 
-  // Same order as isBoardBetter: do not send the last person back to a hard
-  // lane, then prefer someone who rested and whose load is lower.
+  // Strong soft rule (all intensities): do not reseat whoever sat this lane
+  // last when any other qualified person is available. Still relaxable.
   if (!relaxRotation && objective === 'standard') {
-    const aLast =
-      lane.intensity === 'hard' &&
-      isLastLaneOccupant(a.id, lane.id, lastSeatings)
-        ? 1
-        : 0
-    const bLast =
-      lane.intensity === 'hard' &&
-      isLastLaneOccupant(b.id, lane.id, lastSeatings)
-        ? 1
-        : 0
+    const aLast = isLastLaneOccupant(a.id, lane.id, lastSeatings) ? 1 : 0
+    const bLast = isLastLaneOccupant(b.id, lane.id, lastSeatings) ? 1 : 0
     if (aLast !== bLast) return aLast - bLast
+  }
+
+  if (!relaxRotation) {
+    const aShort = isShortReturnToLane(pa, lane.id) ? 1 : 0
+    const bShort = isShortReturnToLane(pb, lane.id) ? 1 : 0
+    if (aShort !== bShort) return aShort - bShort
+  }
+
+  // Prefer someone who has not visited this lane at all in the rotation window.
+  if (!relaxRotation) {
+    const aSeen = pa.daysSinceLastVisit.has(lane.id) ? 1 : 0
+    const bSeen = pb.daysSinceLastVisit.has(lane.id) ? 1 : 0
+    if (aSeen !== bSeen) return aSeen - bSeen
   }
 
   if (objective === 'standard' && lane.intensity === 'hard') {
@@ -1484,18 +1521,6 @@ function compareForLane(
       if (easyLeft > 0) return aRec - bRec
       return bRec - aRec
     }
-  }
-
-  if (!relaxRotation) {
-    const aShort = isShortReturnToLane(pa, lane.id) ? 1 : 0
-    const bShort = isShortReturnToLane(pb, lane.id) ? 1 : 0
-    if (aShort !== bShort) return aShort - bShort
-  }
-
-  if (!relaxRotation && objective === 'standard' && lane.intensity !== 'hard') {
-    const aLast = isLastLaneOccupant(a.id, lane.id, lastSeatings) ? 1 : 0
-    const bLast = isLastLaneOccupant(b.id, lane.id, lastSeatings) ? 1 : 0
-    if (aLast !== bLast) return aLast - bLast
   }
 
   if (objective === 'loadFair' && pa.load !== pb.load) {
@@ -1592,22 +1617,26 @@ export function sortCandidatesForLane(
 }
 
 /**
- * Soft pool filter: prefer workers above ROTATION_SOFT_THRESHOLD when enough exist.
- * Also prefer avoiding SHORT_RETURN_DAYS revisits when enough alternatives exist.
- * When short: keep everyone above the threshold, then fill from the rest by rawScore
- * (does NOT disable rotation ranking — partial soft-floor only).
+ * Soft pool filter (never a hard block):
+ * 1) drop the last lane occupant when enough alternatives exist
+ * 2) drop SHORT_RETURN_DAYS revisits when enough alternatives exist
+ * 3) prefer people who never visited this lane in the rotation window
+ * 4) prefer workers above ROTATION_SOFT_THRESHOLD when enough exist
+ * When short: keep the better groups first, then fill from the rest by rawScore.
  */
 function applyRotationScorePool(
   pool: Worker[],
   lane: Lane,
   profiles: Map<string, WorkerHistoryProfile>,
   staffingStandard: number,
+  lastSeatings?: Map<string, LaneLastSeating>,
 ): {
   pool: Worker[]
   usedSoftFloor: boolean
   partialFill: boolean
   avoidedShortReturn: boolean
   relaxedShortReturn: boolean
+  avoidedLastOccupant: boolean
 } {
   if (pool.length === 0) {
     return {
@@ -1616,24 +1645,36 @@ function applyRotationScorePool(
       partialFill: false,
       avoidedShortReturn: false,
       relaxedShortReturn: false,
+      avoidedLastOccupant: false,
     }
   }
 
-  const notShort = pool.filter(
+  let working = pool
+  let avoidedLastOccupant = false
+  const notLast = pool.filter(
+    (w) => !isLastLaneOccupant(w.id, lane.id, lastSeatings),
+  )
+  if (notLast.length >= staffingStandard) {
+    avoidedLastOccupant = notLast.length < pool.length
+    working = notLast
+  }
+
+  const notShort = working.filter(
     (w) => !isShortReturnToLane(profiles.get(w.id)!, lane.id),
   )
-  let working = pool
   let avoidedShortReturn = false
   let relaxedShortReturn = false
   if (notShort.length >= staffingStandard) {
+    avoidedShortReturn = notShort.length < working.length
     working = notShort
-    avoidedShortReturn = notShort.length < pool.length
   } else if (notShort.length > 0 && notShort.length < staffingStandard) {
     // Keep non-short first, then fill from short-return by raw rotation score.
     const shortIds = new Set(
-      pool.filter((w) => !notShort.some((n) => n.id === w.id)).map((w) => w.id),
+      working
+        .filter((w) => !notShort.some((n) => n.id === w.id))
+        .map((w) => w.id),
     )
-    const shortSorted = pool
+    const shortSorted = working
       .filter((w) => shortIds.has(w.id))
       .sort(
         (a, b) =>
@@ -1642,6 +1683,13 @@ function applyRotationScorePool(
       )
     working = [...notShort, ...shortSorted]
     relaxedShortReturn = true
+  }
+
+  const neverVisited = working.filter(
+    (w) => !profiles.get(w.id)!.daysSinceLastVisit.has(lane.id),
+  )
+  if (neverVisited.length >= staffingStandard) {
+    working = neverVisited
   }
 
   const scored = working.map((w) => ({
@@ -1658,6 +1706,7 @@ function applyRotationScorePool(
       partialFill: false,
       avoidedShortReturn,
       relaxedShortReturn,
+      avoidedLastOccupant,
     }
   }
 
@@ -1672,6 +1721,7 @@ function applyRotationScorePool(
       partialFill: true,
       avoidedShortReturn,
       relaxedShortReturn,
+      avoidedLastOccupant,
     }
   }
 
@@ -1687,6 +1737,7 @@ function applyRotationScorePool(
       partialFill: false,
       avoidedShortReturn,
       relaxedShortReturn,
+      avoidedLastOccupant,
     }
   }
 
@@ -1696,6 +1747,7 @@ function applyRotationScorePool(
     partialFill: false,
     avoidedShortReturn,
     relaxedShortReturn,
+    avoidedLastOccupant,
   }
 }
 
@@ -1787,7 +1839,7 @@ function orderLanesForAssignment(
     easy: 2,
   }
   return [...lanes].sort((a, b) => {
-    if (shiftType === 'afternoon') {
+    if (isAfternoonShift(shiftType)) {
       const aHandoff = a.afternoonHandoff ? 0 : 1
       const bHandoff = b.afternoonHandoff ? 0 : 1
       if (aHandoff !== bHandoff) return aHandoff - bHandoff
@@ -1942,11 +1994,15 @@ export function evaluateBoard(
   let handoffScoreSum = 0
   let handoffTierPenalty = 0
   let handoffN = 0
+  let nightOnHandoff = 0
+  let nightAwayFromHandoff = 0
   let versatilityPenalties = 0
   const loads: number[] = []
   const hardCounts: number[] = []
   const intensityLoads: number[] = []
   const laneByWorker = new Map<string, Lane>()
+  const afternoonShift = isAfternoonShift(ctx.currentShiftType)
+  const hasHandoffLane = afternoonShift && ctx.lanes.some((l) => l.afternoonHandoff)
 
   const openLanes = ctx.lanes.filter((l) => {
     const filledHere = (assignmentByLane.get(l.id)?.workerIds ?? []).filter(
@@ -1995,12 +2051,20 @@ export function evaluateBoard(
       idleOnHard += 1
     }
 
-    if (lane.afternoonHandoff && ctx.currentShiftType === 'afternoon') {
+    if (lane.afternoonHandoff && afternoonShift) {
       const tier = afternoonHandoffTier(workerId, lane.id, ctx.morning ?? null)
-      // tier 0 best → 100, tier 1 → 70, tier 2 → 35
-      handoffScoreSum += tier === 0 ? 100 : tier === 1 ? 70 : 35
+      // tier 0 best → 100, tier 1 → 70, tier 2 → 35; night after night boosts further
+      const base = tier === 0 ? 100 : tier === 1 ? 70 : 35
+      handoffScoreSum += profile.afternoonAfterNight ? Math.min(100, base + 15) : base
       handoffTierPenalty += tier
       handoffN += 1
+      if (profile.afternoonAfterNight) nightOnHandoff += 1
+    } else if (
+      hasHandoffLane &&
+      profile.afternoonAfterNight &&
+      !lane.afternoonHandoff
+    ) {
+      nightAwayFromHandoff += 1
     }
 
     const flex = versatility(
@@ -2119,6 +2183,8 @@ export function evaluateBoard(
     understaffedSlots,
     priorityUnderstaffingPenalty,
     handoffTierPenalty,
+    nightOnHandoff,
+    nightAwayFromHandoff,
     rotationRepeatCount,
     sameDayLaneRepeatCount,
     nextDayLaneRepeatCount,
@@ -2186,6 +2252,8 @@ function illegalBoardEval(
     understaffedSlots: Number.POSITIVE_INFINITY,
     priorityUnderstaffingPenalty: Number.POSITIVE_INFINITY,
     handoffTierPenalty: Number.POSITIVE_INFINITY,
+    nightOnHandoff: Number.NEGATIVE_INFINITY,
+    nightAwayFromHandoff: Number.POSITIVE_INFINITY,
     rotationRepeatCount: Number.POSITIVE_INFINITY,
     sameDayLaneRepeatCount: Number.POSITIVE_INFINITY,
     nextDayLaneRepeatCount: Number.POSITIVE_INFINITY,
@@ -2225,24 +2293,28 @@ export function isBoardBetter(
     )
   }
 
-  // Repetition is minimized before secondary rotation and balance preferences.
-  if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
-    return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
-  }
-  if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
-    return next.sameDayLaneRepeatCount < current.sameDayLaneRepeatCount
-  }
-  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
-    return next.rotationRepeatCount < current.rotationRepeatCount
-  }
+  // Avoid reseating the last person on a lane before other soft goals.
   if (next.lastOccupantRepeats !== current.lastOccupantRepeats) {
     return next.lastOccupantRepeats < current.lastOccupantRepeats
   }
   if (next.lastOccupantOnHard !== current.lastOccupantOnHard) {
     return next.lastOccupantOnHard < current.lastOccupantOnHard
   }
+  // Broader repetition minimization before load / recovery preferences.
+  if (next.sameDayLaneRepeatCount !== current.sameDayLaneRepeatCount) {
+    return next.sameDayLaneRepeatCount < current.sameDayLaneRepeatCount
+  }
+  if (next.nextDayLaneRepeatCount !== current.nextDayLaneRepeatCount) {
+    return next.nextDayLaneRepeatCount < current.nextDayLaneRepeatCount
+  }
   if (next.shortReturnOnHard !== current.shortReturnOnHard) {
     return next.shortReturnOnHard < current.shortReturnOnHard
+  }
+  if (next.shortReturnCount !== current.shortReturnCount) {
+    return next.shortReturnCount < current.shortReturnCount
+  }
+  if (next.rotationRepeatCount !== current.rotationRepeatCount) {
+    return next.rotationRepeatCount < current.rotationRepeatCount
   }
   if (next.recoveryOnHard !== current.recoveryOnHard) {
     return next.recoveryOnHard < current.recoveryOnHard
@@ -2250,12 +2322,15 @@ export function isBoardBetter(
   if (next.handoffTierPenalty !== current.handoffTierPenalty) {
     return next.handoffTierPenalty < current.handoffTierPenalty
   }
+  if (next.nightAwayFromHandoff !== current.nightAwayFromHandoff) {
+    return next.nightAwayFromHandoff < current.nightAwayFromHandoff
+  }
+  if (next.nightOnHandoff !== current.nightOnHandoff) {
+    return next.nightOnHandoff > current.nightOnHandoff
+  }
 
   if (next.idleOnHard !== current.idleOnHard) {
     return next.idleOnHard > current.idleOnHard
-  }
-  if (next.shortReturnCount !== current.shortReturnCount) {
-    return next.shortReturnCount < current.shortReturnCount
   }
 
   if (Math.abs(next.minDaysSince - current.minDaysSince) > 1e-9) {
@@ -2281,8 +2356,9 @@ export function handoffTierViolationCount(
   workersById: Map<string, Worker>,
   morning: SameDayMorningContext | null,
   currentShiftType: ShiftType,
+  profiles?: Map<string, WorkerHistoryProfile>,
 ): number {
-  if (currentShiftType !== 'afternoon' || !morning?.found) return 0
+  if (!isAfternoonShift(currentShiftType) || !morning?.found) return 0
   const laneById = new Map(lanes.map((l) => [l.id, l]))
   const seatedByLane = new Map<string, Set<string>>()
   for (const a of assignments) {
@@ -2291,16 +2367,35 @@ export function handoffTierViolationCount(
     seatedByLane.set(a.laneId, set)
   }
 
+  const onHandoff = new Set<string>()
+  for (const [laneId, seated] of seatedByLane) {
+    if (!laneById.get(laneId)?.afternoonHandoff) continue
+    for (const wid of seated) onHandoff.add(wid)
+  }
+
   let violations = 0
   for (const [laneId, seated] of seatedByLane) {
     const lane = laneById.get(laneId)
     if (!lane?.afternoonHandoff || seated.size === 0) continue
     for (const seatedId of seated) {
       const seatedTier = afternoonHandoffTier(seatedId, laneId, morning)
+      const seatedNight = profiles?.get(seatedId)?.afternoonAfterNight === true
       for (const [wid, w] of workersById) {
         if (seated.has(wid)) continue
         if (!isQualified(w, lane)) continue
-        if (afternoonHandoffTier(wid, laneId, morning) < seatedTier) {
+        const challengerTier = afternoonHandoffTier(wid, laneId, morning)
+        if (challengerTier < seatedTier) {
+          violations += 1
+          break
+        }
+        // Same tier: a night→afternoon arrival sitting off-handoff (or free)
+        // should take this seat before a non-night holder.
+        if (
+          challengerTier === seatedTier &&
+          !seatedNight &&
+          !onHandoff.has(wid) &&
+          profiles?.get(wid)?.afternoonAfterNight === true
+        ) {
           violations += 1
           break
         }
@@ -2356,7 +2451,7 @@ export function runMultiPassOptimization(
 
   // The handoff-tier gate only matters on afternoon boards with handoff lanes.
   const hasHandoffGate =
-    currentShiftType === 'afternoon' &&
+    isAfternoonShift(currentShiftType) &&
     morning?.found === true &&
     input.lanes.some((l) => l.afternoonHandoff)
   const countViolations = (asg: LaneAssignment[]): number =>
@@ -2367,6 +2462,7 @@ export function runMultiPassOptimization(
           input.workersById,
           morning,
           currentShiftType,
+          input.profiles,
         )
       : 0
 
@@ -2523,7 +2619,7 @@ function explainLanePriority(
   currentShiftType: ShiftType,
 ): string {
   const whyEarly: string[] = []
-  if (currentShiftType === 'afternoon' && lane.afternoonHandoff) {
+  if (isAfternoonShift(currentShiftType) && lane.afternoonHandoff) {
     whyEarly.push('מיועד להחלפת צהריים')
   }
   if (lane.requiredCertifications.length > 0) {
@@ -2653,20 +2749,29 @@ function buildPlacementReasons(
     reasons.push(`נבחר מבין ${poolSize} מועמדים פנויים לנתיב`)
   }
 
-  if (lane.afternoonHandoff && currentShiftType === 'afternoon' && morning?.found) {
+  if (
+    lane.afternoonHandoff &&
+    isAfternoonShift(currentShiftType) &&
+    morning?.found
+  ) {
     const tier = afternoonHandoffTier(worker.id, lane.id, morning)
     reasons.push(`החלפת צהריים: ${handoffTierLabel(tier)}`)
   }
 
-  if (recovering) {
+  if (recovering || p.afternoonAfterNight) {
     const managerContinuer =
       worker.isManager &&
       morning?.found &&
-      morning.morningWorkerIds.has(worker.id)
+      morning.morningWorkerIds.has(worker.id) &&
+      !p.afternoonAfterNight
     const restLabel = managerContinuer
       ? 'מנהל שממשיך מבוקר לצהריים'
       : 'הגיע אחרי לילה'
-    if (lane.intensity === 'hard') {
+    if (lane.afternoonHandoff && p.afternoonAfterNight) {
+      reasons.push(
+        `${restLabel} — עדיפות לנתיב החלפת צהריים (מנוחה אחרי משמרת לילה)`,
+      )
+    } else if (lane.intensity === 'hard') {
       reasons.push(
         `${restLabel} (מנוחה בצהריים) — עדיף לא לשבץ לקשה, אבל לא נמצאו מספיק אחרים`,
       )
@@ -2762,13 +2867,19 @@ function buildPlacementReasons(
     const diffs: string[] = []
     if (
       lane.afternoonHandoff &&
-      currentShiftType === 'afternoon' &&
+      isAfternoonShift(currentShiftType) &&
       morning?.found
     ) {
       const ta = afternoonHandoffTier(worker.id, lane.id, morning)
       const tb = afternoonHandoffTier(rival.id, lane.id, morning)
       if (ta !== tb) {
         diffs.push(`מתאים יותר להחלפת צהריים מ${rival.fullName}`)
+      } else if (p.afternoonAfterNight !== rp.afternoonAfterNight) {
+        if (p.afternoonAfterNight) {
+          diffs.push(
+            `הגיע אחרי לילה — עדיפות להחלפת צהריים לפני ${rival.fullName}`,
+          )
+        }
       }
     }
     const aRec = recoveringIds.has(worker.id)
@@ -3031,7 +3142,11 @@ function greedyAssignPass(
      */
     let handoffFallback = false
     const morning = morningCtx && morningCtx.found ? morningCtx : null
-    if (lane.afternoonHandoff && currentShiftType === 'afternoon' && morning) {
+    if (
+      lane.afternoonHandoff &&
+      isAfternoonShift(currentShiftType) &&
+      morning
+    ) {
       const byTier = [0, 1, 2].map((tier) =>
         pool.filter(
           (w) => afternoonHandoffTier(w.id, lane.id, morning) === tier,
@@ -3054,6 +3169,13 @@ function greedyAssignPass(
       } else {
         pool = byTier[0]
       }
+      // Prefer last-night arrivals inside the chosen handoff pool when they cover תקן.
+      const nightFirst = pool.filter(
+        (w) => profiles.get(w.id)?.afternoonAfterNight === true,
+      )
+      if (nightFirst.length >= lane.staffingStandard) {
+        pool = nightFirst
+      }
     }
 
     // Prefer rested workers off hard lanes when possible.
@@ -3073,9 +3195,20 @@ function greedyAssignPass(
     // active — the occupant has to stay available for ranking.
     const rotationPool = handoffFallback
       ? null
-      : applyRotationScorePool(pool, lane, profiles, lane.staffingStandard)
+      : applyRotationScorePool(
+          pool,
+          lane,
+          profiles,
+          lane.staffingStandard,
+          lastSeatings,
+        )
     if (rotationPool) pool = rotationPool.pool
     // Never fully disable rotation ranking — partial soft-floor keeps rawScore order.
+    if (rotationPool?.avoidedLastOccupant) {
+      warnings.push(
+        `נתיב "${lane.name}" — הועדפו מועמדים שאינם מי שישב אחרון בעמדה (נמנעה חזרה של האחרון)`,
+      )
+    }
     if (rotationPool?.avoidedShortReturn) {
       warnings.push(
         `נתיב "${lane.name}" — הועדפו מועמדים עם מרווח מעל ${SHORT_RETURN_DAYS} ימים מהעמדה (נמנעה חזרה קצרה)`,
@@ -3204,10 +3337,11 @@ function greedyAssignPass(
 
     if (
       lane.afternoonHandoff &&
-      currentShiftType === 'afternoon' &&
+      isAfternoonShift(currentShiftType) &&
       morningCtx?.found
     ) {
       for (const id of picked) {
+        if (profiles.get(id)?.afternoonAfterNight) continue
         const tier = afternoonHandoffTier(id, lane.id, morningCtx)
         if (tier === 1) {
           warnings.push(
@@ -3296,10 +3430,19 @@ function assignWorkersGlobally(
 
   const tieCostLimit = Math.max(1, slots * Math.max(1, workers.length))
   const repeatPenalty = tieCostLimit + 1
-  const recoveryPenalty = repeatPenalty * (slots + 1)
+  /** Strong soft push: do not reseat whoever sat this lane last. */
+  const lastOccupantPenalty = repeatPenalty * (slots + 1)
+  const recoveryPenalty = lastOccupantPenalty * (slots + 1)
   const handoffPenalty = recoveryPenalty * (slots + 1)
+  /** Pull night→afternoon people onto handoff before easy/rest seats. */
+  const nightHandoffPrefer = Math.floor(recoveryPenalty / 2)
   const maxWorkerCost =
-    2 * handoffPenalty + recoveryPenalty + repeatPenalty + workers.length
+    2 * handoffPenalty +
+    recoveryPenalty +
+    lastOccupantPenalty +
+    nightHandoffPrefer +
+    repeatPenalty +
+    workers.length
   const lanePriorityUnit = slots * maxWorkerCost + 1
   const dummyPenalty =
     slots *
@@ -3308,6 +3451,9 @@ function assignWorkersGlobally(
   const rng = createSeededRng(hashStringToSeed(seed))
   const workerOrder = shuffle(workers, rng)
   const workerNodeById = new Map<string, number>()
+  const afternoonShift = isAfternoonShift(currentShiftType)
+  const hasHandoffLane =
+    afternoonShift && lanes.some((lane) => lane.afternoonHandoff)
 
   workerOrder.forEach((worker, index) => {
     const node = workerStart + index
@@ -3351,15 +3497,39 @@ function assignWorkersGlobally(
       const profile = profiles.get(worker.id)
       if (!profile) continue
       const tier =
-        lane.afternoonHandoff && currentShiftType === 'afternoon'
+        lane.afternoonHandoff && afternoonShift
           ? afternoonHandoffTier(worker.id, lane.id, morning)
           : 0
+      const night = profile.afternoonAfterNight
+      const nightAwayCost =
+        hasHandoffLane &&
+        night &&
+        !lane.afternoonHandoff &&
+        lanes.some(
+          (other) =>
+            other.afternoonHandoff && isQualified(worker, other),
+        )
+          ? nightHandoffPrefer
+          : 0
+      const lastOccupantCost = isLastLaneOccupant(
+        worker.id,
+        lane.id,
+        lastSeatings,
+      )
+        ? lastOccupantPenalty
+        : 0
+      const recentReturnCost = isShortReturnToLane(profile, lane.id)
+        ? Math.floor(repeatPenalty / 2)
+        : 0
       const cost =
         tier * handoffPenalty +
         (lane.intensity === 'hard' && recoveringIds.has(worker.id)
           ? recoveryPenalty
           : 0) +
+        nightAwayCost +
+        lastOccupantCost +
         (profile.daysSinceLastVisit.has(lane.id) ? repeatPenalty : 0) +
+        recentReturnCost +
         rank
       const edge = addEdge(
         workerNodeById.get(worker.id)!,
@@ -3444,8 +3614,9 @@ export function explainSavedBoard(input: {
   if (activeLanes.length === 0 || presentWorkers.length === 0) return []
 
   const lookbackDays = Math.max(DEFAULT_LOOKBACK_DAYS, ROTATION_LOOKBACK_DAYS)
-  const morning =
-    shiftType === 'afternoon' ? buildSameDayMorningContext(history, date) : null
+  const morning = isAfternoonShift(shiftType)
+    ? buildSameDayMorningContext(history, date)
+    : null
   const profiles = new Map<string, WorkerHistoryProfile>()
   for (const worker of presentWorkers) {
     profiles.set(
@@ -3462,7 +3633,7 @@ export function explainSavedBoard(input: {
   }
 
   const recoveringIds = new Set<string>()
-  if (shiftType === 'afternoon') {
+  if (isAfternoonShift(shiftType)) {
     for (const worker of presentWorkers) {
       if (needsAfternoonNightRecovery(worker.id, history, date, shiftType)) {
         recoveringIds.add(worker.id)
@@ -3557,13 +3728,12 @@ function runAssignmentAlgorithmInternal(
         : `${currentDate}|${currentShiftType}|${objective}`),
   )
 
-  const morningCtx =
-    currentShiftType === 'afternoon'
-      ? buildSameDayMorningContext(history, currentDate)
-      : null
+  const morningCtx = isAfternoonShift(currentShiftType)
+    ? buildSameDayMorningContext(history, currentDate)
+    : null
 
   if (
-    currentShiftType === 'afternoon' &&
+    isAfternoonShift(currentShiftType) &&
     activeLanes.some((l) => l.afternoonHandoff) &&
     !morningCtx?.found
   ) {
@@ -3602,10 +3772,7 @@ function runAssignmentAlgorithmInternal(
   )
 
   const recoveringIds = new Set<string>()
-  const morningCtxForRecovery =
-    currentShiftType === 'afternoon'
-      ? buildSameDayMorningContext(history, currentDate)
-      : null
+  const morningCtxForRecovery = morningCtx
   if (isAfternoonShift(currentShiftType)) {
     for (const w of presentWorkers) {
       if (
@@ -3783,8 +3950,9 @@ function runAssignmentAlgorithmInternal(
       }
       if (
         lane.afternoonHandoff &&
-        currentShiftType === 'afternoon' &&
-        morningCtx?.found
+        isAfternoonShift(currentShiftType) &&
+        morningCtx?.found &&
+        !profiles.get(workerId)?.afternoonAfterNight
       ) {
         const tier = afternoonHandoffTier(workerId, lane.id, morningCtx)
         if (tier === 1) {
@@ -3948,8 +4116,9 @@ function comparisonEvalContext(
   }
 
   const recoveringIds = new Set<string>()
-  const morning =
-    shiftType === 'afternoon' ? buildSameDayMorningContext(history, date) : null
+  const morning = isAfternoonShift(shiftType)
+    ? buildSameDayMorningContext(history, date)
+    : null
   if (isAfternoonShift(shiftType)) {
     for (const w of presentWorkers) {
       if (needsAfternoonNightRecovery(w.id, history, date, shiftType)) {

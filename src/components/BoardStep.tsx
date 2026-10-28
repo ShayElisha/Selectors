@@ -35,6 +35,7 @@ import {
 import {
   afternoonHandoffTier,
   isQualified,
+  needsAfternoonNightRecovery,
   type SameDayMorningContext,
 } from '../algorithm'
 import {
@@ -964,10 +965,32 @@ export function BoardStep({
         const qa = isQualified(a, lane) ? 0 : 1
         const qb = isQualified(b, lane) ? 0 : 1
         if (qa !== qb) return qa - qb
-        if (lane.afternoonHandoff && draft.shiftType === 'afternoon') {
+        if (
+          lane.afternoonHandoff &&
+          (draft.shiftType === 'afternoon' ||
+            draft.shiftType === 'afternoonA' ||
+            draft.shiftType === 'afternoonB')
+        ) {
           const ta = afternoonHandoffTier(a.id, laneId, morningCtx)
           const tb = afternoonHandoffTier(b.id, laneId, morningCtx)
           if (ta !== tb) return ta - tb
+          const aNight = needsAfternoonNightRecovery(
+            a.id,
+            data.history,
+            draft.date,
+            draft.shiftType,
+          )
+            ? 1
+            : 0
+          const bNight = needsAfternoonNightRecovery(
+            b.id,
+            data.history,
+            draft.date,
+            draft.shiftType,
+          )
+            ? 1
+            : 0
+          if (aNight !== bNight) return bNight - aNight
         }
         return a.fullName.localeCompare(b.fullName, 'he')
       })
@@ -990,13 +1013,28 @@ export function BoardStep({
         data.lanes,
         laneId,
       )
-      if (lane.afternoonHandoff && draft.shiftType === 'afternoon') {
+      if (
+        lane.afternoonHandoff &&
+        (draft.shiftType === 'afternoon' ||
+          draft.shiftType === 'afternoonA' ||
+          draft.shiftType === 'afternoonB')
+      ) {
         const tier = morningCtx?.found
           ? afternoonHandoffTier(w.id, laneId, morningCtx)
           : null
         if (tier === 0) details.push('צהריים בלבד')
         else if (tier === 1) details.push('ממשיך — היה כאן בבוקר')
         else if (tier === 2) details.push('ממשיך מבוקר')
+        if (
+          needsAfternoonNightRecovery(
+            w.id,
+            data.history,
+            draft.date,
+            draft.shiftType,
+          )
+        ) {
+          details.push('אחרי לילה')
+        }
       }
       if (elsewhere && w.id !== workerId) {
         details.push(`כעת בנתיב ${elsewhere}`)
