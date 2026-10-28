@@ -54,6 +54,10 @@ import { createLoginChallenge, verifyLoginChallenge } from './loginChallenge.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 import { listSystemMessages, createSystemMessage } from './messages.js'
 import { runDailyLoadRest, scheduleLocalLoadRestCron } from './loadRest.js'
+import {
+  runShiftReminderPass,
+  scheduleLocalShiftReminderCron,
+} from './workerAlerts.js'
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -166,6 +170,25 @@ app.get('/api/cron/load-rest', async (req, res) => {
         ? req.query.date
         : undefined
     res.json(await runDailyLoadRest({ date }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+/** ~60-minute-before-shift reminders for workers (in-app notices). */
+app.post('/api/cron/shift-reminders', async (req, res) => {
+  try {
+    assertCronAuth(req)
+    res.json(await runShiftReminderPass())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/cron/shift-reminders', async (req, res) => {
+  try {
+    assertCronAuth(req)
+    res.json(await runShiftReminderPass())
   } catch (err) {
     sendError(res, err)
   }
@@ -893,6 +916,7 @@ async function start() {
   await migrateLegacyTenancy()
   await migrateInspectorsDatabase()
   scheduleLocalLoadRestCron()
+  scheduleLocalShiftReminderCron()
   app.listen(PORT, () => {
     console.log(`API listening on http://127.0.0.1:${PORT}`)
   })

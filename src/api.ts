@@ -703,12 +703,14 @@ export function fetchWorkerHistoryRemote(): Promise<WorkerHistoryResponse> {
 
 export interface WorkerNotificationItem {
   id: string
-  source: 'manager' | 'system' | 'briefing' | string
+  source: 'manager' | 'system' | 'briefing' | 'assignment' | 'reminder' | string
+  kind?: string
   title: string
   body: string
   at: string
   authorName: string
   read: boolean
+  targeted?: boolean
 }
 
 export function fetchWorkerNotificationsRemote(): Promise<{

@@ -14,6 +14,8 @@ function sourceLabel(source: string) {
   if (source === 'manager') return 'מנהל'
   if (source === 'briefing') return 'תדריך'
   if (source === 'system') return 'מערכת'
+  if (source === 'assignment') return 'שיבוץ'
+  if (source === 'reminder') return 'תזכורת'
   return source
 }
 
@@ -40,8 +42,11 @@ export function WorkerNotificationsPage() {
     void load()
   }, [load])
 
+  const isReadable = (source: string) =>
+    source === 'manager' || source === 'assignment' || source === 'reminder'
+
   const markOne = async (item: WorkerNotificationItem) => {
-    if (item.read || item.source !== 'manager') return
+    if (item.read || !isReadable(item.source)) return
     try {
       await markWorkerNotificationReadRemote(item.id)
       setItems((prev) =>
@@ -59,11 +64,11 @@ export function WorkerNotificationsPage() {
       await markAllWorkerNotificationsReadRemote()
       setItems((prev) =>
         prev.map((row) =>
-          row.source === 'manager' ? { ...row, read: true } : row,
+          isReadable(row.source) ? { ...row, read: true } : row,
         ),
       )
       setUnread(0)
-      notify.success('כל הודעות המנהלים סומנו כנקראו')
+      notify.success('כל ההודעות האישיות סומנו כנקראו')
     } catch (e) {
       notify.error(e instanceof Error ? e.message : 'סימון הכל נכשל')
     } finally {
@@ -106,13 +111,17 @@ export function WorkerNotificationsPage() {
       ) : (
         <ul className="space-y-3">
           {items.map((item) => {
-            const unreadManager = item.source === 'manager' && !item.read
+            const unreadItem =
+              (item.source === 'manager' ||
+                item.source === 'assignment' ||
+                item.source === 'reminder') &&
+              !item.read
             return (
               <li key={item.id}>
                 <button
                   type="button"
                   className={`w-full rounded-xl border p-3 text-start transition ${
-                    unreadManager
+                    unreadItem
                       ? 'border-brand/30 bg-brand/[0.06]'
                       : 'border-line/70 bg-surface/40'
                   }`}
@@ -132,7 +141,7 @@ export function WorkerNotificationsPage() {
                   </p>
                   <p className="mt-1 text-[11px] text-ink-soft">
                     מאת {item.authorName}
-                    {unreadManager ? ' · לחצו לסימון כנקרא' : ''}
+                    {unreadItem ? ' · לחצו לסימון כנקרא' : ''}
                   </p>
                 </button>
               </li>

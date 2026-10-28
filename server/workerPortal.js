@@ -506,7 +506,7 @@ export async function getWorkerHome(req) {
     phase === 'upcoming' ? { lanes: [], rounds: null } : fullPlacement
   const gateId = shift?.gateManagerWorkerId
   const gate =
-    phase === 'active' && gateId
+    (phase === 'active' || phase === 'upcoming') && gateId
       ? publicWorker((state.workers || []).find((w) => w.id === gateId))
       : null
   const drop =

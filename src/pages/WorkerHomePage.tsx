@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   CheckCircle2,
+  CircleHelp,
   Loader2,
+  MessageCircle,
+  Phone,
   RefreshCw,
   Shield,
   Timer,
   UserRound,
+  X,
 } from 'lucide-react'
 import {
   fetchWorkerHomeRemote,
@@ -16,6 +21,10 @@ import { IntensityBadge, Ltr, SectionCard } from '../components/ui'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { formatMinutes } from '../lib/shiftModels'
 import { notify } from '../lib/notify'
+import {
+  phoneDigitsForWhatsApp,
+  scheduleShiftStartReminder,
+} from '../lib/workerNotify'
 import type { Intensity, ShiftType } from '../types'
 
 function shiftLabel(type: string) {
@@ -31,6 +40,53 @@ function formatCountdown(totalSeconds: number) {
     return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
   }
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
+function GateManagerCard({
+  manager,
+}: {
+  manager: { fullName: string; phone: string }
+}) {
+  const phone = String(manager.phone || '').trim()
+  const wa = phoneDigitsForWhatsApp(phone)
+  return (
+    <div className="rounded-xl border border-line/70 bg-surface/50 p-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <Shield className="size-4 text-brand" aria-hidden />
+        מנהל המשמרת היום
+      </p>
+      <p className="mt-1 text-base font-bold text-ink">{manager.fullName}</p>
+      {phone ? (
+        <p className="mt-0.5 text-sm text-ink-soft" dir="ltr">
+          {phone}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-ink-soft">אין מספר טלפון במערכת</p>
+      )}
+      {phone ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a
+            href={`tel:${phone.replace(/\s/g, '')}`}
+            className="ui-btn ui-btn-primary !py-2 text-xs"
+          >
+            <Phone className="size-3.5" aria-hidden />
+            התקשרות
+          </a>
+          {wa ? (
+            <a
+              href={`https://wa.me/${wa}`}
+              target="_blank"
+              rel="noreferrer"
+              className="ui-btn ui-btn-secondary !py-2 text-xs"
+            >
+              <MessageCircle className="size-3.5" aria-hidden />
+              WhatsApp
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function useEndsAtCountdown(endsAt: string | null | undefined) {
@@ -55,10 +111,19 @@ function useEndsAtCountdown(endsAt: string | null | undefined) {
   return left
 }
 
+const HELP_TIP_KEY = 'getin.worker.helpTipDismissed'
+
 export function WorkerHomePage() {
   const [home, setHome] = useState<WorkerHomeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [showHelpTip, setShowHelpTip] = useState(() => {
+    try {
+      return localStorage.getItem(HELP_TIP_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -92,6 +157,22 @@ export function WorkerHomePage() {
     if (!upcoming || startLeft == null) return
     if (startLeft <= 0) void load()
   }, [upcoming, startLeft, load])
+
+  useEffect(() => {
+    if (!home?.shift || home.now?.phase !== 'upcoming') return
+    scheduleShiftStartReminder({
+      shiftId: home.shift.id,
+      shiftStartsAt: home.now?.shiftStartsAt,
+      label: `${home.slot.date} · ${shiftLabel(home.slot.shiftType)} · ${home.slot.windowLabel}`,
+    })
+  }, [
+    home?.shift?.id,
+    home?.now?.phase,
+    home?.now?.shiftStartsAt,
+    home?.slot.date,
+    home?.slot.shiftType,
+    home?.slot.windowLabel,
+  ])
 
   const markArrived = async () => {
     setBusy(true)
@@ -133,6 +214,36 @@ export function WorkerHomePage() {
 
   return (
     <div className="space-y-4">
+      {showHelpTip ? (
+        <div className="flex items-start gap-3 rounded-xl border border-brand/25 bg-brand/[0.06] p-3">
+          <CircleHelp className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+          <div className="min-w-0 flex-1 text-sm text-ink-soft">
+            חדשים כאן?{' '}
+            <Link
+              to="/worker/help"
+              className="font-semibold text-brand underline decoration-brand/30 underline-offset-4"
+            >
+              מדריך קצר — איך משתמשים
+            </Link>
+          </div>
+          <button
+            type="button"
+            className="ui-btn ui-btn-ghost !px-2 !py-1"
+            aria-label="סגירת טיפ"
+            onClick={() => {
+              setShowHelpTip(false)
+              try {
+                localStorage.setItem(HELP_TIP_KEY, '1')
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+        </div>
+      ) : null}
+
       <SectionCard
         title="עכשיו"
         subtitle={`${home.slot.date} · ${shiftLabel(home.slot.shiftType)} · ${home.slot.windowLabel}`}
@@ -196,6 +307,10 @@ export function WorkerHomePage() {
               </div>
             ) : null}
 
+            {(upcoming || active) && home.gateManager ? (
+              <GateManagerCard manager={home.gateManager} />
+            ) : null}
+
             {active ? (
               <>
                 <div>
@@ -229,16 +344,6 @@ export function WorkerHomePage() {
                     </div>
                   )}
                 </div>
-
-                {home.gateManager ? (
-                  <p className="flex items-center gap-2 text-sm text-ink-soft">
-                    <Shield className="size-4 text-brand" aria-hidden />
-                    מנהל שער:{' '}
-                    <span className="font-semibold text-ink">
-                      {home.gateManager.fullName}
-                    </span>
-                  </p>
-                ) : null}
 
                 {home.placement.rounds ? (
                   <div className="space-y-2">

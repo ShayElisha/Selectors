@@ -1691,6 +1691,27 @@ export async function upsertShift(id, body, actor, options = {}) {
     module: scope?.module,
   });
 
+  if (scope?.orgId && scope?.module && !closing) {
+    try {
+      const { notifyWorkersOfAssignmentChanges } = await import(
+        "./workerAlerts.js"
+      );
+      await notifyWorkersOfAssignmentChanges({
+        previous,
+        next: schedule,
+        scope,
+        actor,
+        lanes: state.lanes,
+        models: state.shiftModels,
+      });
+    } catch (err) {
+      console.error(
+        "[worker-alerts] assignment notice failed",
+        err?.message || err,
+      );
+    }
+  }
+
   return saved;
 }
 
