@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { fetchWorkerNotificationsRemote } from '../api'
 import { useApp } from '../context/AppContext'
+import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { notifyNewWorkerInbox } from '../lib/workerNotify'
 import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
@@ -31,6 +32,7 @@ const NAV: {
 
 export function WorkerShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useApp()
+  const { loading, refreshing } = useWorkerPortal()
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -151,6 +153,17 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      {(loading || refreshing) && (
+        <div
+          className="mb-4 flex items-center gap-2.5 rounded-xl border border-line/80 bg-card/90 px-3.5 py-2.5 text-[13px] text-ink-soft shadow-sm backdrop-blur no-print"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="page-loader page-loader--sm shrink-0" aria-hidden />
+          {loading ? 'טוען נתונים מהשרת…' : 'מרענן נתונים ברקע…'}
+        </div>
+      )}
 
       <nav
         className="mb-5 hidden gap-1 rounded-xl border border-line/70 bg-card/70 p-1 sm:flex no-print"

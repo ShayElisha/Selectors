@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bell, Loader2, MailOpen } from 'lucide-react'
+import { Bell, MailOpen } from 'lucide-react'
 import {
   fetchWorkerNotificationsRemote,
   markAllWorkerNotificationsReadRemote,
   markWorkerNotificationReadRemote,
   type WorkerNotificationItem,
 } from '../api'
+import { PageLoader } from '../components/PageLoader'
 import { SectionCard } from '../components/ui'
 import { formatShiftDate } from '../lib/hebrew'
 import { notify } from '../lib/notify'
@@ -77,12 +78,7 @@ export function WorkerNotificationsPage() {
   }
 
   if (loading && items.length === 0) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-16 text-ink-soft">
-        <Loader2 className="size-5 animate-spin" aria-hidden />
-        טוען התראות…
-      </div>
-    )
+    return <PageLoader label="טוען נתונים…" />
   }
 
   return (

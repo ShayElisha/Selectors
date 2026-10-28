@@ -304,7 +304,14 @@ app.get('/api/worker/history', async (req, res) => {
 app.get('/api/worker/notifications', async (req, res) => {
   try {
     const { actor, scope } = await requireWorkerActor(req)
-    const state = await readState(scope)
+    const { loadWorkerPortalBundle } = await import('./data.js')
+    const state = await loadWorkerPortalBundle(scope, {
+      workerIds: [actor.id],
+      includeShifts: false,
+      includeLanes: false,
+      includeModels: false,
+      includeQuestions: false,
+    })
     res.json(
       await listWorkerInbox(actor, {
         scope,

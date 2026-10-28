@@ -1117,6 +1117,7 @@ export async function importUnscopedInspectorModels(scope) {
 
 const stateCache = new Map();
 const historyCache = new Map();
+const workerPortalCache = new Map();
 /** Soft TTL only used for logging/metrics; matching revision always hits. */
 const STATE_CACHE_MS = 120_000;
 
@@ -1171,9 +1172,14 @@ function shiftDocId(scope, id) {
 export function invalidateStateCache(scope) {
   if (!scope?.orgId) {
     stateCache.clear();
+    workerPortalCache.clear();
     return;
   }
   stateCache.delete(stateCacheKey(scope));
+  const prefix = `${stateCacheKey(scope)}:wp:`;
+  for (const key of [...workerPortalCache.keys()]) {
+    if (key.startsWith(prefix)) workerPortalCache.delete(key);
+  }
 }
 
 export async function readState(scope) {
@@ -1235,6 +1241,155 @@ export async function clientRevisionIsCurrent(scope, knownRevision) {
     { projection: { revision: 1 } },
   );
   return Number(meta?.revision ?? 0) === known;
+}
+
+/**
+ * Lean org snapshot for the worker portal — date-ranged shifts only,
+ * no full history / customs brokers / incidents assembly.
+ * @param {{ orgId: string, module: string }} scope
+ * @param {{ fromDate?: string, toDate?: string, workerIds?: string[], includeShifts?: boolean, includeLanes?: boolean, includeModels?: boolean, includeQuestions?: boolean }} [opts]
+ */
+export async function loadWorkerPortalBundle(scope, opts = {}) {
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  const target = targetForScope(scope);
+  if (target === "inspectors") {
+    await migrateInspectorsDatabase();
+    await importUnscopedInspectorModels(scope);
+  } else {
+    await migrateLegacyTenancy();
+  }
+
+  const fromDate = opts.fromDate ? String(opts.fromDate) : "";
+  const toDate = opts.toDate ? String(opts.toDate) : "";
+  const workerIds = Array.isArray(opts.workerIds)
+    ? [...new Set(opts.workerIds.map(String).filter(Boolean))]
+    : [];
+  const includeShifts = opts.includeShifts !== false;
+  const includeLanes = opts.includeLanes !== false;
+  const includeModels = opts.includeModels !== false;
+  const includeQuestions =
+    opts.includeQuestions !== false && scope.module === "inspectors";
+
+  const metaCol = await getMetaCollection(target);
+  const meta = await metaCol.findOne(
+    { _id: metaIdFor(scope) },
+    { projection: { revision: 1 } },
+  );
+  const revision = Number(meta?.revision ?? 0);
+  const cacheKey = `${stateCacheKey(scope)}:wp:${fromDate}:${toDate}:${workerIds.join(",")}:${includeShifts ? 1 : 0}${includeLanes ? 1 : 0}${includeModels ? 1 : 0}${includeQuestions ? 1 : 0}:${revision}`;
+  const cached = workerPortalCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 15_000) {
+    return cached.state;
+  }
+
+  // Prefer warm full-state cache when available (managers already loaded it).
+  const full = stateCache.get(stateCacheKey(scope));
+  if (full && full.revision === revision) {
+    const history = includeShifts
+      ? (full.state.history || []).filter((shift) => {
+          if (fromDate && String(shift.date || "") < fromDate) return false;
+          if (toDate && String(shift.date || "") > toDate) return false;
+          return true;
+        })
+      : [];
+    let workers = full.state.workers || [];
+    if (workerIds.length > 0) {
+      const want = new Set(workerIds);
+      workers = workers.filter((w) => want.has(String(w.id)));
+    }
+    const state = {
+      workers,
+      lanes: includeLanes ? full.state.lanes || [] : [],
+      history,
+      briefingSections: full.state.briefingSections || [],
+      questionBank: includeQuestions ? full.state.questionBank || [] : [],
+      shiftModels: includeModels ? full.state.shiftModels || [] : [],
+      revision,
+    };
+    workerPortalCache.set(cacheKey, { at: Date.now(), state });
+    return state;
+  }
+
+  const db = await getDb(target);
+  const filter = scopeFilter(scope);
+  const shiftFilter = { ...filter };
+  if (fromDate || toDate) {
+    shiftFilter.date = {};
+    if (fromDate) shiftFilter.date.$gte = fromDate;
+    if (toDate) shiftFilter.date.$lte = toDate;
+  }
+
+  const workerQuery =
+    workerIds.length > 0
+      ? { ...filter, id: { $in: workerIds } }
+      : filter;
+
+  const [
+    workers,
+    lanes,
+    briefingSections,
+    questionBank,
+    shiftModels,
+    shifts,
+  ] = await Promise.all([
+    db.collection(MODEL_COLLECTIONS.workers).find(workerQuery).toArray(),
+    includeLanes
+      ? db.collection(MODEL_COLLECTIONS.lanes).find(filter).toArray()
+      : Promise.resolve([]),
+    db.collection(MODEL_COLLECTIONS.briefingSections).find(filter).toArray(),
+    includeQuestions
+      ? db.collection(MODEL_COLLECTIONS.questionBank).find(filter).toArray()
+      : Promise.resolve([]),
+    includeModels
+      ? db.collection(MODEL_COLLECTIONS.shiftModels).find(filter).toArray()
+      : Promise.resolve([]),
+    includeShifts
+      ? db
+          .collection(MODEL_COLLECTIONS.shifts)
+          .find(shiftFilter)
+          .sort({ date: -1, updatedAt: -1 })
+          .limit(250)
+          .toArray()
+      : Promise.resolve([]),
+  ]);
+
+  const state = {
+    workers: fromOrderedDocs(workers),
+    lanes: fromOrderedDocs(lanes),
+    history: fromOrderedDocs(shifts),
+    briefingSections: fromOrderedDocs(briefingSections),
+    questionBank: fromOrderedDocs(questionBank),
+    shiftModels: fromOrderedDocs(shiftModels),
+    revision,
+  };
+  workerPortalCache.set(cacheKey, { at: Date.now(), state });
+  if (workerPortalCache.size > 80) {
+    const oldest = [...workerPortalCache.entries()].sort(
+      (a, b) => a[1].at - b[1].at,
+    )[0];
+    if (oldest) workerPortalCache.delete(oldest[0]);
+  }
+  return state;
+}
+
+/** Fetch a few roster rows by id without loading the full workers catalog. */
+export async function findScopedWorkers(scope, ids) {
+  if (!scope?.orgId || !scope?.module) return [];
+  const list = [
+    ...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean)),
+  ];
+  if (list.length === 0) return [];
+  const target = targetForScope(scope);
+  const db = await getDb(target);
+  const docs = await db
+    .collection(MODEL_COLLECTIONS.workers)
+    .find({ ...scopeFilter(scope), id: { $in: list } })
+    .toArray();
+  return fromOrderedDocs(docs);
 }
 
 /** One page of saved shifts, newest first, without loading the whole history. */

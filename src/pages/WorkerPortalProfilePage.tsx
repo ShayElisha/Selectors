@@ -1,50 +1,44 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, KeyRound, Loader2 } from 'lucide-react'
-import { fetchWorkerHomeRemote, type WorkerHomeResponse } from '../api'
+import { Bell, KeyRound } from 'lucide-react'
+import { PageLoader } from '../components/PageLoader'
 import { CertChips, SectionCard } from '../components/ui'
+import { useApp } from '../context/AppContext'
+import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { notify } from '../lib/notify'
 import {
   currentNotifyPermission,
   requestWorkerNotifyPermission,
   type NotifyPermission,
 } from '../lib/workerNotify'
-import { useApp } from '../context/AppContext'
 
 export function WorkerPortalProfilePage() {
   const { user } = useApp()
-  const [home, setHome] = useState<WorkerHomeResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { home, loading, error, refreshHome } = useWorkerPortal()
   const [perm, setPerm] = useState<NotifyPermission>(() =>
     currentNotifyPermission(),
   )
   const [permBusy, setPermBusy] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      setHome(await fetchWorkerHomeRemote())
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'טעינת הפרופיל נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
   if (loading && !home) {
+    return <PageLoader label="טוען נתונים…" />
+  }
+
+  if (!home) {
     return (
-      <div className="flex items-center justify-center gap-2 py-16 text-ink-soft">
-        <Loader2 className="size-5 animate-spin" aria-hidden />
-        טוען פרופיל…
-      </div>
+      <SectionCard title="הפרופיל שלי" subtitle={error || 'לא ניתן לטעון נתונים כרגע.'}>
+        <button
+          type="button"
+          className="ui-btn ui-btn-primary"
+          onClick={() => void refreshHome()}
+        >
+          נסו שוב
+        </button>
+      </SectionCard>
     )
   }
 
-  const me = home?.me
+  const me = home.me
 
   return (
     <div className="space-y-4">

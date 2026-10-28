@@ -1,4 +1,8 @@
-import { readState, upsertShift } from './data.js'
+import {
+  findScopedWorkers,
+  loadWorkerPortalBundle,
+  upsertShift,
+} from './data.js'
 import { getOrganization, refreshOrgSession } from './orgs.js'
 import { requireUser } from './session.js'
 import { appendAuditLog } from './audit.js'
@@ -156,6 +160,11 @@ function findMyShift(history, workerId, date, shiftType) {
 
 function daysAgoISO(days, now = new Date()) {
   const d = new Date(now.getTime() - days * 86400000)
+  return toDateISO(d)
+}
+
+function daysAheadISO(days, now = new Date()) {
+  const d = new Date(now.getTime() + days * 86400000)
   return toDateISO(d)
 }
 
@@ -462,7 +471,12 @@ export async function requireWorkerActor(req) {
 
 export async function getWorkerHome(req) {
   const { actor, scope } = await requireWorkerActor(req)
-  const state = await readState(scope)
+  const now = new Date()
+  const state = await loadWorkerPortalBundle(scope, {
+    fromDate: daysAgoISO(1, now),
+    toDate: daysAheadISO(14, now),
+    workerIds: [actor.id],
+  })
   const meDoc = (state.workers || []).find((w) => w.id === actor.id) || null
   const me = publicWorker(meDoc) || {
     id: actor.id,
@@ -473,7 +487,6 @@ export async function getWorkerHome(req) {
     staffKind: actor.staffKind || 'selector',
     status: 'active',
   }
-  const now = new Date()
   const clockSlot =
     currentSlotFromModels(state.shiftModels, now) ||
     fallbackSlot(scope.module, now)
@@ -504,11 +517,16 @@ export async function getWorkerHome(req) {
   // Before shift start: only countdown — do not reveal lane assignment.
   const placement =
     phase === 'upcoming' ? { lanes: [], rounds: null } : fullPlacement
-  const gateId = shift?.gateManagerWorkerId
-  const gate =
-    (phase === 'active' || phase === 'upcoming') && gateId
-      ? publicWorker((state.workers || []).find((w) => w.id === gateId))
+  const gateId = String(shift?.gateManagerWorkerId || '').trim()
+  let gateDoc =
+    gateId && (phase === 'active' || phase === 'upcoming')
+      ? (state.workers || []).find((w) => w.id === gateId) || null
       : null
+  if (gateId && (phase === 'active' || phase === 'upcoming') && !gateDoc) {
+    const extras = await findScopedWorkers(scope, [gateId])
+    gateDoc = extras[0] || null
+  }
+  const gate = publicWorker(gateDoc)
   const drop =
     phase === 'active'
       ? (shift?.shiftDrops || []).find((d) => d.workerId === actor.id) || null
@@ -585,8 +603,12 @@ export async function updateWorkerStatus(req, body) {
   if (kind !== 'arrive') {
     throw httpError('ניתן רק לסמן הגעה', 400)
   }
-  const state = await readState(scope)
   const now = new Date()
+  const state = await loadWorkerPortalBundle(scope, {
+    fromDate: daysAgoISO(1, now),
+    toDate: daysAheadISO(2, now),
+    workerIds: [actor.id],
+  })
   const relevant = findRelevantShift(
     state.history,
     actor.id,
@@ -631,10 +653,14 @@ const HISTORY_DAYS = 30
 
 export async function getWorkerHistory(req) {
   const { actor, scope } = await requireWorkerActor(req)
-  const state = await readState(scope)
   const now = new Date()
   const fromDate = daysAgoISO(HISTORY_DAYS - 1, now)
   const toDate = toDateISO(now)
+  const state = await loadWorkerPortalBundle(scope, {
+    fromDate,
+    toDate,
+    workerIds: [actor.id],
+  })
   const mine = (state.history || [])
     .filter(
       (s) =>

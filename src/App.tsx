@@ -7,6 +7,7 @@ import { ThemeProvider, useTheme } from './lib/theme'
 import { Shell } from './components/Shell'
 import { WorkerShell } from './components/WorkerShell'
 import { PageLoader } from './components/PageLoader'
+import { WorkerPortalProvider } from './context/WorkerPortalContext'
 import { HomePage } from './pages/HomePage'
 import { ShiftPage } from './pages/ShiftPage'
 import { WorkersPage } from './pages/WorkersPage'
@@ -49,18 +50,20 @@ function ProtectedWorkerShell() {
   if (user.role === 'super_admin') return <Navigate to="/admin" replace />
   if (user.role !== 'worker') return <Navigate to="/" replace />
   return (
-    <WorkerShell>
-      <Routes>
-        <Route index element={<WorkerHomePage />} />
-        <Route path="history" element={<WorkerHistoryPage />} />
-        <Route path="briefings" element={<WorkerBriefingsPage />} />
-        <Route path="notifications" element={<WorkerNotificationsPage />} />
-        <Route path="help" element={<WorkerHelpPage />} />
-        <Route path="profile" element={<WorkerPortalProfilePage />} />
-        <Route path="password" element={<ChangePasswordPage />} />
-        <Route path="*" element={<Navigate to="/worker" replace />} />
-      </Routes>
-    </WorkerShell>
+    <WorkerPortalProvider>
+      <WorkerShell>
+        <Routes>
+          <Route index element={<WorkerHomePage />} />
+          <Route path="history" element={<WorkerHistoryPage />} />
+          <Route path="briefings" element={<WorkerBriefingsPage />} />
+          <Route path="notifications" element={<WorkerNotificationsPage />} />
+          <Route path="help" element={<WorkerHelpPage />} />
+          <Route path="profile" element={<WorkerPortalProfilePage />} />
+          <Route path="password" element={<ChangePasswordPage />} />
+          <Route path="*" element={<Navigate to="/worker" replace />} />
+        </Routes>
+      </WorkerShell>
+    </WorkerPortalProvider>
   )
 }
 

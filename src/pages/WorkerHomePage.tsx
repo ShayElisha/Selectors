@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CheckCircle2,
   CircleHelp,
-  Loader2,
   MessageCircle,
   Phone,
   RefreshCw,
@@ -12,12 +11,9 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import {
-  fetchWorkerHomeRemote,
-  updateWorkerStatusRemote,
-  type WorkerHomeResponse,
-} from '../api'
+import { PageLoader } from '../components/PageLoader'
 import { IntensityBadge, Ltr, SectionCard } from '../components/ui'
+import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { formatMinutes } from '../lib/shiftModels'
 import { notify } from '../lib/notify'
@@ -114,8 +110,14 @@ function useEndsAtCountdown(endsAt: string | null | undefined) {
 const HELP_TIP_KEY = 'getin.worker.helpTipDismissed'
 
 export function WorkerHomePage() {
-  const [home, setHome] = useState<WorkerHomeResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const {
+    home,
+    loading,
+    refreshing,
+    error,
+    refreshHome,
+    markArrived: markArrivedRemote,
+  } = useWorkerPortal()
   const [busy, setBusy] = useState(false)
   const [showHelpTip, setShowHelpTip] = useState(() => {
     try {
@@ -125,26 +127,11 @@ export function WorkerHomePage() {
     }
   })
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      setHome(await fetchWorkerHomeRemote())
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'טעינת המשמרת נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
   useEffect(() => {
     if (!home?.shift) return
-    const id = window.setInterval(() => void load(), 60_000)
+    const id = window.setInterval(() => void refreshHome({ silent: true }), 60_000)
     return () => window.clearInterval(id)
-  }, [home?.shift?.id, load])
+  }, [home?.shift?.id, refreshHome])
 
   const phase = home?.now?.phase || 'none'
   const upcoming = phase === 'upcoming'
@@ -155,8 +142,8 @@ export function WorkerHomePage() {
 
   useEffect(() => {
     if (!upcoming || startLeft == null) return
-    if (startLeft <= 0) void load()
-  }, [upcoming, startLeft, load])
+    if (startLeft <= 0) void refreshHome({ silent: true })
+  }, [upcoming, startLeft, refreshHome])
 
   useEffect(() => {
     if (!home?.shift || home.now?.phase !== 'upcoming') return
@@ -177,7 +164,7 @@ export function WorkerHomePage() {
   const markArrived = async () => {
     setBusy(true)
     try {
-      setHome(await updateWorkerStatusRemote({ kind: 'arrive' }))
+      await markArrivedRemote()
       notify.success('סומנה הגעה')
     } catch (e) {
       notify.error(e instanceof Error ? e.message : 'עדכון ההגעה נכשל')
@@ -187,18 +174,20 @@ export function WorkerHomePage() {
   }
 
   if (loading && !home) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-16 text-ink-soft">
-        <Loader2 className="size-5 animate-spin" aria-hidden />
-        טוען את המשמרת…
-      </div>
-    )
+    return <PageLoader label="טוען נתונים…" />
   }
 
   if (!home) {
     return (
-      <SectionCard title="המשמרת שלי" subtitle="לא ניתן לטעון נתונים כרגע.">
-        <button type="button" className="ui-btn ui-btn-primary" onClick={() => void load()}>
+      <SectionCard
+        title="המשמרת שלי"
+        subtitle={error || 'לא ניתן לטעון נתונים כרגע.'}
+      >
+        <button
+          type="button"
+          className="ui-btn ui-btn-primary"
+          onClick={() => void refreshHome()}
+        >
           נסו שוב
         </button>
       </SectionCard>
@@ -251,11 +240,13 @@ export function WorkerHomePage() {
           <button
             type="button"
             className="ui-btn ui-btn-ghost !px-2.5"
-            onClick={() => void load()}
-            disabled={loading || busy}
+            onClick={() => void refreshHome({ silent: true })}
+            disabled={loading || refreshing || busy}
             aria-label="רענון"
           >
-            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`size-4 ${loading || refreshing ? 'animate-spin' : ''}`}
+            />
           </button>
         }
       >

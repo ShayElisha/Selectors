@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
-import { CalendarX2, History, Loader2, RefreshCw } from 'lucide-react'
-import {
-  fetchWorkerHistoryRemote,
-  type WorkerHistoryResponse,
-} from '../api'
+import { useEffect } from 'react'
+import { CalendarX2, History, RefreshCw } from 'lucide-react'
+import { PageLoader } from '../components/PageLoader'
 import { IntensityBadge, Ltr, SectionCard } from '../components/ui'
+import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { INTENSITY_LABELS, SHIFT_TYPE_LABELS } from '../constants'
 import { formatShiftDate } from '../lib/hebrew'
 import { formatMinutes } from '../lib/shiftModels'
-import { notify } from '../lib/notify'
 import type { Intensity, ShiftType } from '../types'
 
 function shiftLabel(type: string) {
@@ -22,37 +19,33 @@ function dropKindLabel(kind: string) {
 }
 
 export function WorkerHistoryPage() {
-  const [data, setData] = useState<WorkerHistoryResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      setData(await fetchWorkerHistoryRemote())
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'טעינת ההיסטוריה נכשלה')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const {
+    history: data,
+    historyLoading: loading,
+    historyRefreshing: refreshing,
+    historyError,
+    refreshHistory,
+  } = useWorkerPortal()
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void refreshHistory()
+  }, [refreshHistory])
 
   if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-16 text-ink-soft">
-        <Loader2 className="size-5 animate-spin" aria-hidden />
-        טוען היסטוריה…
-      </div>
-    )
+    return <PageLoader label="טוען נתונים…" />
   }
 
   if (!data) {
     return (
-      <SectionCard title="ההיסטוריה שלי" subtitle="לא ניתן לטעון נתונים כרגע.">
-        <button type="button" className="ui-btn ui-btn-primary" onClick={() => void load()}>
+      <SectionCard
+        title="ההיסטוריה שלי"
+        subtitle={historyError || 'לא ניתן לטעון נתונים כרגע.'}
+      >
+        <button
+          type="button"
+          className="ui-btn ui-btn-primary"
+          onClick={() => void refreshHistory()}
+        >
           נסו שוב
         </button>
       </SectionCard>
@@ -70,11 +63,13 @@ export function WorkerHistoryPage() {
           <button
             type="button"
             className="ui-btn ui-btn-ghost !px-2.5"
-            onClick={() => void load()}
-            disabled={loading}
+            onClick={() => void refreshHistory({ silent: true })}
+            disabled={loading || refreshing}
             aria-label="רענון"
           >
-            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`size-4 ${loading || refreshing ? 'animate-spin' : ''}`}
+            />
           </button>
         }
       >
