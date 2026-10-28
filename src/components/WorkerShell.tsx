@@ -13,11 +13,16 @@ import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
 
-const NAV = [
+const NAV: {
+  to: string
+  label: string
+  icon: typeof ClipboardList
+  end?: boolean
+}[] = [
   { to: '/worker', label: 'המשמרת שלי', icon: ClipboardList, end: true },
   { to: '/worker/briefings', label: 'תדריכים', icon: BookOpen },
   { to: '/worker/profile', label: 'הפרופיל שלי', icon: UserRound },
-] as const
+]
 
 export function WorkerShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useApp()
