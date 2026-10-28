@@ -301,6 +301,7 @@ function buildNowContext(shift, placement, models, slot, phase, now = new Date()
     }
   }
 
+  // Lane assignment is hidden until the shift actually starts.
   const activeLanes =
     resolvedPhase === 'active'
       ? currentRound
@@ -311,18 +312,13 @@ function buildNowContext(shift, placement, models, slot, phase, now = new Date()
             intensity: a.intensity,
             notes: a.notes || '',
           }))
-      : (placement?.lanes || []).map((a) => ({
-          laneId: a.laneId,
-          laneName: a.laneName,
-          intensity: a.intensity,
-          notes: a.notes || '',
-        }))
+      : []
 
   return {
     phase: resolvedPhase,
     serverNow: now.toISOString(),
     clockMinutes: clock,
-    currentRound,
+    currentRound: resolvedPhase === 'active' ? currentRound : null,
     activeLanes,
     minutesToRoundEnd: currentRound ? currentRound.minutesRemaining : null,
     roundEndsAt: currentRound?.endsAt || null,
@@ -504,17 +500,26 @@ export async function getWorkerHome(req) {
           String(shift.shiftType),
       }
     : clockSlot
-  const placement = myPlacement(shift, actor.id, state.lanes)
+  const fullPlacement = myPlacement(shift, actor.id, state.lanes)
+  // Before shift start: only countdown — do not reveal lane assignment.
+  const placement =
+    phase === 'upcoming' ? { lanes: [], rounds: null } : fullPlacement
   const gateId = shift?.gateManagerWorkerId
-  const gate = gateId
-    ? publicWorker((state.workers || []).find((w) => w.id === gateId))
-    : null
-  const drop = (shift?.shiftDrops || []).find((d) => d.workerId === actor.id) || null
-  const windowAdj = shift?.windowAdjustments?.[actor.id] || null
-  const earlyLeaveAt = shift?.earlyLeaveAt?.[actor.id]
+  const gate =
+    phase === 'active' && gateId
+      ? publicWorker((state.workers || []).find((w) => w.id === gateId))
+      : null
+  const drop =
+    phase === 'active'
+      ? (shift?.shiftDrops || []).find((d) => d.workerId === actor.id) || null
+      : null
+  const windowAdj =
+    phase === 'active' ? shift?.windowAdjustments?.[actor.id] || null : null
+  const earlyLeaveAt =
+    phase === 'active' ? shift?.earlyLeaveAt?.[actor.id] : null
   const nowContext = buildNowContext(
     shift,
-    placement,
+    fullPlacement,
     state.shiftModels,
     slot,
     phase,
