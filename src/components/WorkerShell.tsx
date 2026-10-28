@@ -4,6 +4,7 @@ import {
   BookOpen,
   CircleHelp,
   ClipboardList,
+  History,
   KeyRound,
   LogOut,
   UserRound,
@@ -20,6 +21,7 @@ const NAV: {
   end?: boolean
 }[] = [
   { to: '/worker', label: 'המשמרת שלי', icon: ClipboardList, end: true },
+  { to: '/worker/history', label: 'היסטוריה', icon: History },
   { to: '/worker/briefings', label: 'תדריכים', icon: BookOpen },
   { to: '/worker/profile', label: 'הפרופיל שלי', icon: UserRound },
 ]

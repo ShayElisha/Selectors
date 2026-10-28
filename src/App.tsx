@@ -28,6 +28,7 @@ import { SuperAdminPage } from './pages/SuperAdminPage'
 import { AdminErrorsPage } from './pages/AdminErrorsPage'
 import { WorkerProfilePage } from './pages/WorkerProfilePage'
 import { WorkerHomePage } from './pages/WorkerHomePage'
+import { WorkerHistoryPage } from './pages/WorkerHistoryPage'
 import { WorkerBriefingsPage } from './pages/WorkerBriefingsPage'
 import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
@@ -49,6 +50,7 @@ function ProtectedWorkerShell() {
     <WorkerShell>
       <Routes>
         <Route index element={<WorkerHomePage />} />
+        <Route path="history" element={<WorkerHistoryPage />} />
         <Route path="briefings" element={<WorkerBriefingsPage />} />
         <Route path="profile" element={<WorkerPortalProfilePage />} />
         <Route path="password" element={<ChangePasswordPage />} />

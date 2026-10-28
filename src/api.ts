@@ -610,11 +610,46 @@ export function fetchWorkerHomeRemote(): Promise<WorkerHomeResponse> {
   return request('/api/worker/home')
 }
 
+export interface WorkerHistoryResponse {
+  fromDate: string
+  toDate: string
+  days: number
+  shifts: {
+    id: string
+    date: string
+    shiftType: string
+    laneNames: string[]
+    placement: WorkerHomeResponse['placement']
+    present: boolean
+    lateMinutes: number | null
+    earlyMinutes: number | null
+    earlyLeaveAt: number | null
+    drop: {
+      workerId?: string
+      kind: string
+      minutes: number
+      reason: string
+    } | null
+    signedOff: boolean
+    updatedAt?: string
+  }[]
+  cancellations: {
+    shiftId: string
+    date: string
+    shiftType: string
+    kind: string
+    minutes: number
+    reason: string
+    laneIds: string[]
+  }[]
+}
+
+export function fetchWorkerHistoryRemote(): Promise<WorkerHistoryResponse> {
+  return request('/api/worker/history')
+}
+
 export function updateWorkerStatusRemote(body: {
-  kind: 'arrive' | 'late' | 'leave' | 'cancel'
-  minutes?: number
-  lateMinutes?: number
-  reason?: string
+  kind: 'arrive'
 }): Promise<WorkerHomeResponse> {
   return request('/api/worker/status', {
     method: 'POST',

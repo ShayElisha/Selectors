@@ -35,7 +35,11 @@ import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
 import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, loginEmailForIdentity, purgeOrganization, readOrgAssignmentSettings, recordSuccessfulLogin, refreshLoginIdentity, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
-import { getWorkerHome, updateWorkerStatus } from './workerPortal.js'
+import {
+  getWorkerHome,
+  getWorkerHistory,
+  updateWorkerStatus,
+} from './workerPortal.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -254,6 +258,14 @@ app.post('/api/password', async (req, res) => {
 app.get('/api/worker/home', async (req, res) => {
   try {
     res.json(await getWorkerHome(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/history', async (req, res) => {
+  try {
+    res.json(await getWorkerHistory(req))
   } catch (err) {
     sendError(res, err)
   }

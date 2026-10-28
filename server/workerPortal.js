@@ -87,30 +87,71 @@ function publicWorker(worker) {
   }
 }
 
-function findMyShift(history, workerId, date, shiftType) {
-  const matches = (history || []).filter(
-    (s) =>
-      s.date === date &&
-      String(s.shiftType) === String(shiftType) &&
-      Array.isArray(s.presentWorkerIds) &&
-      s.presentWorkerIds.includes(workerId),
-  )
-  if (matches.length > 0) {
-    return matches.sort((a, b) =>
-      String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')),
-    )[0]
+function workerAssignedOnShift(shift, workerId) {
+  if (!shift || !workerId) return false
+  if (String(shift.gateManagerWorkerId || '') === workerId) return true
+  for (const row of shift.assignments || []) {
+    if ((row.workerIds || []).includes(workerId)) return true
   }
-  const today = (history || []).filter(
-    (s) =>
-      s.date === date &&
-      Array.isArray(s.presentWorkerIds) &&
-      s.presentWorkerIds.includes(workerId),
-  )
-  return (
-    today.sort((a, b) =>
-      String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')),
-    )[0] || null
-  )
+  for (const round of shift.rounds || []) {
+    for (const row of round.assignments || []) {
+      if ((row.workerIds || []).includes(workerId)) return true
+    }
+  }
+  for (const segment of shift.seatSegments || []) {
+    if (segment.workerId === workerId) return true
+  }
+  return false
+}
+
+function workerTouchedShift(shift, workerId) {
+  if (!shift || !workerId) return false
+  if ((shift.presentWorkerIds || []).includes(workerId)) return true
+  if ((shift.shiftDrops || []).some((d) => d.workerId === workerId)) return true
+  return workerAssignedOnShift(shift, workerId)
+}
+
+function newestFirst(a, b) {
+  return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+}
+
+function findMyShift(history, workerId, date, shiftType) {
+  const list = history || []
+  const slotMatches = list
+    .filter(
+      (s) =>
+        s.date === date &&
+        String(s.shiftType) === String(shiftType) &&
+        workerTouchedShift(s, workerId),
+    )
+    .sort(newestFirst)
+  if (slotMatches[0]) return slotMatches[0]
+  const dayMatches = list
+    .filter((s) => s.date === date && workerTouchedShift(s, workerId))
+    .sort(newestFirst)
+  return dayMatches[0] || null
+}
+
+function daysAgoISO(days, now = new Date()) {
+  const d = new Date(now.getTime() - days * 86400000)
+  return toDateISO(d)
+}
+
+function summarizePlacement(shift, workerId, lanes) {
+  const placement = myPlacement(shift, workerId, lanes)
+  const laneNames = []
+  if (placement.rounds) {
+    for (const round of placement.rounds) {
+      for (const row of round.assignments) {
+        if (!laneNames.includes(row.laneName)) laneNames.push(row.laneName)
+      }
+    }
+  } else {
+    for (const row of placement.lanes) {
+      if (!laneNames.includes(row.laneName)) laneNames.push(row.laneName)
+    }
+  }
+  return { placement, laneNames }
 }
 
 function myPlacement(shift, workerId, lanes) {
@@ -243,8 +284,8 @@ export async function getWorkerHome(req) {
 export async function updateWorkerStatus(req, body) {
   const { actor, scope } = await requireWorkerActor(req)
   const kind = String(body?.kind || '')
-  if (!['arrive', 'late', 'leave', 'cancel'].includes(kind)) {
-    throw httpError('סוג עדכון לא תקין', 400)
+  if (kind !== 'arrive') {
+    throw httpError('ניתן רק לסמן הגעה', 400)
   }
   const state = await readState(scope)
   const slot =
@@ -254,47 +295,14 @@ export async function updateWorkerStatus(req, body) {
   if (shift.signOff) {
     throw httpError('המשמרת נסגרה ואין אפשרות לעדכן סטטוס', 409)
   }
-
-  const clock = Number.isFinite(Number(body?.minutes))
-    ? Math.round(Number(body.minutes))
-    : localMinutes()
-  const reason = String(body?.reason || '').trim().slice(0, 240)
-  const lateMinutes = Number.isFinite(Number(body?.lateMinutes))
-    ? Math.max(0, Math.round(Number(body.lateMinutes)))
-    : undefined
+  if ((shift.presentWorkerIds || []).includes(actor.id)) {
+    return getWorkerHome(req)
+  }
 
   const next = {
     ...shift,
-    presentWorkerIds: [...(shift.presentWorkerIds || [])],
-    windowAdjustments: { ...(shift.windowAdjustments || {}) },
-    earlyLeaveAt: { ...(shift.earlyLeaveAt || {}) },
-    shiftDrops: Array.isArray(shift.shiftDrops) ? [...shift.shiftDrops] : [],
+    presentWorkerIds: [...(shift.presentWorkerIds || []), actor.id],
     updatedAt: new Date().toISOString(),
-  }
-
-  if (kind === 'arrive' || kind === 'late') {
-    if (!next.presentWorkerIds.includes(actor.id)) {
-      next.presentWorkerIds.push(actor.id)
-    }
-    const mins = kind === 'late' ? (lateMinutes ?? 15) : lateMinutes
-    if (mins && mins > 0) {
-      next.windowAdjustments[actor.id] = {
-        ...(next.windowAdjustments[actor.id] || {}),
-        lateMinutes: mins,
-      }
-    }
-  } else if (kind === 'leave' || kind === 'cancel') {
-    next.earlyLeaveAt[actor.id] = clock
-    if (kind === 'cancel') {
-      next.presentWorkerIds = next.presentWorkerIds.filter((id) => id !== actor.id)
-    }
-    next.shiftDrops = next.shiftDrops.filter((d) => d.workerId !== actor.id)
-    next.shiftDrops.push({
-      workerId: actor.id,
-      kind: kind === 'leave' ? 'leave' : 'cancel',
-      minutes: clock,
-      reason: reason || (kind === 'leave' ? 'יציאה מוקדמת' : 'ביטול הגעה'),
-    })
   }
 
   await upsertShift(next.id, next, actor, {
@@ -307,8 +315,76 @@ export async function updateWorkerStatus(req, body) {
     actor,
     orgId: scope.orgId,
     module: scope.module,
-    details: `עדכון סטטוס עובד (${kind}) במשמרת ${shift.date} · ${shift.shiftType}`,
+    details: `סימון הגעה במשמרת ${shift.date} · ${shift.shiftType}`,
   })
 
   return getWorkerHome(req)
+}
+
+const HISTORY_DAYS = 14
+
+export async function getWorkerHistory(req) {
+  const { actor, scope } = await requireWorkerActor(req)
+  const state = await readState(scope)
+  const fromDate = daysAgoISO(HISTORY_DAYS - 1)
+  const mine = (state.history || [])
+    .filter((s) => s.date >= fromDate && workerTouchedShift(s, actor.id))
+    .sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) ||
+        String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')),
+    )
+
+  const shifts = mine.map((shift) => {
+    const { placement, laneNames } = summarizePlacement(
+      shift,
+      actor.id,
+      state.lanes,
+    )
+    const windowAdj = shift.windowAdjustments?.[actor.id] || null
+    const drop =
+      (shift.shiftDrops || []).find((d) => d.workerId === actor.id) || null
+    return {
+      id: shift.id,
+      date: shift.date,
+      shiftType: shift.shiftType,
+      laneNames,
+      placement,
+      present: Boolean(shift.presentWorkerIds?.includes(actor.id)),
+      lateMinutes: windowAdj?.lateMinutes ?? null,
+      earlyMinutes: windowAdj?.earlyMinutes ?? null,
+      earlyLeaveAt: shift.earlyLeaveAt?.[actor.id] ?? null,
+      drop,
+      signedOff: Boolean(shift.signOff),
+      updatedAt: shift.updatedAt,
+    }
+  })
+
+  const cancellations = mine
+    .flatMap((shift) =>
+      (shift.shiftDrops || [])
+        .filter(
+          (d) =>
+            d.workerId === actor.id &&
+            (d.kind === 'cancel' || d.kind === 'noshow' || d.kind === 'leave'),
+        )
+        .map((drop) => ({
+          shiftId: shift.id,
+          date: shift.date,
+          shiftType: shift.shiftType,
+          kind: drop.kind,
+          minutes: drop.minutes,
+          reason: drop.reason || '',
+          laneIds: drop.laneIds || [],
+        })),
+    )
+    .sort((a, b) => b.date.localeCompare(a.date) || b.minutes - a.minutes)
+
+  return {
+    fromDate,
+    toDate: toDateISO(),
+    days: HISTORY_DAYS,
+    shifts,
+    cancellations,
+  }
 }
