@@ -30,6 +30,7 @@ import { WorkerProfilePage } from './pages/WorkerProfilePage'
 import { WorkerHomePage } from './pages/WorkerHomePage'
 import { WorkerHistoryPage } from './pages/WorkerHistoryPage'
 import { WorkerBriefingsPage } from './pages/WorkerBriefingsPage'
+import { WorkerNotificationsPage } from './pages/WorkerNotificationsPage'
 import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
@@ -52,6 +53,7 @@ function ProtectedWorkerShell() {
         <Route index element={<WorkerHomePage />} />
         <Route path="history" element={<WorkerHistoryPage />} />
         <Route path="briefings" element={<WorkerBriefingsPage />} />
+        <Route path="notifications" element={<WorkerNotificationsPage />} />
         <Route path="profile" element={<WorkerPortalProfilePage />} />
         <Route path="password" element={<ChangePasswordPage />} />
         <Route path="*" element={<Navigate to="/worker" replace />} />

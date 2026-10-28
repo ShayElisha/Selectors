@@ -137,6 +137,184 @@ function daysAgoISO(days, now = new Date()) {
   return toDateISO(d)
 }
 
+const DEFAULT_SHIFT_BOUNDS = {
+  morning: { start: 6 * 60, end: 15 * 60 },
+  afternoonA: { start: 14 * 60 + 30, end: 18 * 60 + 30 },
+  afternoonB: { start: 18 * 60, end: 21 * 60 + 30 },
+  afternoon: { start: 14 * 60 + 30, end: 21 * 60 + 30 },
+  night: { start: 21 * 60, end: 24 * 60 + 6 * 60 + 30 },
+}
+
+function shiftBounds(shiftType, models) {
+  const model = (models || []).find((m) => String(m.id) === String(shiftType))
+  if (
+    model &&
+    Number.isFinite(Number(model.startMinutes)) &&
+    Number.isFinite(Number(model.endMinutes))
+  ) {
+    return {
+      start: Number(model.startMinutes),
+      end: Number(model.endMinutes),
+    }
+  }
+  return (
+    DEFAULT_SHIFT_BOUNDS[shiftType] || {
+      start: 0,
+      end: 24 * 60,
+    }
+  )
+}
+
+/** Present + past only — future shifts that have not started yet are hidden. */
+function shiftHasStarted(shift, models, now = new Date()) {
+  if (!shift?.date) return false
+  const today = toDateISO(now)
+  if (shift.date < today) return true
+  if (shift.date > today) return false
+  const { start } = shiftBounds(shift.shiftType, models)
+  return localMinutes(now) >= start
+}
+
+function normalizeClockSpan(start, end, clock) {
+  let endAdj = end
+  let clockAdj = clock
+  if (endAdj <= start) endAdj += 24 * 60
+  if (clockAdj < start && endAdj > 24 * 60) clockAdj += 24 * 60
+  return { start, end: endAdj, clock: clockAdj }
+}
+
+function atLocalIso(dateISO, minutesFromMidnight) {
+  const day = 24 * 60
+  const extraDays = Math.floor(minutesFromMidnight / day)
+  const m = ((minutesFromMidnight % day) + day) % day
+  const [y, mo, d] = String(dateISO)
+    .split('-')
+    .map((part) => Number(part))
+  const dt = new Date(
+    y,
+    mo - 1,
+    d + extraDays,
+    Math.floor(m / 60),
+    m % 60,
+    0,
+    0,
+  )
+  return dt.toISOString()
+}
+
+function buildNowContext(shift, placement, models, slot, now = new Date()) {
+  const clock = localMinutes(now)
+  const date = shift?.date || slot?.date || toDateISO(now)
+  const shiftType = shift?.shiftType || slot?.shiftType
+  const bounds = shiftBounds(shiftType, models)
+  const shiftSpan = normalizeClockSpan(bounds.start, bounds.end, clock)
+  const minutesToShiftEnd = Math.max(0, Math.round(shiftSpan.end - shiftSpan.clock))
+
+  let currentRound = null
+  if (placement?.rounds?.length) {
+    for (const round of placement.rounds) {
+      const span = normalizeClockSpan(
+        Number(round.startMinutes),
+        Number(round.endMinutes),
+        clock,
+      )
+      if (span.clock >= span.start && span.clock < span.end) {
+        currentRound = {
+          label: round.label,
+          startMinutes: round.startMinutes,
+          endMinutes: round.endMinutes,
+          cohort: round.cohort || null,
+          lanes: (round.assignments || []).map((a) => ({
+            laneId: a.laneId,
+            laneName: a.laneName,
+            intensity: a.intensity,
+            notes: a.notes || '',
+          })),
+          minutesRemaining: Math.max(0, Math.round(span.end - span.clock)),
+          endsAt: atLocalIso(date, span.end),
+        }
+        break
+      }
+    }
+  }
+
+  const activeLanes = currentRound
+    ? currentRound.lanes
+    : (placement?.lanes || []).map((a) => ({
+        laneId: a.laneId,
+        laneName: a.laneName,
+        intensity: a.intensity,
+        notes: a.notes || '',
+      }))
+
+  return {
+    serverNow: now.toISOString(),
+    clockMinutes: clock,
+    currentRound,
+    activeLanes,
+    minutesToRoundEnd: currentRound ? currentRound.minutesRemaining : null,
+    roundEndsAt: currentRound?.endsAt || null,
+    minutesToShiftEnd: shift ? minutesToShiftEnd : null,
+    shiftEndsAt: shift ? atLocalIso(date, shiftSpan.end) : null,
+    shiftStartMinutes: bounds.start,
+    shiftEndMinutes: bounds.end,
+  }
+}
+
+function buildLaneAnalytics(shifts) {
+  const byLane = new Map()
+  const byIntensity = { easy: 0, medium: 0, hard: 0 }
+  const laneHistory = []
+
+  for (const shift of shifts) {
+    const rows = []
+    if (shift.placement?.rounds) {
+      for (const round of shift.placement.rounds) {
+        for (const a of round.assignments || []) rows.push(a)
+      }
+    } else {
+      for (const a of shift.placement?.lanes || []) rows.push(a)
+    }
+    const seen = new Set()
+    for (const a of rows) {
+      const key = a.laneId || a.laneName
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      const intensity =
+        a.intensity === 'easy' || a.intensity === 'hard' ? a.intensity : 'medium'
+      byIntensity[intensity] += 1
+      const prev = byLane.get(key) || {
+        laneId: a.laneId,
+        laneName: a.laneName,
+        count: 0,
+        byIntensity: { easy: 0, medium: 0, hard: 0 },
+      }
+      prev.count += 1
+      prev.byIntensity[intensity] += 1
+      byLane.set(key, prev)
+      laneHistory.push({
+        date: shift.date,
+        shiftType: shift.shiftType,
+        laneId: a.laneId,
+        laneName: a.laneName,
+        intensity,
+      })
+    }
+  }
+
+  return {
+    laneStats: [...byLane.values()].sort(
+      (a, b) => b.count - a.count || a.laneName.localeCompare(b.laneName, 'he'),
+    ),
+    intensityStats: byIntensity,
+    laneHistory: laneHistory.sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) ||
+        a.laneName.localeCompare(b.laneName, 'he'),
+    ),
+  }
+}
+
 function summarizePlacement(shift, workerId, lanes) {
   const placement = myPlacement(shift, workerId, lanes)
   const laneNames = []
@@ -232,6 +410,14 @@ export async function getWorkerHome(req) {
   const drop = (shift?.shiftDrops || []).find((d) => d.workerId === actor.id) || null
   const windowAdj = shift?.windowAdjustments?.[actor.id] || null
   const earlyLeaveAt = shift?.earlyLeaveAt?.[actor.id]
+  const now = new Date()
+  const nowContext = buildNowContext(
+    shift,
+    placement,
+    state.shiftModels,
+    slot,
+    now,
+  )
 
   return {
     me,
@@ -249,6 +435,7 @@ export async function getWorkerHome(req) {
         }
       : null,
     placement,
+    now: nowContext,
     gateManager: gate || null,
     status: {
       present: Boolean(shift?.presentWorkerIds?.includes(actor.id)),
@@ -321,14 +508,22 @@ export async function updateWorkerStatus(req, body) {
   return getWorkerHome(req)
 }
 
-const HISTORY_DAYS = 14
+const HISTORY_DAYS = 30
 
 export async function getWorkerHistory(req) {
   const { actor, scope } = await requireWorkerActor(req)
   const state = await readState(scope)
-  const fromDate = daysAgoISO(HISTORY_DAYS - 1)
+  const now = new Date()
+  const fromDate = daysAgoISO(HISTORY_DAYS - 1, now)
+  const toDate = toDateISO(now)
   const mine = (state.history || [])
-    .filter((s) => s.date >= fromDate && workerTouchedShift(s, actor.id))
+    .filter(
+      (s) =>
+        s.date >= fromDate &&
+        s.date <= toDate &&
+        workerTouchedShift(s, actor.id) &&
+        shiftHasStarted(s, state.shiftModels, now),
+    )
     .sort(
       (a, b) =>
         b.date.localeCompare(a.date) ||
@@ -380,11 +575,16 @@ export async function getWorkerHistory(req) {
     )
     .sort((a, b) => b.date.localeCompare(a.date) || b.minutes - a.minutes)
 
+  const analytics = buildLaneAnalytics(shifts)
+
   return {
     fromDate,
-    toDate: toDateISO(),
+    toDate,
     days: HISTORY_DAYS,
     shifts,
     cancellations,
+    laneStats: analytics.laneStats,
+    intensityStats: analytics.intensityStats,
+    laneHistory: analytics.laneHistory,
   }
 }

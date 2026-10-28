@@ -583,6 +583,36 @@ export interface WorkerHomeResponse {
     }[] | null
   }
   gateManager: { id: string; fullName: string; phone: string } | null
+  now?: {
+    serverNow: string
+    clockMinutes: number
+    currentRound: {
+      label: string
+      startMinutes: number
+      endMinutes: number
+      cohort?: string | null
+      lanes: {
+        laneId: string
+        laneName: string
+        intensity: string
+        notes: string
+      }[]
+      minutesRemaining: number
+      endsAt: string
+    } | null
+    activeLanes: {
+      laneId: string
+      laneName: string
+      intensity: string
+      notes: string
+    }[]
+    minutesToRoundEnd: number | null
+    roundEndsAt: string | null
+    minutesToShiftEnd: number | null
+    shiftEndsAt: string | null
+    shiftStartMinutes: number
+    shiftEndMinutes: number
+  }
   status: {
     present: boolean
     lateMinutes: number | null
@@ -642,10 +672,69 @@ export interface WorkerHistoryResponse {
     reason: string
     laneIds: string[]
   }[]
+  laneStats: {
+    laneId: string
+    laneName: string
+    count: number
+    byIntensity: { easy: number; medium: number; hard: number }
+  }[]
+  intensityStats: { easy: number; medium: number; hard: number }
+  laneHistory: {
+    date: string
+    shiftType: string
+    laneId: string
+    laneName: string
+    intensity: string
+  }[]
 }
 
 export function fetchWorkerHistoryRemote(): Promise<WorkerHistoryResponse> {
   return request('/api/worker/history')
+}
+
+export interface WorkerNotificationItem {
+  id: string
+  source: 'manager' | 'system' | 'briefing' | string
+  title: string
+  body: string
+  at: string
+  authorName: string
+  read: boolean
+}
+
+export function fetchWorkerNotificationsRemote(): Promise<{
+  items: WorkerNotificationItem[]
+  unread: number
+}> {
+  return request('/api/worker/notifications')
+}
+
+export function markWorkerNotificationReadRemote(
+  id: string,
+): Promise<{ ok: boolean }> {
+  return request(`/api/worker/notifications/${encodeURIComponent(id)}/read`, {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+export function markAllWorkerNotificationsReadRemote(): Promise<{
+  ok: boolean
+}> {
+  return request('/api/worker/notifications/read-all', {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
+export function createWorkerNoticeRemote(body: {
+  title: string
+  body: string
+}): Promise<WorkerNotificationItem> {
+  return request('/api/worker/notices', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 export function updateWorkerStatusRemote(body: {

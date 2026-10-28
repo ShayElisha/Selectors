@@ -38,8 +38,15 @@ import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganiza
 import {
   getWorkerHome,
   getWorkerHistory,
+  requireWorkerActor,
   updateWorkerStatus,
 } from './workerPortal.js'
+import {
+  createWorkerNotice,
+  listWorkerInbox,
+  markAllWorkerNoticesRead,
+  markWorkerNoticeRead,
+} from './workerNotices.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -266,6 +273,55 @@ app.get('/api/worker/home', async (req, res) => {
 app.get('/api/worker/history', async (req, res) => {
   try {
     res.json(await getWorkerHistory(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/notifications', async (req, res) => {
+  try {
+    const { actor, scope } = await requireWorkerActor(req)
+    const state = await readState(scope)
+    res.json(
+      await listWorkerInbox(actor, {
+        scope,
+        briefings: state.briefingSections || [],
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/notifications/:id/read', async (req, res) => {
+  try {
+    const { actor, scope } = await requireWorkerActor(req)
+    res.json(await markWorkerNoticeRead(req.params.id, actor, { scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/notifications/read-all', async (req, res) => {
+  try {
+    const { actor, scope } = await requireWorkerActor(req)
+    res.json(await markAllWorkerNoticesRead(actor, { scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/notices', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    await assertRateLimit({
+      key: `worker-notice:${actor.id}`,
+      limit: 20,
+      windowMs: 15 * 60_000,
+    })
+    res
+      .status(201)
+      .json(await createWorkerNotice(req.body || {}, actor, { scope }))
   } catch (err) {
     sendError(res, err)
   }

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
+  Bell,
   BookOpen,
   CircleHelp,
   ClipboardList,
@@ -9,6 +10,7 @@ import {
   LogOut,
   UserRound,
 } from 'lucide-react'
+import { fetchWorkerNotificationsRemote } from '../api'
 import { useApp } from '../context/AppContext'
 import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
@@ -20,7 +22,7 @@ const NAV: {
   icon: typeof ClipboardList
   end?: boolean
 }[] = [
-  { to: '/worker', label: 'המשמרת שלי', icon: ClipboardList, end: true },
+  { to: '/worker', label: 'עכשיו', icon: ClipboardList, end: true },
   { to: '/worker/history', label: 'היסטוריה', icon: History },
   { to: '/worker/briefings', label: 'תדריכים', icon: BookOpen },
   { to: '/worker/profile', label: 'הפרופיל שלי', icon: UserRound },
@@ -31,6 +33,22 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [unread, setUnread] = useState(0)
+
+  const refreshUnread = useCallback(async () => {
+    try {
+      const data = await fetchWorkerNotificationsRemote()
+      setUnread(data.unread)
+    } catch {
+      /* ignore badge errors */
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshUnread()
+    const id = window.setInterval(() => void refreshUnread(), 60_000)
+    return () => window.clearInterval(id)
+  }, [refreshUnread, location.pathname])
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-24 pt-4 sm:pb-8 sm:pt-6">
@@ -48,6 +66,20 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          <Link
+            to="/worker/notifications"
+            className="relative ui-btn ui-btn-ghost !px-2.5 !py-2"
+            aria-label={
+              unread > 0 ? `התראות, ${unread} שלא נקראו` : 'התראות'
+            }
+          >
+            <Bell className="size-4" aria-hidden />
+            {unread > 0 ? (
+              <span className="absolute -top-0.5 -start-0.5 flex min-w-4 items-center justify-center rounded-full bg-hard px-1 text-[10px] font-bold text-white">
+                {unread > 9 ? '9+' : unread}
+              </span>
+            ) : null}
+          </Link>
           <ThemeToggle />
           <div className="relative">
             <button
@@ -63,6 +95,19 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
                 role="menu"
                 className="absolute left-0 z-40 mt-1 w-48 overflow-hidden rounded-xl border border-line/80 bg-card py-1 shadow-[var(--shadow-panel-hover)]"
               >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/worker/notifications')
+                  }}
+                >
+                  <Bell className="size-4" aria-hidden />
+                  התראות
+                  {unread > 0 ? ` (${unread})` : ''}
+                </button>
                 <button
                   type="button"
                   role="menuitem"
