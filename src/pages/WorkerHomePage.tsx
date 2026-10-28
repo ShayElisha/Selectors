@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   CheckCircle2,
-  Clock3,
   Loader2,
   RefreshCw,
   Shield,
@@ -87,7 +86,6 @@ export function WorkerHomePage() {
   const active = phase === 'active'
 
   const startLeft = useEndsAtCountdown(home?.now?.shiftStartsAt)
-  const roundLeft = useEndsAtCountdown(home?.now?.roundEndsAt)
   const shiftLeft = useEndsAtCountdown(home?.now?.shiftEndsAt)
 
   useEffect(() => {
@@ -156,90 +154,50 @@ export function WorkerHomePage() {
           </p>
         ) : (
           <div className="space-y-4">
-            {upcoming ? (
+            {(upcoming || active) && now ? (
               <div className="rounded-xl border border-brand/20 bg-brand/[0.06] p-4">
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-brand">
                   <Timer className="size-3.5" aria-hidden />
-                  עד תחילת המשמרת
+                  {upcoming ? 'עד תחילת המשמרת' : 'עד סיום המשמרת'}
                 </p>
                 <p
                   className="mt-1 font-display text-4xl font-bold tabular-nums text-ink"
                   dir="ltr"
                 >
-                  {formatCountdown(
-                    startLeft ?? (now?.minutesToShiftStart || 0) * 60,
+                  {upcoming
+                    ? formatCountdown(
+                        startLeft ?? (now.minutesToShiftStart || 0) * 60,
+                      )
+                    : formatCountdown(
+                        shiftLeft ?? (now.minutesToShiftEnd || 0) * 60,
+                      )}
+                </p>
+                <p className="mt-2 text-sm text-ink-soft">
+                  {upcoming ? (
+                    <>
+                      מתחילה ב־
+                      <Ltr>{formatMinutes(now.shiftStartMinutes)}</Ltr>
+                    </>
+                  ) : (
+                    <>
+                      מסתיימת ב־
+                      <Ltr>{formatMinutes(now.shiftEndMinutes)}</Ltr>
+                      {now.currentRound ? (
+                        <> · סבב נוכחי: {now.currentRound.label}</>
+                      ) : null}
+                    </>
                   )}
                 </p>
-                {now ? (
-                  <p className="mt-2 text-sm text-ink-soft">
-                    מתחילה ב־
-                    <Ltr>{formatMinutes(now.shiftStartMinutes)}</Ltr>
-                    {' · '}
-                    מסתיימת ב־
-                    <Ltr>{formatMinutes(now.shiftEndMinutes)}</Ltr>
+                {upcoming ? (
+                  <p className="mt-2 text-xs text-ink-soft">
+                    השיבוץ לנתיב יוצג רק אחרי תחילת המשמרת.
                   </p>
                 ) : null}
-                <p className="mt-2 text-xs text-ink-soft">
-                  השיבוץ לנתיב יוצג רק אחרי תחילת המשמרת.
-                </p>
               </div>
             ) : null}
 
             {active ? (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-brand/20 bg-brand/[0.06] p-3">
-                    <p className="flex items-center gap-1.5 text-xs font-semibold text-brand">
-                      <Timer className="size-3.5" aria-hidden />
-                      {now?.currentRound ? 'סיום הסבב' : 'סיום המשמרת'}
-                    </p>
-                    <p
-                      className="mt-1 font-display text-3xl font-bold tabular-nums text-ink"
-                      dir="ltr"
-                    >
-                      {now?.currentRound
-                        ? formatCountdown(
-                            roundLeft ?? (now.minutesToRoundEnd || 0) * 60,
-                          )
-                        : formatCountdown(
-                            shiftLeft ?? (now?.minutesToShiftEnd || 0) * 60,
-                          )}
-                    </p>
-                    {now?.currentRound ? (
-                      <p className="mt-1 text-xs text-ink-soft">
-                        סבב נוכחי: {now.currentRound.label}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-ink-soft">
-                        שיבוץ קבוע למשמרת
-                      </p>
-                    )}
-                  </div>
-                  <div className="rounded-xl border border-line/70 bg-surface/50 p-3">
-                    <p className="flex items-center gap-1.5 text-xs font-semibold text-ink-soft">
-                      <Clock3 className="size-3.5" aria-hidden />
-                      סיום המשמרת
-                    </p>
-                    <p
-                      className="mt-1 font-display text-3xl font-bold tabular-nums text-ink"
-                      dir="ltr"
-                    >
-                      {formatCountdown(
-                        shiftLeft ?? (now?.minutesToShiftEnd || 0) * 60,
-                      )}
-                    </p>
-                    {now ? (
-                      <p className="mt-1 text-xs text-ink-soft">
-                        חלון:{' '}
-                        <Ltr>
-                          {formatMinutes(now.shiftStartMinutes)}–
-                          {formatMinutes(now.shiftEndMinutes)}
-                        </Ltr>
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-
                 <div>
                   <p className="mb-2 text-sm font-semibold text-ink">
                     {now?.currentRound ? 'הנתיב הפעיל עכשיו' : 'הנתיב שלי'}
