@@ -59,7 +59,6 @@ import {
   type WorkerSortKey,
 } from '../lib/workersHelpers'
 import { notify } from '../lib/notify'
-import { WorkerNoticeComposer } from '../components/WorkerNoticeComposer'
 import type { Lane, StaffKind, Worker, WorkerStatus } from '../types'
 
 const emptyForm = (staffKind: StaffKind = 'selector'): Omit<Worker, 'id'> => ({
@@ -1248,10 +1247,6 @@ export function WorkersPage() {
 
   return (
     <div className="workers-print-root space-y-4">
-      <div className="no-print">
-        <WorkerNoticeComposer />
-      </div>
-
       <SectionCard
         title="מאגר בודקים"
         subtitle="ניהול בודקים, הסמכות והרשאות"
