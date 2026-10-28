@@ -72,7 +72,6 @@ import { exportBlockedReason } from '../lib/exportGate'
 import { postAuditEvent, reportShiftPresence } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
-import { compareLaneNames } from '../lib/lanesCertHelpers'
 import {
   attendanceStepSummary,
   canAdvanceFromAttendance,
@@ -228,7 +227,10 @@ export function ShiftPage() {
   }, [draft?.id])
 
   const selectableLanes = useMemo(
-    () => managedLanes(data.lanes).filter((lane) => !(draft && usesRounds(draft) && lane.roundsDisabled)).sort(compareLaneNames),
+    () =>
+      managedLanes(data.lanes).filter(
+        (lane) => !(draft && usesRounds(draft) && lane.roundsDisabled),
+      ),
     [data.lanes, draft],
   )
 
@@ -2162,9 +2164,9 @@ export function ShiftPage() {
         <BoardCompareDialog
           loadFair={compareOptions.loadFair}
           hardExperience={compareOptions.hardExperience}
-          lanes={data.lanes
-            .filter((lane) => draft.activeLaneIds.includes(lane.id))
-            .sort(compareLaneNames)}
+          lanes={managedLanes(data.lanes).filter((lane) =>
+            draft.activeLaneIds.includes(lane.id),
+          )}
           workers={data.workers}
           onClose={() => setCompareOptions(null)}
           onChoose={chooseBoardOption}
@@ -2178,9 +2180,9 @@ export function ShiftPage() {
             </h3>
             <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
               {(addPicker === 'lane'
-                ? managedLanes(data.lanes)
-                    .filter((lane) => !draft.activeLaneIds.includes(lane.id))
-                    .sort(compareLaneNames)
+                ? managedLanes(data.lanes).filter(
+                    (lane) => !draft.activeLaneIds.includes(lane.id),
+                  )
                 : activeAttendanceWorkers(data.workers).filter(
                     (worker) => !draft.presentWorkerIds.includes(worker.id),
                   )

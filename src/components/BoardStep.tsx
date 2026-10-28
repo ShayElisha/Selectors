@@ -75,7 +75,6 @@ import {
 } from '../lib/gateManager'
 import { notify } from '../lib/notify'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
-import { compareLaneNames } from '../lib/lanesCertHelpers'
 import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
@@ -1321,10 +1320,10 @@ export function BoardStep({
           ) : null}
           {[...draft.activeLaneIds]
             .sort((a, b) => {
-              const la = data.lanes.find((l) => l.id === a)
-              const lb = data.lanes.find((l) => l.id === b)
-              if (!la || !lb) return a.localeCompare(b)
-              return compareLaneNames(la, lb)
+              const ia = data.lanes.findIndex((l) => l.id === a)
+              const ib = data.lanes.findIndex((l) => l.id === b)
+              if (ia < 0 || ib < 0) return a.localeCompare(b)
+              return ia - ib
             })
             .map((laneId, laneIndex) => {
             const lane = data.lanes.find((l) => l.id === laneId)

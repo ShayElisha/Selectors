@@ -33,11 +33,11 @@ function worker(id: string, fullName: string, certs: string[] = []): Worker {
 }
 
 describe('selectorLanes', () => {
-  it('returns active lanes in Hebrew alphabetical order', () => {
+  it('returns active lanes in catalog order', () => {
     const lanes = [lane('b', 'נתיב ב'), lane('a', 'נתיב א')]
-    expect(selectorLanes(lanes, ['b', 'a']).map((item) => item.id)).toEqual([
-      'a',
+    expect(selectorLanes(lanes, ['a', 'b']).map((item) => item.id)).toEqual([
       'b',
+      'a',
     ])
   })
 

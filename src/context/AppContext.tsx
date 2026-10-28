@@ -500,6 +500,8 @@ interface AppContextValue {
   addLane: (l: Omit<Lane, 'id'>) => void
   updateLane: (l: Lane) => void
   deleteLane: (id: string) => void
+  /** Persist manager-chosen order for managed lanes (gate-manager lane kept aside). */
+  reorderLanes: (orderedManagedIds: string[]) => void
   addCertification: (name: string) => void
   removeCertification: (name: string) => void
   upsertBriefingSection: (
@@ -3389,6 +3391,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [patchData],
   )
 
+  const reorderLanes = useCallback(
+    (orderedManagedIds: string[]) => {
+      patchData((prev) => {
+        const gates = prev.lanes.filter((l) => isGateManagerLane(l))
+        const byId = new Map(
+          prev.lanes
+            .filter((l) => !isGateManagerLane(l))
+            .map((l) => [l.id, l] as const),
+        )
+        const ordered: Lane[] = []
+        for (const id of orderedManagedIds) {
+          const lane = byId.get(id)
+          if (lane) {
+            ordered.push(lane)
+            byId.delete(id)
+          }
+        }
+        for (const lane of byId.values()) ordered.push(lane)
+        return { ...prev, lanes: [...gates, ...ordered] }
+      })
+    },
+    [patchData],
+  )
+
   const addCertification = useCallback(
     (name: string) => {
       const trimmed = name.trim()
@@ -3907,6 +3933,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addLane,
       updateLane,
       deleteLane,
+      reorderLanes,
       addCertification,
       removeCertification,
       upsertBriefingSection,
@@ -4006,6 +4033,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addLane,
       updateLane,
       deleteLane,
+      reorderLanes,
       addCertification,
       removeCertification,
       upsertBriefingSection,

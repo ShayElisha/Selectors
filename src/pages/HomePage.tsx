@@ -271,7 +271,12 @@ export function HomePage() {
       assigned: number
       workers: string[]
     }[]
-    return rows.sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
+    const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
+    return rows.sort(
+      (a, b) =>
+        (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
+        a.laneName.localeCompare(b.laneName, 'he'),
+    )
   }, [currentShift, data.lanes, data.workers])
 
   const currentUnassigned = useMemo(() => {
@@ -423,7 +428,14 @@ export function HomePage() {
   const exportShift = async (shift: ShiftSchedule) => {
     setExportBusy(true)
     try {
-      const lines: ExportLaneLine[] = shift.activeLaneIds.flatMap((laneId) => {
+      const laneOrder = new Map(
+        data.lanes.map((lane, index) => [lane.id, index]),
+      )
+      const orderedLaneIds = [...shift.activeLaneIds].sort(
+        (a, b) =>
+          (laneOrder.get(a) ?? 0) - (laneOrder.get(b) ?? 0),
+      )
+      const lines: ExportLaneLine[] = orderedLaneIds.flatMap((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)
         if (!lane) return []
         const assignment = shift.assignments.find((a) => a.laneId === laneId)
@@ -442,7 +454,7 @@ export function HomePage() {
             notes: assignment?.notes?.trim() || undefined,
           },
         ]
-      }).sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
+      })
       const assignedIds = new Set(
         shift.assignments.flatMap((a) => a.workerIds.filter(Boolean)),
       )

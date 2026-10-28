@@ -7,11 +7,30 @@ import {
   useState,
 } from 'react'
 import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
   AlertTriangle,
   ArrowLeftRight,
   Check,
   ChevronDown,
   ChevronUp,
+  GripVertical,
   Minus,
   MoreHorizontal,
   Plus,
@@ -34,7 +53,6 @@ import { pluralizeHe } from '../lib/hebrew'
 import { isGateManagerLane, managedLanes } from '../lib/gateManager'
 import {
   QUALIFIED_THIN_MARGIN,
-  compareLaneNames,
   compareLanes,
   coverageTone,
   formsLaneEqual,
@@ -745,6 +763,137 @@ function RowMenu({
   )
 }
 
+function useIsMdUp() {
+  const [mdUp, setMdUp] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(min-width: 768px)').matches
+      : true,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => setMdUp(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return mdUp
+}
+
+function DragHandle({
+  attributes,
+  listeners,
+  disabled,
+}: {
+  attributes: ReturnType<typeof useSortable>['attributes']
+  listeners: ReturnType<typeof useSortable>['listeners']
+  disabled?: boolean
+}) {
+  if (disabled) {
+    return <span className="inline-flex size-9 shrink-0" aria-hidden />
+  }
+  return (
+    <button
+      type="button"
+      className="inline-flex size-9 shrink-0 cursor-grab items-center justify-center rounded-lg text-ink-soft touch-none hover:bg-surface hover:text-ink active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      aria-label="גרור לשינוי סדר"
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical className="size-4" aria-hidden />
+    </button>
+  )
+}
+
+function SortableLaneTableRow({
+  lane,
+  dragEnabled,
+  children,
+}: {
+  lane: Lane
+  dragEnabled: boolean
+  children: React.ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: lane.id, disabled: !dragEnabled })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 20 : undefined,
+    position: isDragging ? 'relative' : undefined,
+  }
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={`h-14 border-b border-line/70 ${
+        isDragging
+          ? 'bg-card shadow-[var(--shadow-panel-hover)] ring-1 ring-brand/30'
+          : ''
+      }`}
+    >
+      <td className="w-10 px-1 py-1.5 no-print">
+        <DragHandle
+          attributes={attributes}
+          listeners={listeners}
+          disabled={!dragEnabled}
+        />
+      </td>
+      {children}
+    </tr>
+  )
+}
+
+function SortableLaneCard({
+  lane,
+  dragEnabled,
+  children,
+}: {
+  lane: Lane
+  dragEnabled: boolean
+  children: (handle: React.ReactNode) => React.ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: lane.id, disabled: !dragEnabled })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 20 : undefined,
+  }
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={`rounded-2xl border border-line/80 bg-card p-4 shadow-[var(--shadow-panel)] transition-shadow hover:shadow-[var(--shadow-panel-hover)] ${
+        isDragging ? 'shadow-[var(--shadow-panel-hover)] ring-2 ring-brand/30' : ''
+      }`}
+    >
+      {children(
+        <DragHandle
+          attributes={attributes}
+          listeners={listeners}
+          disabled={!dragEnabled}
+        />,
+      )}
+    </li>
+  )
+}
+
 function SortHeader({
   label,
   colKey,
@@ -791,7 +940,17 @@ function SortHeader({
 }
 
 export function LanesPage() {
-  const { data, loading, error, addLane, updateLane, deleteLane, assignmentModes, module } = useApp()
+  const {
+    data,
+    loading,
+    error,
+    addLane,
+    updateLane,
+    deleteLane,
+    reorderLanes,
+    assignmentModes,
+    module,
+  } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState(emptyForm())
@@ -803,6 +962,7 @@ export function LanesPage() {
   const [discardOpen, setDiscardOpen] = useState(false)
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
+  const mdUp = useIsMdUp()
 
   const dirty = !formsLaneEqual(form, baseline)
   const editingLane = editingId
@@ -823,11 +983,41 @@ export function LanesPage() {
 
   const rows = useMemo(() => {
     const list = [...managed]
-    if (!sortKey) return list.sort(compareLaneNames)
+    // Default: catalog order (manager drag order). Column sort is temporary view only.
+    if (!sortKey) return list
     return list.sort((a, b) =>
       compareLanes(a, b, sortKey, sortDir, qualifiedById),
     )
   }, [managed, sortKey, sortDir, qualifiedById])
+
+  const dragEnabled = !sortKey && !creating && !editingId
+  const rowIds = useMemo(
+    () => rows.filter((l) => l.id !== editingId).map((l) => l.id),
+    [rows, editingId],
+  )
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+
+  const onDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!dragEnabled) return
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = rowIds.indexOf(String(active.id))
+      const newIndex = rowIds.indexOf(String(over.id))
+      if (oldIndex < 0 || newIndex < 0) return
+      reorderLanes(arrayMove(rowIds, oldIndex, newIndex))
+    },
+    [dragEnabled, reorderLanes, rowIds],
+  )
 
   const showToast = useCallback((msg: string) => {
     notify.success(msg)
@@ -1005,270 +1195,326 @@ export function LanesPage() {
 
         {managed.length > 0 ? (
           <>
-            <p className="mb-3 text-[13px] text-ink-soft tabular-nums">
-              {pluralizeHe(summary.count, {
-                one: 'נתיב אחד',
-                two: 'שני נתיבים',
-                many: 'נתיבים',
-              })}{' '}
-              · תקן מקס׳ כולל{' '}
-              <Ltr>{summary.totalStandard}</Ltr> ·{' '}
-              <Ltr>{summary.easy}</Ltr> קל · <Ltr>{summary.medium}</Ltr> בינוני ·{' '}
-              <Ltr>{summary.hard}</Ltr> קשה
-            </p>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[720px] border-collapse text-[13px]">
-                <thead>
-                  <tr className="border-b border-line">
-                    <SortHeader
-                      label="נתיב"
-                      colKey="name"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onSort={(k) => {
-                        if (sortKey === k)
-                          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-                        else {
-                          setSortKey(k)
-                          setSortDir('asc')
-                        }
-                      }}
-                    />
-                    <SortHeader
-                      label="עצימות"
-                      colKey="intensity"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onSort={(k) => {
-                        if (sortKey === k)
-                          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-                        else {
-                          setSortKey(k)
-                          setSortDir('asc')
-                        }
-                      }}
-                    />
-                    <SortHeader
-                      label="תקן מקס׳"
-                      colKey="standard"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onSort={(k) => {
-                        if (sortKey === k)
-                          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-                        else {
-                          setSortKey(k)
-                          setSortDir('asc')
-                        }
-                      }}
-                    />
-                    <th
-                      scope="col"
-                      className="px-2 py-2 text-start text-[12px] font-semibold text-ink-soft"
-                    >
-                      הסמכות
-                    </th>
-                    <SortHeader
-                      label="החלפה"
-                      colKey="handoff"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onSort={(k) => {
-                        if (sortKey === k)
-                          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-                        else {
-                          setSortKey(k)
-                          setSortDir('asc')
-                        }
-                      }}
-                      className="no-print"
-                    />
-                    <SortHeader
-                      label="מוסמכים"
-                      colKey="qualified"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onSort={(k) => {
-                        if (sortKey === k)
-                          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-                        else {
-                          setSortKey(k)
-                          setSortDir('asc')
-                        }
-                      }}
-                    />
-                    <th scope="col" className="px-2 py-2 no-print">
-                      <span className="sr-only">פעולות</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((l) => {
-                    if (editingId === l.id) {
-                      return (
-                        <tr key={l.id}>
-                          <td colSpan={7} className="p-2 no-print">
-                            {formPanel}
-                          </td>
-                        </tr>
-                      )
-                    }
-                    const cov = qualifiedCountForLane(l, data.workers)
-                    const certs = orderedLaneCerts(
-                      data.certificationsCatalog,
-                      l.requiredCertifications,
-                    )
-                    return (
-                      <tr key={l.id} className="h-14 border-b border-line/70">
-                        <td className="px-2 py-1.5 font-semibold text-ink">
-                          {l.name}
-                          <p className="mt-0.5 text-[11px] font-medium text-ink-soft">
-                            {formatActiveHours(l.activeHours)}
-                          </p>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <IntensityBadge intensity={l.intensity} />
-                        </td>
-                        <td className="px-2 py-1.5 text-ink-soft tabular-nums">
-                          {l.staffingStandard === 1
-                            ? 'בודק אחד'
-                            : pluralizeHe(l.staffingStandard, {
-                                one: 'בודק אחד',
-                                two: 'שני בודקים',
-                                many: 'בודקים',
-                              })}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          {certs.length === 0 ? (
-                            <OpenCertChip />
-                          ) : (
-                            <div className="flex flex-wrap gap-1">
-                              {certs.map((c) => (
-                                <span
-                                  key={c}
-                                  className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-line"
-                                >
-                                  {c}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 no-print">
-                          {l.afternoonHandoff ? (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent ring-1 ring-accent/20">
-                              <ArrowLeftRight
-                                className="size-3"
-                                aria-hidden
-                              />
-                              החלפת צהריים
-                            </span>
-                          ) : (
-                            <span className="text-ink-soft">—</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <CoverageChip
-                            qualified={cov.qualified}
-                            active={cov.active}
-                            standard={l.staffingStandard}
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 text-end no-print">
-                          <RowMenu
-                            lane={l}
-                            onEdit={() => openEdit(l)}
-                            onDelete={() => {
-                              setDeleteTyped('')
-                              setDeleteTarget(l)
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[13px] text-ink-soft tabular-nums">
+                {pluralizeHe(summary.count, {
+                  one: 'נתיב אחד',
+                  two: 'שני נתיבים',
+                  many: 'נתיבים',
+                })}{' '}
+                · תקן מקס׳ כולל{' '}
+                <Ltr>{summary.totalStandard}</Ltr> ·{' '}
+                <Ltr>{summary.easy}</Ltr> קל · <Ltr>{summary.medium}</Ltr> בינוני ·{' '}
+                <Ltr>{summary.hard}</Ltr> קשה
+              </p>
+              {sortKey ? (
+                <button
+                  type="button"
+                  onClick={() => setSortKey(null)}
+                  className="ui-btn ui-btn-secondary !py-1.5 text-xs no-print"
+                >
+                  חזרה לסדר מותאם
+                </button>
+              ) : (
+                <p className="text-[12px] text-ink-soft no-print">
+                  גררו את הידית כדי לשנות סדר — הסדר נשמר בלוח ובסלקטורים
+                </p>
+              )}
             </div>
 
-            <ul className="space-y-2 md:hidden">
-              {rows.map((l) => {
-                if (editingId === l.id) {
-                  return (
-                    <li key={l.id} className="no-print">
-                      {formPanel}
-                    </li>
-                  )
-                }
-                const cov = qualifiedCountForLane(l, data.workers)
-                const certs = orderedLaneCerts(
-                  data.certificationsCatalog,
-                  l.requiredCertifications,
-                )
-                return (
-                  <li
-                    key={l.id}
-                    className="rounded-2xl border border-line/80 bg-card p-4 shadow-[var(--shadow-panel)] transition-shadow hover:shadow-[var(--shadow-panel-hover)]"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-semibold text-ink">{l.name}</span>
-                          <IntensityBadge intensity={l.intensity} />
-                          {l.afternoonHandoff ? (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent">
-                              <ArrowLeftRight className="size-3" aria-hidden />
-                              החלפת צהריים
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-[12px] font-medium text-ink-soft">
-                          {formatActiveHours(l.activeHours)}
-                        </p>
-                        <p className="mt-1 text-[13px] text-ink-soft tabular-nums">
-                          תקן מקס׳:{' '}
-                          {l.staffingStandard === 1
-                            ? 'בודק אחד'
-                            : `${l.staffingStandard} בודקים`}
-                        </p>
-                        <div className="mt-2">
-                          {certs.length === 0 ? (
-                            <OpenCertChip />
-                          ) : (
-                            <div className="flex flex-wrap gap-1">
-                              {certs.map((c) => (
-                                <span
-                                  key={c}
-                                  className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-line"
-                                >
-                                  {c}
-                                </span>
-                              ))}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={onDragEnd}
+            >
+              <SortableContext
+                items={rowIds}
+                strategy={verticalListSortingStrategy}
+              >
+                {mdUp ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] border-collapse text-[13px]">
+                      <thead>
+                        <tr className="border-b border-line">
+                          <th scope="col" className="w-10 px-1 py-2 no-print">
+                            <span className="sr-only">סדר</span>
+                          </th>
+                          <SortHeader
+                            label="נתיב"
+                            colKey="name"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={(k) => {
+                              if (sortKey === k)
+                                setSortDir((d) =>
+                                  d === 'asc' ? 'desc' : 'asc',
+                                )
+                              else {
+                                setSortKey(k)
+                                setSortDir('asc')
+                              }
+                            }}
+                          />
+                          <SortHeader
+                            label="עצימות"
+                            colKey="intensity"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={(k) => {
+                              if (sortKey === k)
+                                setSortDir((d) =>
+                                  d === 'asc' ? 'desc' : 'asc',
+                                )
+                              else {
+                                setSortKey(k)
+                                setSortDir('asc')
+                              }
+                            }}
+                          />
+                          <SortHeader
+                            label="תקן מקס׳"
+                            colKey="standard"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={(k) => {
+                              if (sortKey === k)
+                                setSortDir((d) =>
+                                  d === 'asc' ? 'desc' : 'asc',
+                                )
+                              else {
+                                setSortKey(k)
+                                setSortDir('asc')
+                              }
+                            }}
+                          />
+                          <th
+                            scope="col"
+                            className="px-2 py-2 text-start text-[12px] font-semibold text-ink-soft"
+                          >
+                            הסמכות
+                          </th>
+                          <SortHeader
+                            label="החלפה"
+                            colKey="handoff"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={(k) => {
+                              if (sortKey === k)
+                                setSortDir((d) =>
+                                  d === 'asc' ? 'desc' : 'asc',
+                                )
+                              else {
+                                setSortKey(k)
+                                setSortDir('asc')
+                              }
+                            }}
+                            className="no-print"
+                          />
+                          <SortHeader
+                            label="מוסמכים"
+                            colKey="qualified"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={(k) => {
+                              if (sortKey === k)
+                                setSortDir((d) =>
+                                  d === 'asc' ? 'desc' : 'asc',
+                                )
+                              else {
+                                setSortKey(k)
+                                setSortDir('asc')
+                              }
+                            }}
+                          />
+                          <th scope="col" className="px-2 py-2 no-print">
+                            <span className="sr-only">פעולות</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((l) => {
+                          if (editingId === l.id) {
+                            return (
+                              <tr key={l.id}>
+                                <td colSpan={8} className="p-2 no-print">
+                                  {formPanel}
+                                </td>
+                              </tr>
+                            )
+                          }
+                          const cov = qualifiedCountForLane(l, data.workers)
+                          const certs = orderedLaneCerts(
+                            data.certificationsCatalog,
+                            l.requiredCertifications,
+                          )
+                          return (
+                            <SortableLaneTableRow
+                              key={l.id}
+                              lane={l}
+                              dragEnabled={dragEnabled}
+                            >
+                              <td className="px-2 py-1.5 font-semibold text-ink">
+                                {l.name}
+                                <p className="mt-0.5 text-[11px] font-medium text-ink-soft">
+                                  {formatActiveHours(l.activeHours)}
+                                </p>
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <IntensityBadge intensity={l.intensity} />
+                              </td>
+                              <td className="px-2 py-1.5 text-ink-soft tabular-nums">
+                                {l.staffingStandard === 1
+                                  ? 'בודק אחד'
+                                  : pluralizeHe(l.staffingStandard, {
+                                      one: 'בודק אחד',
+                                      two: 'שני בודקים',
+                                      many: 'בודקים',
+                                    })}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {certs.length === 0 ? (
+                                  <OpenCertChip />
+                                ) : (
+                                  <div className="flex flex-wrap gap-1">
+                                    {certs.map((c) => (
+                                      <span
+                                        key={c}
+                                        className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-line"
+                                      >
+                                        {c}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 no-print">
+                                {l.afternoonHandoff ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent ring-1 ring-accent/20">
+                                    <ArrowLeftRight
+                                      className="size-3"
+                                      aria-hidden
+                                    />
+                                    החלפת צהריים
+                                  </span>
+                                ) : (
+                                  <span className="text-ink-soft">—</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <CoverageChip
+                                  qualified={cov.qualified}
+                                  active={cov.active}
+                                  standard={l.staffingStandard}
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-end no-print">
+                                <RowMenu
+                                  lane={l}
+                                  onEdit={() => openEdit(l)}
+                                  onDelete={() => {
+                                    setDeleteTyped('')
+                                    setDeleteTarget(l)
+                                  }}
+                                />
+                              </td>
+                            </SortableLaneTableRow>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {rows.map((l) => {
+                      if (editingId === l.id) {
+                        return (
+                          <li key={l.id} className="no-print">
+                            {formPanel}
+                          </li>
+                        )
+                      }
+                      const cov = qualifiedCountForLane(l, data.workers)
+                      const certs = orderedLaneCerts(
+                        data.certificationsCatalog,
+                        l.requiredCertifications,
+                      )
+                      return (
+                        <SortableLaneCard
+                          key={l.id}
+                          lane={l}
+                          dragEnabled={dragEnabled}
+                        >
+                          {(handle) => (
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex min-w-0 items-start gap-1">
+                                <span className="no-print">{handle}</span>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="font-semibold text-ink">
+                                      {l.name}
+                                    </span>
+                                    <IntensityBadge intensity={l.intensity} />
+                                    {l.afternoonHandoff ? (
+                                      <span className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent">
+                                        <ArrowLeftRight
+                                          className="size-3"
+                                          aria-hidden
+                                        />
+                                        החלפת צהריים
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-1 text-[12px] font-medium text-ink-soft">
+                                    {formatActiveHours(l.activeHours)}
+                                  </p>
+                                  <p className="mt-1 text-[13px] text-ink-soft tabular-nums">
+                                    תקן מקס׳:{' '}
+                                    {l.staffingStandard === 1
+                                      ? 'בודק אחד'
+                                      : `${l.staffingStandard} בודקים`}
+                                  </p>
+                                  <div className="mt-2">
+                                    {certs.length === 0 ? (
+                                      <OpenCertChip />
+                                    ) : (
+                                      <div className="flex flex-wrap gap-1">
+                                        {certs.map((c) => (
+                                          <span
+                                            key={c}
+                                            className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-line"
+                                          >
+                                            {c}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="mt-2">
+                                    <CoverageChip
+                                      qualified={cov.qualified}
+                                      active={cov.active}
+                                      standard={l.staffingStandard}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <RowMenu
+                                lane={l}
+                                onEdit={() => openEdit(l)}
+                                onDelete={() => {
+                                  setDeleteTyped('')
+                                  setDeleteTarget(l)
+                                }}
+                              />
                             </div>
                           )}
-                        </div>
-                        <div className="mt-2">
-                          <CoverageChip
-                            qualified={cov.qualified}
-                            active={cov.active}
-                            standard={l.staffingStandard}
-                          />
-                        </div>
-                      </div>
-                      <RowMenu
-                        lane={l}
-                        onEdit={() => openEdit(l)}
-                        onDelete={() => {
-                          setDeleteTyped('')
-                          setDeleteTarget(l)
-                        }}
-                      />
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+                        </SortableLaneCard>
+                      )
+                    })}
+                  </ul>
+                )}
+              </SortableContext>
+            </DndContext>
           </>
         ) : null}
       </SectionCard>

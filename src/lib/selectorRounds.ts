@@ -85,7 +85,13 @@ export function selectorLanes(lanes: Lane[], activeLaneIds: string[]): Lane[] {
     if (!lane || isGateManagerLane(lane) || lane.roundsDisabled) continue
     out.push(lane)
   }
-  return out.sort(compareLaneNames)
+  // Keep manager catalog order (activeLaneIds already filtered); do not sort by name.
+  const order = new Map(lanes.map((lane, index) => [lane.id, index]))
+  return out.sort(
+    (a, b) =>
+      (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0) ||
+      compareLaneNames(a, b),
+  )
 }
 
 function buildAssignmentWindows(args: {
