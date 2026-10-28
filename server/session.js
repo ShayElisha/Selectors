@@ -35,7 +35,7 @@ function fromB64url(str) {
  *   id: string,
  *   fullName: string,
  *   phone: string,
- *   role?: 'super_admin' | 'org_manager',
+ *   role?: 'super_admin' | 'org_manager' | 'worker',
  *   orgId?: string | null,
  *   orgName?: string | null,
  *   modules?: { selectors?: boolean, inspectors?: boolean },
@@ -72,7 +72,7 @@ export function createSessionToken(user) {
  *   id: string,
  *   fullName: string,
  *   phone: string,
- *   role: 'super_admin' | 'org_manager',
+ *   role: 'super_admin' | 'org_manager' | 'worker',
  *   orgId: string | null,
  *   orgName: string | null,
  *   modules: { selectors: boolean, inspectors: boolean },
@@ -95,7 +95,13 @@ export function verifySessionToken(token) {
     const payload = JSON.parse(fromB64url(body).toString('utf8'))
     if (!payload?.id || !payload?.phone || !payload?.exp || !payload?.role) return null
     if (payload.mfa !== true) return null
-    if (payload.role !== 'super_admin' && payload.role !== 'org_manager') return null
+    if (
+      payload.role !== 'super_admin' &&
+      payload.role !== 'org_manager' &&
+      payload.role !== 'worker'
+    ) {
+      return null
+    }
     if (Date.now() > Number(payload.exp)) return null
     const module =
       payload.module === 'inspectors' || payload.module === 'selectors'
@@ -144,7 +150,7 @@ export function getBearerToken(req) {
  *   id: string,
  *   fullName: string,
  *   phone: string,
- *   role: 'super_admin' | 'org_manager',
+ *   role: 'super_admin' | 'org_manager' | 'worker',
  *   orgId: string | null,
  *   orgName: string | null,
  *   modules: { selectors: boolean, inspectors: boolean },

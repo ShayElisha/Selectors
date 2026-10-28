@@ -77,6 +77,7 @@ function normalizeWorker(w, fallbackKind = "selector") {
       ? w.staffKind
       : fallbackKind;
   const isOrgManager = Boolean(w.isOrgManager);
+  const canLogin = Boolean(w.canLogin) || isManager || isOrgManager;
   const worker = {
     id: w.id,
     fullName: w.fullName || "",
@@ -89,6 +90,7 @@ function normalizeWorker(w, fallbackKind = "selector") {
     isManager: isManager || isOrgManager,
     staffKind,
     isOrgManager,
+    canLogin,
     managerNotes: String(w.managerNotes || "").trim().slice(0, 2000),
   };
   if (typeof w.passwordHash === "string" && w.passwordHash) {
@@ -389,15 +391,18 @@ function mergeWorkerSecrets(incomingWorkers, prevWorkers) {
       next.passwordHash = prev.passwordHash;
     }
     if ("mustChangePassword" in w) {
-      if (w.mustChangePassword && next.isManager) {
+      if (w.mustChangePassword && (next.isManager || next.canLogin)) {
         next.mustChangePassword = true;
       } else {
         delete next.mustChangePassword;
       }
-    } else if (prev?.mustChangePassword && next.isManager) {
+    } else if (
+      prev?.mustChangePassword &&
+      (next.isManager || next.canLogin)
+    ) {
       next.mustChangePassword = true;
     }
-    if (!next.isManager) {
+    if (!next.isManager && !next.canLogin) {
       delete next.mustChangePassword;
     }
     return next;
@@ -419,11 +424,17 @@ function assertOrgManagerEdits(nextWorkers, prevWorkers, actor) {
   }
 }
 
+function accountRoleForWorker(worker) {
+  if (worker.isManager || worker.isOrgManager) return "org_manager";
+  if (worker.canLogin) return "worker";
+  return null;
+}
+
 async function syncManagerAccess(workers, orgId) {
   if (!orgId) return;
   for (const worker of workers) {
-    if (!worker.isManager && !worker.isOrgManager) continue;
-    if (!worker.phone) continue;
+    const role = accountRoleForWorker(worker);
+    if (!role || !worker.phone) continue;
     await upsertManagerAccount({
       orgId,
       workerId: worker.id,
@@ -432,6 +443,7 @@ async function syncManagerAccess(workers, orgId) {
       email: worker.email,
       staffKind: worker.staffKind === "inspector" ? "inspector" : "selector",
       isOrgManager: Boolean(worker.isOrgManager),
+      role,
     });
   }
 }
@@ -439,13 +451,17 @@ async function syncManagerAccess(workers, orgId) {
 function assertManagersHaveEmail(workers, prevWorkers) {
   const prevById = new Map((prevWorkers || []).map((w) => [w.id, w]));
   for (const w of workers) {
-    if (!w.isManager) continue;
+    const needsLogin = Boolean(w.isManager || w.canLogin);
+    if (!needsLogin) continue;
     if (isValidEmail(w.email)) continue;
     const prev = prevById.get(w.id);
-    const newlyManager = !prev || !prev.isManager;
-    if (newlyManager) {
+    const newlyLogin =
+      !prev ||
+      (!prev.isManager && w.isManager) ||
+      (!prev.canLogin && w.canLogin);
+    if (newlyLogin) {
       const err = new Error(
-        `לא ניתן למנות מנהל ללא מייל תקין (${w.fullName || "ללא שם"})`,
+        `לא ניתן לפתוח גישה ללא מייל תקין (${w.fullName || "ללא שם"})`,
       );
       err.status = 400;
       throw err;
@@ -453,11 +469,19 @@ function assertManagersHaveEmail(workers, prevWorkers) {
   }
 }
 
+function workerHadLogin(prev) {
+  return Boolean(prev?.isManager || prev?.canLogin);
+}
+
+function workerHasLogin(worker) {
+  return Boolean(worker.isManager || worker.canLogin);
+}
+
 function shouldIssueTempPassword(worker, prev) {
-  if (!worker.isManager) return false;
+  if (!workerHasLogin(worker)) return false;
   if (!isValidEmail(worker.email)) return false;
   if (!prev) return true;
-  if (!prev.isManager) return true;
+  if (!workerHadLogin(prev)) return true;
   if (!prev.passwordHash) return true;
   return false;
 }
@@ -476,7 +500,11 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
 
   for (const w of workers) {
     const prev = prevById.get(w.id);
-    if (options.scope?.orgId && prev?.isManager && !w.isManager) {
+    if (
+      options.scope?.orgId &&
+      workerHadLogin(prev) &&
+      !workerHasLogin(w)
+    ) {
       await disableWorkerAccount(options.scope.orgId, w.id);
     }
     if (!shouldIssueTempPassword(w, prev)) {
@@ -515,6 +543,7 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
         mustChangePassword: true,
         staffKind: w.staffKind,
         isOrgManager: Boolean(w.isOrgManager),
+        role: accountRoleForWorker(w),
       });
     }
     nextWorkers.push(invited);

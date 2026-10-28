@@ -117,7 +117,15 @@ function modulesForAccount(account, org) {
 }
 
 export async function refreshManagerSession(user) {
-  if (!user?.orgId || user.role !== 'org_manager') {
+  return refreshOrgSession(user)
+}
+
+/** Refresh session for organization managers and workers. */
+export async function refreshOrgSession(user) {
+  if (
+    !user?.orgId ||
+    (user.role !== 'org_manager' && user.role !== 'worker')
+  ) {
     throw httpError('נדרשת התחברות', 401)
   }
   const org = await getOrganization(user.orgId)
@@ -137,18 +145,26 @@ export async function refreshManagerSession(user) {
   return session
 }
 
+function accountLoginRole(account) {
+  if (account?.role === 'worker') return 'worker'
+  if (account?.role === 'org_manager') return 'org_manager'
+  // Legacy accounts were managers only.
+  return 'org_manager'
+}
+
 function sessionFromAccount(account, org) {
   const modules = modulesForAccount(account, org)
+  const role = accountLoginRole(account)
   return {
     id: String(account._id),
     fullName: account.fullName || '',
     phone: account.phone,
-    role: 'org_manager',
+    role,
     orgId: String(org._id),
     orgName: org.name || '',
     modules,
     module: defaultModule(modules),
-    isOrgManager: Boolean(account.isOrgManager),
+    isOrgManager: role === 'org_manager' ? Boolean(account.isOrgManager) : false,
     staffKind: account.staffKind === 'inspector' ? 'inspector' : 'selector',
   }
 }
@@ -245,17 +261,23 @@ export async function recordSuccessfulLogin(
   await appendAuditLog({
     action: 'login',
     actor: identity,
-    ...(identity.role === 'org_manager'
+    ...(identity.role === 'org_manager' || identity.role === 'worker'
       ? { orgId: identity.orgId, module: identity.module }
       : {}),
     details:
       identity.role === 'super_admin'
         ? 'התחברות סופר אדמין לאחר אימות דו־שלבי'
-        : passwordChanged
-          ? 'הגדרת סיסמה קבועה והתחברות לאחר אימות דו־שלבי'
-          : 'התחברות למערכת לאחר אימות דו־שלבי',
+        : identity.role === 'worker'
+          ? passwordChanged
+            ? 'הגדרת סיסמה קבועה והתחברות עובד לאחר אימות דו־שלבי'
+            : 'התחברות עובד לאחר אימות דו־שלבי'
+          : passwordChanged
+            ? 'הגדרת סיסמה קבועה והתחברות לאחר אימות דו־שלבי'
+            : 'התחברות למערכת לאחר אימות דו־שלבי',
   })
-  if (identity.role === 'org_manager') await touchOrgLogin(identity.orgId)
+  if (identity.role === 'org_manager' || identity.role === 'worker') {
+    await touchOrgLogin(identity.orgId)
+  }
 }
 
 export async function registerOrganization(body) {
@@ -308,6 +330,7 @@ export async function registerOrganization(body) {
     status: 'active',
     isOrgManager: true,
     staffKind: 'selector',
+    role: 'org_manager',
   })
 
   let mailed = false
@@ -793,20 +816,23 @@ export async function upsertManagerAccount({
   mustChangePassword,
   staffKind,
   isOrgManager,
+  role,
 }) {
   const normalized = normalizePhone(phone)
   if (!orgId || !normalized) return
   const col = await accounts()
   const existing = await col.findOne({ phone: normalized })
   if (existing && String(existing.orgId) !== String(orgId)) {
-    throw httpError(`מספר הטלפון של ${fullName || 'המנהל'} שייך לארגון אחר`, 409)
+    throw httpError(`מספר הטלפון של ${fullName || 'המשתמש'} שייך לארגון אחר`, 409)
   }
+  const loginRole = role === 'worker' ? 'worker' : 'org_manager'
   const fields = {
     orgId: String(orgId),
     fullName: String(fullName || ''),
     phone: normalized,
     email: normalizeEmail(email),
     status: 'active',
+    role: loginRole,
   }
   if (passwordHash) {
     fields.passwordHash = passwordHash
@@ -815,7 +841,9 @@ export async function upsertManagerAccount({
     else fields.passwordExpiresAt = ''
   }
   if (staffKind === 'inspector' || staffKind === 'selector') fields.staffKind = staffKind
-  if (typeof isOrgManager === 'boolean') fields.isOrgManager = isOrgManager
+  if (typeof isOrgManager === 'boolean') {
+    fields.isOrgManager = loginRole === 'org_manager' ? Boolean(isOrgManager) : false
+  }
   if (existing) {
     await col.updateOne({ _id: existing._id }, { $set: fields })
     return
@@ -824,8 +852,9 @@ export async function upsertManagerAccount({
     _id: workerId ? String(workerId) : randomUUID(),
     mustChangePassword: Boolean(mustChangePassword),
     passwordHash: passwordHash || '',
-    isOrgManager: Boolean(isOrgManager),
+    isOrgManager: loginRole === 'org_manager' ? Boolean(isOrgManager) : false,
     staffKind: staffKind === 'inspector' ? 'inspector' : 'selector',
+    role: loginRole,
     ...fields,
   })
 }
@@ -1081,7 +1110,10 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
 }
 
 export async function changeOwnPassword(user, body) {
-  if (user?.role !== 'org_manager' || !user.orgId) {
+  if (
+    (user?.role !== 'org_manager' && user?.role !== 'worker') ||
+    !user.orgId
+  ) {
     throw httpError('סיסמת סופר אדמין משתנה רק בהגדרות השרת', 400)
   }
   const currentPassword = String(body?.currentPassword || '')

@@ -5,6 +5,7 @@ import { postClientErrorRemote } from './api'
 import { AppProvider, useApp } from './context/AppContext'
 import { ThemeProvider, useTheme } from './lib/theme'
 import { Shell } from './components/Shell'
+import { WorkerShell } from './components/WorkerShell'
 import { PageLoader } from './components/PageLoader'
 import { HomePage } from './pages/HomePage'
 import { ShiftPage } from './pages/ShiftPage'
@@ -26,6 +27,9 @@ import { RegisterPage } from './pages/RegisterPage'
 import { SuperAdminPage } from './pages/SuperAdminPage'
 import { AdminErrorsPage } from './pages/AdminErrorsPage'
 import { WorkerProfilePage } from './pages/WorkerProfilePage'
+import { WorkerHomePage } from './pages/WorkerHomePage'
+import { WorkerBriefingsPage } from './pages/WorkerBriefingsPage'
+import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
 import { HelpPage } from './pages/HelpPage'
@@ -35,6 +39,24 @@ import { CancellationsPage } from './pages/CancellationsPage'
 import { ShiftHandoffPage } from './pages/ShiftHandoffPage'
 import { StationMapPage } from './pages/StationMapPage'
 import { isAppPath } from './routes'
+
+function ProtectedWorkerShell() {
+  const { user } = useApp()
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role === 'super_admin') return <Navigate to="/admin" replace />
+  if (user.role !== 'worker') return <Navigate to="/" replace />
+  return (
+    <WorkerShell>
+      <Routes>
+        <Route index element={<WorkerHomePage />} />
+        <Route path="briefings" element={<WorkerBriefingsPage />} />
+        <Route path="profile" element={<WorkerPortalProfilePage />} />
+        <Route path="password" element={<ChangePasswordPage />} />
+        <Route path="*" element={<Navigate to="/worker" replace />} />
+      </Routes>
+    </WorkerShell>
+  )
+}
 
 function ProtectedShell() {
   const { user, loading, data } = useApp()
@@ -52,6 +74,7 @@ function ProtectedShell() {
   }
   if (!user) return <Navigate to="/login" replace />
   if (user.role === 'super_admin') return <Navigate to="/admin" replace />
+  if (user.role === 'worker') return <Navigate to="/worker" replace />
   const hasData = data.workers.length > 0 || data.lanes.length > 0
   if (loading && !hasData) {
     return <PageLoader fullScreen label="טוען נתונים…" />
@@ -103,6 +126,7 @@ export default function App() {
             <Route path="/help" element={<HelpPage />} />
             <Route path="/report" element={<ReportPage />} />
             <Route path="/algorithm" element={<AlgorithmPage />} />
+            <Route path="/worker/*" element={<ProtectedWorkerShell />} />
             <Route path="/*" element={<ProtectedShell />} />
           </Routes>
         </ErrorBoundary>

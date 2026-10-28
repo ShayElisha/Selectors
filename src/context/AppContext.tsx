@@ -1126,7 +1126,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       saveSession(session)
       setUser(session)
-      navigate(session.role === 'super_admin' ? '/admin' : '/', { replace: true })
+      navigate(
+        session.role === 'super_admin'
+          ? '/admin'
+          : session.role === 'worker'
+            ? '/worker'
+            : '/',
+        { replace: true },
+      )
     },
     [navigate],
   )
@@ -1136,7 +1143,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const session = await verifyLoginCodeRemote(challengeId, code)
       saveSession(session)
       setUser(session)
-      navigate(session.role === 'super_admin' ? '/admin' : '/', { replace: true })
+      navigate(
+        session.role === 'super_admin'
+          ? '/admin'
+          : session.role === 'worker'
+            ? '/worker'
+            : '/',
+        { replace: true },
+      )
     },
     [navigate],
   )
@@ -1285,7 +1299,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!user?.token || user.role !== 'org_manager') return
+    if (
+      !user?.token ||
+      (user.role !== 'org_manager' && user.role !== 'worker')
+    ) {
+      return
+    }
     let stop = false
     const tick = async () => {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return
@@ -1297,6 +1316,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           prev?.module && fresh.modules?.[prev.module] ? prev.module : fresh.module
         const next = { ...fresh, token: fresh.token, module }
         const changed =
+          prev?.role !== next.role ||
           Boolean(prev?.isOrgManager) !== Boolean(next.isOrgManager) ||
           Boolean(prev?.modules.selectors) !== Boolean(next.modules?.selectors) ||
           Boolean(prev?.modules.inspectors) !== Boolean(next.modules?.inspectors) ||
@@ -1334,7 +1354,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       path === '/help' ||
       path === '/report' ||
       path === '/algorithm'
-    if (!isPublic && !isAppPath(path)) return
+    const isWorkerPath = path === '/worker' || path.startsWith('/worker/')
+    if (!isPublic && !isAppPath(path) && !isWorkerPath) return
     if (!user && !isPublic) {
       navigate('/login', { replace: true })
     }
@@ -1351,9 +1372,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       (path === '/login' ||
         path === '/register' ||
         path === '/admin' ||
-        path === '/admin/errors')
+        path === '/admin/errors' ||
+        isWorkerPath)
     ) {
       navigate('/', { replace: true })
+    }
+    if (
+      user?.role === 'worker' &&
+      (path === '/login' ||
+        path === '/register' ||
+        path === '/admin' ||
+        path === '/admin/errors' ||
+        isAppPath(path))
+    ) {
+      navigate('/worker', { replace: true })
     }
   }, [user, location.pathname, navigate])
 

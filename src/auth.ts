@@ -16,12 +16,13 @@ export interface SessionUser {
   fullName: string
   phone: string
   token: string
-  role: 'super_admin' | 'org_manager'
+  role: 'super_admin' | 'org_manager' | 'worker'
   orgId: string | null
   orgName: string | null
   modules: OrgModules
   module: AppModule | null
   isOrgManager: boolean
+  staffKind?: 'inspector' | 'selector' | null
 }
 
 function cacheKey(user: Pick<SessionUser, 'orgId' | 'module'> | null): string | null {
@@ -35,7 +36,13 @@ export function loadSession(): SessionUser | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as SessionUser
     if (!parsed?.id || !parsed?.phone || !parsed?.token) return null
-    if (parsed.role !== 'super_admin' && parsed.role !== 'org_manager') return null
+    if (
+      parsed.role !== 'super_admin' &&
+      parsed.role !== 'org_manager' &&
+      parsed.role !== 'worker'
+    ) {
+      return null
+    }
     const modules = {
       selectors: Boolean(parsed.modules?.selectors),
       inspectors: Boolean(parsed.modules?.inspectors),
@@ -44,13 +51,18 @@ export function loadSession(): SessionUser | null {
       parsed.module === 'selectors' || parsed.module === 'inspectors'
         ? parsed.module
         : null
-    if (parsed.role === 'org_manager' && (!parsed.orgId || !module || !modules[module])) {
+    if (
+      (parsed.role === 'org_manager' || parsed.role === 'worker') &&
+      (!parsed.orgId || !module || !modules[module])
+    ) {
       return null
     }
     const isOrgManager =
-      typeof parsed.isOrgManager === 'boolean'
-        ? parsed.isOrgManager
-        : Boolean(modules.selectors && modules.inspectors)
+      parsed.role === 'worker'
+        ? false
+        : typeof parsed.isOrgManager === 'boolean'
+          ? parsed.isOrgManager
+          : Boolean(modules.selectors && modules.inspectors)
     return {
       ...parsed,
       orgId: parsed.orgId || null,
@@ -58,6 +70,10 @@ export function loadSession(): SessionUser | null {
       modules,
       module,
       isOrgManager,
+      staffKind:
+        parsed.staffKind === 'inspector' || parsed.staffKind === 'selector'
+          ? parsed.staffKind
+          : null,
     }
   } catch {
     return null

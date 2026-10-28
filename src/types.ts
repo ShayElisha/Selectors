@@ -21,12 +21,17 @@ export interface Worker {
   status: WorkerStatus
   /** Appears in assignment pools and analytics when active */
   isInspector: boolean
-  /** Can log in to the system with phone + password */
+  /** Can log in to the system with phone + password as a manager */
   isManager: boolean
   /** Which side this person belongs to. Org managers can see both. */
   staffKind?: StaffKind
   /** Sees both modules and may appoint other organization managers. */
   isOrgManager?: boolean
+  /**
+   * Can log in to the worker portal (same phone + password + email MFA flow).
+   * Managers always have login; this flag opens portal access for staff.
+   */
+  canLogin?: boolean
   /** Private-to-managers professional notes for the worker profile. */
   managerNotes?: string
 }

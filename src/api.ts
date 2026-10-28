@@ -536,3 +536,88 @@ export async function postAuditEvent(
     return null
   }
 }
+
+export interface WorkerHomeResponse {
+  me: {
+    id: string
+    fullName: string
+    phone: string
+    email: string
+    certifications: string[]
+    staffKind: 'inspector' | 'selector'
+    status: string
+  }
+  module: 'selectors' | 'inspectors'
+  slot: { date: string; shiftType: string; windowLabel: string }
+  shift: {
+    id: string
+    date: string
+    shiftType: string
+    audience?: string
+    assignmentMode?: string
+    signOff?: unknown
+    updatedAt?: string
+  } | null
+  placement: {
+    lanes: {
+      laneId: string
+      laneName: string
+      intensity: string
+      notes: string
+      workerIds: string[]
+      mine: boolean
+    }[]
+    rounds: {
+      label: string
+      startMinutes: number
+      endMinutes: number
+      cohort?: string
+      assignments: {
+        laneId: string
+        laneName: string
+        intensity: string
+        notes: string
+        workerIds: string[]
+        mine: boolean
+      }[]
+    }[] | null
+  }
+  gateManager: { id: string; fullName: string; phone: string } | null
+  status: {
+    present: boolean
+    lateMinutes: number | null
+    earlyMinutes: number | null
+    earlyLeaveAt: number | null
+    drop: {
+      workerId: string
+      kind: string
+      minutes: number
+      reason: string
+    } | null
+  }
+  briefings: {
+    id: string
+    title: string
+    body: string
+    order: number
+    starred?: boolean
+    updatedAt?: string
+  }[]
+  questions: { id: string; prompt: string; answer: string; order: number }[]
+}
+
+export function fetchWorkerHomeRemote(): Promise<WorkerHomeResponse> {
+  return request('/api/worker/home')
+}
+
+export function updateWorkerStatusRemote(body: {
+  kind: 'arrive' | 'late' | 'leave' | 'cancel'
+  minutes?: number
+  lateMinutes?: number
+  reason?: string
+}): Promise<WorkerHomeResponse> {
+  return request('/api/worker/status', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}

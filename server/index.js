@@ -35,6 +35,7 @@ import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
 import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, loginEmailForIdentity, purgeOrganization, readOrgAssignmentSettings, recordSuccessfulLogin, refreshLoginIdentity, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { getWorkerHome, updateWorkerStatus } from './workerPortal.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
@@ -245,6 +246,28 @@ app.post('/api/password', async (req, res) => {
       windowMs: 15 * 60_000,
     })
     res.json(await changeOwnPassword(user, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/home', async (req, res) => {
+  try {
+    res.json(await getWorkerHome(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/status', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    await assertRateLimit({
+      key: `worker-status:${user.id}`,
+      limit: 30,
+      windowMs: 15 * 60_000,
+    })
+    res.json(await updateWorkerStatus(req, req.body || {}))
   } catch (err) {
     sendError(res, err)
   }

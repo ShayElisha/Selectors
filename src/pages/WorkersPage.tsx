@@ -12,6 +12,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  KeyRound,
   Mail,
   MoreHorizontal,
   PauseCircle,
@@ -70,6 +71,7 @@ const emptyForm = (staffKind: StaffKind = 'selector'): Omit<Worker, 'id'> => ({
   isManager: false,
   staffKind,
   isOrgManager: false,
+  canLogin: false,
   managerNotes: '',
 })
 
@@ -80,6 +82,8 @@ type DialogKind =
   | { type: 'activate'; worker: Worker }
   | { type: 'grantAdmin'; name: string; email: string }
   | { type: 'revokeAdmin'; name: string }
+  | { type: 'grantLogin'; name: string; email: string }
+  | { type: 'revokeLogin'; name: string }
   | { type: 'discard' }
   | { type: 'resendMail' }
 
@@ -262,6 +266,15 @@ function InspectorBadge() {
   )
 }
 
+function LoginBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-ok-soft px-1.5 py-0.5 text-[11px] font-bold text-ok ring-1 ring-ok/20">
+      <KeyRound className="size-3" aria-hidden />
+      התחברות
+    </span>
+  )
+}
+
 function RoleBadges({ worker }: { worker: Worker }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
@@ -270,6 +283,8 @@ function RoleBadges({ worker }: { worker: Worker }) {
         <ManagerBadge org />
       ) : worker.isManager ? (
         <ManagerBadge />
+      ) : worker.canLogin ? (
+        <LoginBadge />
       ) : null}
     </span>
   )
@@ -454,7 +469,7 @@ function WorkerForm({
         <div className="sm:col-span-2">
           <FieldLabel htmlFor={emailId}>
             מייל
-            {form.isManager ? (
+            {form.isManager || form.canLogin ? (
               <>
                 {' '}
                 <span className="text-hard">*</span>
@@ -472,11 +487,11 @@ function WorkerForm({
               aria-describedby={showEmailErr ? emailErrId : undefined}
               placeholder="name@example.com"
               autoComplete="email"
-              required={form.isManager}
+              required={Boolean(form.isManager || form.canLogin)}
             />
           </bdi>
           <FieldError message={showEmailErr ? errors.email : null} />
-          {form.isManager ? (
+          {form.isManager || form.canLogin ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-[13px] text-ink-soft">
               <Mail className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
               נדרש מייל. סיסמה זמנית תישלח לכתובת שתזין
@@ -562,6 +577,7 @@ function WorkerForm({
                     ...f,
                     isManager: e.target.checked,
                     isOrgManager: e.target.checked ? f.isOrgManager : false,
+                    canLogin: e.target.checked ? false : f.canLogin,
                   }))
                 }
               />
@@ -586,12 +602,41 @@ function WorkerForm({
                     ...f,
                     isOrgManager: e.target.checked,
                     isManager: e.target.checked ? true : f.isManager,
+                    canLogin: e.target.checked ? false : f.canLogin,
                   }))
                 }
               />
               מנהל ארגון
             </label>
+            {!form.isManager && !form.isOrgManager ? (
+              <label
+                className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold ring-1 transition ${
+                  form.canLogin
+                    ? 'bg-ok-soft text-ok ring-ok/30'
+                    : 'bg-card text-ink-soft ring-line hover:bg-surface'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="size-4 accent-[var(--color-ok)]"
+                  checked={Boolean(form.canLogin)}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      canLogin: e.target.checked,
+                    }))
+                  }
+                />
+                גישת התחברות (פורטל עובד)
+              </label>
+            ) : null}
           </div>
+          {!form.isManager && !form.isOrgManager ? (
+            <p className="mt-2 text-[11px] text-ink-soft">
+              עם גישת התחברות העובד נכנס באותו אופן כמו מנהל (טלפון + סיסמה +
+              אימות מייל) ורואה את המשמרת והתדריכים שלו.
+            </p>
+          ) : null}
           {!canAppointOrgManager ? (
             <p className="mt-2 text-[11px] text-ink-soft">
               רק מנהל ארגון יכול להוסיף מנהלי ארגון נוספים.
@@ -989,6 +1034,7 @@ export function WorkersPage() {
         isManager: Boolean(w.isManager) || Boolean(w.isOrgManager),
         staffKind: w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : defaultKind,
         isOrgManager: Boolean(w.isOrgManager),
+        canLogin: Boolean(w.canLogin) && !w.isManager && !w.isOrgManager,
         managerNotes: w.managerNotes || '',
       }
       setForm(next)
@@ -1040,6 +1086,14 @@ export function WorkersPage() {
       form.isManager && (!editingWorker || !editingWorker.isManager)
     const revoking =
       Boolean(editingWorker?.isManager) && !form.isManager
+    const grantingLogin =
+      !form.isManager &&
+      Boolean(form.canLogin) &&
+      (!editingWorker || !editingWorker.canLogin)
+    const revokingLogin =
+      !form.isManager &&
+      Boolean(editingWorker?.canLogin) &&
+      !form.canLogin
 
     if (granting) {
       setPendingSave(form)
@@ -1055,17 +1109,35 @@ export function WorkersPage() {
       setDialog({ type: 'revokeAdmin', name: form.fullName.trim() })
       return
     }
+    if (grantingLogin) {
+      setPendingSave(form)
+      setDialog({
+        type: 'grantLogin',
+        name: form.fullName.trim(),
+        email: (form.email || '').trim(),
+      })
+      return
+    }
+    if (revokingLogin) {
+      setPendingSave(form)
+      setDialog({ type: 'revokeLogin', name: form.fullName.trim() })
+      return
+    }
     commitSave(form)
   }
 
   const sendTempPassword = async () => {
     if (!editingWorker?.id) return
-    if (!editingWorker.isManager) {
-      setFormSaveError('שמרו קודם את המשתמש כמנהל עם מייל, ואז שלחו סיסמה')
+    const hasLogin =
+      Boolean(editingWorker.isManager) || Boolean(editingWorker.canLogin)
+    if (!hasLogin) {
+      setFormSaveError(
+        'שמרו קודם גישת התחברות (מנהל או פורטל עובד) עם מייל, ואז שלחו סיסמה',
+      )
       return
     }
     if (!isValidEmail(editingWorker.email || '')) {
-      setFormSaveError('שמרו מייל תקין למנהל לפני שליחת סיסמה')
+      setFormSaveError('שמרו מייל תקין לפני שליחת סיסמה')
       return
     }
     if (dirty) {
@@ -1135,7 +1207,9 @@ export function WorkersPage() {
           })
         }
         onResendMail={() => void sendTempPassword()}
-        showResend={Boolean(editingWorker?.isManager)}
+        showResend={Boolean(
+          editingWorker?.isManager || editingWorker?.canLogin,
+        )}
         canAppointOrgManager={canAppointOrgManager}
       />
     ) : null
@@ -1755,6 +1829,56 @@ export function WorkersPage() {
       </ConfirmDialog>
 
       <ConfirmDialog
+        open={dialog?.type === 'grantLogin'}
+        title="הענקת גישת התחברות"
+        confirmLabel="הענקת גישה"
+        onCancel={() => {
+          setDialog(null)
+          setPendingSave(null)
+        }}
+        onConfirm={() => {
+          if (!pendingSave) return
+          const payload = pendingSave
+          setDialog(null)
+          setPendingSave(null)
+          commitSave(payload)
+        }}
+      >
+        {dialog?.type === 'grantLogin' ? (
+          <p>
+            להעניק ל־<strong>{dialog.name}</strong> גישה לפורטל העובדים?
+            תישלח סיסמה זמנית אל <Ltr>{dialog.email}</Ltr>. ההתחברות זהה
+            להתחברות מנהלים (טלפון, סיסמה ואימות מייל).
+          </p>
+        ) : null}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={dialog?.type === 'revokeLogin'}
+        title="הסרת גישת התחברות"
+        confirmLabel="הסרת גישה"
+        danger
+        onCancel={() => {
+          setDialog(null)
+          setPendingSave(null)
+        }}
+        onConfirm={() => {
+          if (!pendingSave) return
+          const payload = pendingSave
+          setDialog(null)
+          setPendingSave(null)
+          commitSave(payload)
+        }}
+      >
+        {dialog?.type === 'revokeLogin' ? (
+          <p>
+            להסיר מ־<strong>{dialog.name}</strong> את הגישה לפורטל העובדים?
+            לא יוכלו להתחבר יותר.
+          </p>
+        ) : null}
+      </ConfirmDialog>
+
+      <ConfirmDialog
         open={dialog?.type === 'discard'}
         title="שינויים שלא נשמרו"
         confirmLabel="יציאה ללא שמירה"
@@ -1787,7 +1911,7 @@ export function WorkersPage() {
         onConfirm={() => void confirmResendMail()}
       >
         <p>
-          לשלוח סיסמה זמנית חדשה למייל המנהל? הסיסמה הקודמת תבוטל.
+          לשלוח סיסמה זמנית חדשה למייל? הסיסמה הקודמת תבוטל.
         </p>
       </ConfirmDialog>
     </div>

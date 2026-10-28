@@ -214,6 +214,7 @@ export function formsEqual(
   if (Boolean(a.isInspector) !== Boolean(b.isInspector)) return false
   if ((a.staffKind || '') !== (b.staffKind || '')) return false
   if (Boolean(a.isOrgManager) !== Boolean(b.isOrgManager)) return false
+  if (Boolean(a.canLogin) !== Boolean(b.canLogin)) return false
   if (a.certifications.length !== b.certifications.length) return false
   const setB = new Set(b.certifications)
   return a.certifications.every((c) => setB.has(c))
@@ -239,9 +240,15 @@ export function validateWorkerForm(
     errors.role = 'יש לבחור אם העובד בודק או סלקטור'
   }
   const email = (form.email || '').trim()
-  if (form.isManager) {
-    if (!email) errors.email = 'למנהל חובה להזין כתובת מייל'
-    else if (!isValidEmail(email)) errors.email = 'כתובת מייל לא תקינה'
+  const needsLoginEmail = Boolean(form.isManager || form.canLogin)
+  if (needsLoginEmail) {
+    if (!email) {
+      errors.email = form.isManager
+        ? 'למנהל חובה להזין כתובת מייל'
+        : 'לגישת התחברות חובה להזין כתובת מייל'
+    } else if (!isValidEmail(email)) {
+      errors.email = 'כתובת מייל לא תקינה'
+    }
   } else if (email && !isValidEmail(email)) {
     errors.email = 'כתובת מייל לא תקינה'
   }

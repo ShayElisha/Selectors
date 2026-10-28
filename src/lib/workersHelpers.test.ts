@@ -255,6 +255,32 @@ describe('validation and history', () => {
         email: 'a@b.com',
       }).role,
     ).toBeTruthy()
+    expect(
+      validateWorkerForm({
+        fullName: 'עובד',
+        phone: '050-123-4567',
+        certifications: [],
+        status: 'active',
+        isInspector: true,
+        isManager: false,
+        canLogin: true,
+        staffKind: 'inspector',
+        email: '',
+      }).email,
+    ).toBeTruthy()
+    expect(
+      validateWorkerForm({
+        fullName: 'עובד',
+        phone: '050-123-4567',
+        certifications: [],
+        status: 'active',
+        isInspector: true,
+        isManager: false,
+        canLogin: true,
+        staffKind: 'inspector',
+        email: 'worker@example.com',
+      }),
+    ).toEqual({})
   })
 
   it('typed name gate and dirty check', () => {
