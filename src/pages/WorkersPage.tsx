@@ -634,7 +634,8 @@ function WorkerForm({
           {!form.isManager && !form.isOrgManager ? (
             <p className="mt-2 text-[11px] text-ink-soft">
               עם גישת התחברות העובד נכנס באותו אופן כמו מנהל (טלפון + סיסמה +
-              אימות מייל) ורואה את המשמרת והתדריכים שלו.
+              אימות מייל). בשמירה ראשונה נשלחת סיסמה זמנית למייל; אחר כך אפשר
+              לשלוח מחדש מהכפתור למטה.
             </p>
           ) : null}
           {!canAppointOrgManager ? (
@@ -1129,20 +1130,29 @@ export function WorkersPage() {
   const sendTempPassword = async () => {
     if (!editingWorker?.id) return
     const hasLogin =
-      Boolean(editingWorker.isManager) || Boolean(editingWorker.canLogin)
+      Boolean(editingWorker.isManager) ||
+      Boolean(editingWorker.canLogin) ||
+      Boolean(form.isManager) ||
+      Boolean(form.canLogin)
     if (!hasLogin) {
       setFormSaveError(
         'שמרו קודם גישת התחברות (מנהל או פורטל עובד) עם מייל, ואז שלחו סיסמה',
       )
       return
     }
-    if (!isValidEmail(editingWorker.email || '')) {
-      setFormSaveError('שמרו מייל תקין לפני שליחת סיסמה')
+    const savedHasLogin =
+      Boolean(editingWorker.isManager) || Boolean(editingWorker.canLogin)
+    if (!savedHasLogin || dirty) {
+      setMailMessage(
+        'שמרו קודם את גישת ההתחברות והמייל, ואז שלחו סיסמה זמנית',
+      )
+      notify.warning(
+        'שמרו קודם את גישת ההתחברות והמייל, ואז שלחו סיסמה זמנית',
+      )
       return
     }
-    if (dirty) {
-      setMailMessage('יש שינויים שלא נשמרו — שמרו קודם ואז שלחו סיסמה זמנית')
-      notify.warning('יש שינויים שלא נשמרו — שמרו קודם ואז שלחו סיסמה זמנית')
+    if (!isValidEmail(editingWorker.email || '')) {
+      setFormSaveError('שמרו מייל תקין לפני שליחת סיסמה')
       return
     }
     setDialog({ type: 'resendMail' })
@@ -1208,7 +1218,11 @@ export function WorkersPage() {
         }
         onResendMail={() => void sendTempPassword()}
         showResend={Boolean(
-          editingWorker?.isManager || editingWorker?.canLogin,
+          editingWorker &&
+            (editingWorker.isManager ||
+              editingWorker.canLogin ||
+              form.isManager ||
+              form.canLogin),
         )}
         canAppointOrgManager={canAppointOrgManager}
       />

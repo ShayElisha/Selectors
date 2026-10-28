@@ -1399,26 +1399,29 @@ export async function requestPasswordReset(phoneRaw) {
   return requestAccountPasswordReset(phoneRaw);
 }
 
-/** Authenticated: re-send temporary password to a manager. */
+/** Authenticated: re-send temporary password to a manager or portal worker. */
 export async function resendManagerTempPassword(workerId, actor, options = {}) {
   const scope = options.scope;
   const data = await readState(scope);
-  const manager = data.workers.find((w) => w.id === workerId);
-  if (!manager || !manager.isManager) {
-    const err = new Error("המשתמש אינו מנהל");
+  const target = data.workers.find((w) => w.id === workerId);
+  const loginRole = target ? accountRoleForWorker(target) : null;
+  if (!target || !loginRole) {
+    const err = new Error(
+      "למשתמש אין גישת התחברות. סמנו מנהל או גישת פורטל עובד ושמרו קודם.",
+    );
     err.status = 400;
     throw err;
   }
-  if (!isValidEmail(manager.email)) {
-    const err = new Error("למנהל חובה כתובת מייל תקינה לפני שליחת סיסמה");
+  if (!isValidEmail(target.email)) {
+    const err = new Error("חובה כתובת מייל תקינה לפני שליחת סיסמה");
     err.status = 400;
     throw err;
   }
 
   const tempPassword = generateTempPassword();
   await sendTempPasswordEmail({
-    to: manager.email,
-    fullName: manager.fullName,
+    to: target.email,
+    fullName: target.fullName,
     tempPassword,
     reason: "invite",
   });
@@ -1426,18 +1429,21 @@ export async function resendManagerTempPassword(workerId, actor, options = {}) {
   const passwordHash = await hashPassword(tempPassword);
   await upsertManagerAccount({
     orgId: scope.orgId,
-    workerId: manager.id,
-    fullName: manager.fullName,
-    phone: manager.phone,
-    email: manager.email,
+    workerId: target.id,
+    fullName: target.fullName,
+    phone: target.phone,
+    email: target.email,
     passwordHash,
     mustChangePassword: true,
+    staffKind: target.staffKind === "inspector" ? "inspector" : "selector",
+    isOrgManager: Boolean(target.isOrgManager),
+    role: loginRole,
   });
   await writeState(
     {
       ...data,
       workers: data.workers.map((w) =>
-        w.id === manager.id
+        w.id === target.id
           ? { ...w, passwordHash, mustChangePassword: true }
           : w,
       ),
@@ -1450,7 +1456,7 @@ export async function resendManagerTempPassword(workerId, actor, options = {}) {
     actor: actor || null,
     orgId: scope.orgId,
     module: scope.module,
-    details: `סיסמה זמנית נשלחה מחדש אל ${manager.fullName} (${manager.email})`,
+    details: `סיסמה זמנית נשלחה מחדש אל ${target.fullName} (${target.email})`,
   });
   return { ok: true };
 }
