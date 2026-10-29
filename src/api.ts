@@ -725,7 +725,13 @@ export interface WorkerContactItem {
   role: string
   phone: string
   phoneDigits: string
-  kind: 'gate_manager' | 'org_manager' | 'shift_manager' | 'org_contact' | string
+  kind:
+    | 'gate_manager'
+    | 'org_manager'
+    | 'shift_manager'
+    | 'coworker'
+    | 'org_contact'
+    | string
 }
 
 export function fetchWorkerContactsRemote(): Promise<{

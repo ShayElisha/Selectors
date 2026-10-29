@@ -20,6 +20,7 @@ import { phoneDigitsForWhatsApp } from '../lib/workerNotify'
 function kindIcon(kind: WorkerContactItem['kind']) {
   if (kind === 'gate_manager') return Shield
   if (kind === 'org_manager' || kind === 'shift_manager') return UserRound
+  if (kind === 'coworker') return Users
   return PhoneCall
 }
 
@@ -101,8 +102,8 @@ export function WorkerContactsPage() {
         title="אנשי קשר"
         subtitle={
           orgName
-            ? `מספרי טלפון לחיוג בארגון ${orgName} — מנהלים ואנשי קשר שהוגדרו.`
-            : 'מספרי טלפון לחיוג — מנהלי משמרת/ארגון ואנשי קשר שהוגדרו.'
+            ? `כל עובדי המחלקה בארגון ${orgName} — עם חיוג ו־WhatsApp.`
+            : 'כל עובדי המחלקה — מנהלים, עמיתים ואנשי קשר שהוגדרו.'
         }
         actions={
           <button
@@ -134,8 +135,8 @@ export function WorkerContactsPage() {
             <Users className="mx-auto size-8 text-ink-soft/50" aria-hidden />
             <p className="mt-3 text-sm font-semibold text-ink">אין אנשי קשר להצגה</p>
             <p className="mt-1 text-[13px] text-ink-soft">
-              כשיוגדר מנהל משמרת או שאיש קשר יתווסף בהגדרות הארגון — הוא יופיע
-              כאן עם כפתור חיוג.
+              כשיופיעו עובדים עם מספר טלפון במחלקה, או שאיש קשר יתווסף בהגדרות
+              הארגון — הם יופיעו כאן עם כפתור חיוג.
             </p>
           </div>
         ) : (

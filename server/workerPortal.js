@@ -757,9 +757,16 @@ function formatPortalPhone(phone) {
   return digits || String(phone || '')
 }
 
+function departmentWorkerRole(module) {
+  if (module === 'inspectors') return 'בודק/ת'
+  if (module === 'security') return 'מאבטח/ת'
+  return 'סלקטור/ית'
+}
+
 /**
- * Contacts workers may call: shift gate manager, org/shift managers, and
- * org-configured portal contacts. Deduped by phone; never exposes the full roster.
+ * Contacts workers may call: shift gate manager, all active department
+ * coworkers (managers first), and org-configured portal contacts.
+ * Deduped by phone; excludes the viewing worker.
  */
 export async function getWorkerContacts(req) {
   const { actor, org, scope } = await requireWorkerActor(req)
@@ -815,27 +822,36 @@ export async function getWorkerContacts(req) {
     }
   }
 
-  const managers = (state.workers || [])
+  const coworkerRole = departmentWorkerRole(scope.module)
+  const departmentWorkers = (state.workers || [])
     .filter(
       (w) =>
         w &&
         w.status !== 'inactive' &&
         w.status !== 'archived' &&
         w.id !== actor.id &&
-        (w.isOrgManager || w.isManager) &&
         normalizePhone(w.phone).length >= 9,
     )
     .sort((a, b) => {
-      const rank = (w) => (w.isOrgManager ? 0 : 1)
-      return rank(a) - rank(b) || String(a.fullName || '').localeCompare(String(b.fullName || ''), 'he')
+      const rank = (w) => (w.isOrgManager ? 0 : w.isManager ? 1 : 2)
+      return (
+        rank(a) - rank(b) ||
+        String(a.fullName || '').localeCompare(String(b.fullName || ''), 'he')
+      )
     })
-  for (const w of managers) {
+  for (const w of departmentWorkers) {
+    const isOrg = Boolean(w.isOrgManager)
+    const isShiftMgr = Boolean(w.isManager)
     push({
       id: `worker:${w.id}`,
       name: w.fullName,
-      role: w.isOrgManager ? 'מנהל ארגון' : 'מנהל משמרת',
+      role: isOrg ? 'מנהל ארגון' : isShiftMgr ? 'מנהל משמרת' : coworkerRole,
       phone: w.phone,
-      kind: w.isOrgManager ? 'org_manager' : 'shift_manager',
+      kind: isOrg
+        ? 'org_manager'
+        : isShiftMgr
+          ? 'shift_manager'
+          : 'coworker',
     })
   }
 

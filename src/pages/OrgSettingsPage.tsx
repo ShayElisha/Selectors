@@ -244,7 +244,7 @@ export function OrgSettingsPage() {
 
       <SectionCard
         title="אנשי קשר לפורטל העובדים"
-        subtitle="מספרים אלה מופיעים אצל העובדים במסך «אנשי קשר» יחד עם מנהלי משמרת/ארגון — עם כפתור חיוג ו־WhatsApp."
+        subtitle="מספרים אלה מופיעים אצל העובדים במסך «אנשי קשר» יחד עם כל עובדי המחלקה — עם כפתור חיוג ו־WhatsApp."
       >
         <ul className="space-y-3">
           {portalContacts.map((contact, index) => (
