@@ -1772,14 +1772,11 @@ export async function appendIncident(incident, options = {}) {
     const db = await getDb(target);
     const stamped = stampScope({ ...row, listOrder: -Date.now() }, scope);
     const { _id, ...doc } = stamped;
-    await db.collection(MODEL_COLLECTIONS.incidents).updateOne(
-      { _id },
-      {
-        $set: doc,
-        $setOnInsert: { listOrder: doc.listOrder ?? -Date.now() },
-      },
-      { upsert: true },
-    );
+    // listOrder must live in only one update operator — Mongo rejects
+    // the same path in both $set and $setOnInsert.
+    await db
+      .collection(MODEL_COLLECTIONS.incidents)
+      .updateOne({ _id }, { $set: doc }, { upsert: true });
 
     const savedState = {
       ...latest,
