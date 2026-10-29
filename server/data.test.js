@@ -135,6 +135,7 @@ vi.mock('./db.js', () => ({
   getMetaCollection,
   getStateCollection,
   getAuditCollection: vi.fn(),
+  operationalDbTargets: () => ['selectors', 'inspectors', 'security'],
   withDbTransaction: (callback) => callback(undefined),
 }))
 vi.mock('./audit.js', () => ({
@@ -187,6 +188,7 @@ function seedState({ revision = 1, historyRevision = revision, shifts = [] } = {
     ['questions', []],
     ['customs_brokers', []],
     ['shift_models', []],
+    ['incidents', []],
   ]) {
     buckets.set(`selectors:${name}`, docs)
   }
@@ -199,6 +201,87 @@ describe('state and shift persistence', () => {
     scope = { orgId: `test-org-${scopeSequence++}`, module: 'selectors' }
     metaId = `${scope.orgId}:${scope.module}`
     seedState()
+  })
+
+  it('persists open events and faults into the incidents collection', async () => {
+    const previous = await readState(scope)
+    const incidents = [
+      {
+        id: 'event-1',
+        kind: 'event',
+        title: 'אירוע תפעולי',
+        description: 'תיאור האירוע',
+        severity: 'medium',
+        status: 'open',
+        createdAt: '2026-10-29T10:00:00.000Z',
+        createdBy: 'מנהל',
+        updatedAt: '2026-10-29T10:00:00.000Z',
+        updatedBy: 'מנהל',
+      },
+      {
+        id: 'fault-1',
+        kind: 'fault',
+        title: 'תקלה בשער',
+        description: 'השער לא נפתח',
+        severity: 'high',
+        status: 'open',
+        laneId: 'lane-1',
+        handlingNotes: 'הוזמן טכנאי',
+        createdAt: '2026-10-29T11:00:00.000Z',
+        createdBy: 'מנהל',
+        updatedAt: '2026-10-29T11:00:00.000Z',
+        updatedBy: 'מנהל',
+      },
+    ]
+
+    const result = await writeState(
+      { ...previous, incidents },
+      {
+        scope,
+        expectedRevision: previous.revision,
+        skipAudit: true,
+        skipManagerInvites: true,
+      },
+    )
+    const reloaded = await readState(scope)
+    const stored = buckets.get('selectors:incidents')
+
+    expect(result.incidents).toHaveLength(2)
+    expect(reloaded.incidents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'event-1',
+          kind: 'event',
+          title: 'אירוע תפעולי',
+          status: 'open',
+        }),
+        expect.objectContaining({
+          id: 'fault-1',
+          kind: 'fault',
+          title: 'תקלה בשער',
+          severity: 'high',
+          laneId: 'lane-1',
+          handlingNotes: 'הוזמן טכנאי',
+          status: 'open',
+        }),
+      ]),
+    )
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'event-1',
+          kind: 'event',
+          orgId: scope.orgId,
+          module: scope.module,
+        }),
+        expect.objectContaining({
+          id: 'fault-1',
+          kind: 'fault',
+          orgId: scope.orgId,
+          module: scope.module,
+        }),
+      ]),
+    )
   })
 
   it('does not rewrite or reload history when a non-history snapshot is saved', async () => {

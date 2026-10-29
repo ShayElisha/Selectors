@@ -11,10 +11,12 @@ import {
   requestWorkerNotifyPermission,
   type NotifyPermission,
 } from '../lib/workerNotify'
+import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 
 export function WorkerPortalProfilePage() {
   const { user } = useApp()
   const { home, loading, error, refreshHome } = useWorkerPortal()
+  const { portalTitle, path } = useWorkerPortalPaths()
   const [perm, setPerm] = useState<NotifyPermission>(() =>
     currentNotifyPermission(),
   )
@@ -42,7 +44,10 @@ export function WorkerPortalProfilePage() {
 
   return (
     <div className="space-y-4">
-      <SectionCard title="הפרופיל שלי" subtitle="פרטים אישיים והסמכות (לקריאה).">
+      <SectionCard
+        title="הפרופיל שלי"
+        subtitle={`פרטים אישיים והסמכות ב${portalTitle} (לקריאה).`}
+      >
         <dl className="space-y-3 text-sm">
           <div>
             <dt className="text-ink-soft">שם</dt>
@@ -63,6 +68,10 @@ export function WorkerPortalProfilePage() {
             <dd className="font-semibold text-ink">{user?.orgName || '—'}</dd>
           </div>
           <div>
+            <dt className="text-ink-soft">פורטל</dt>
+            <dd className="font-semibold text-ink">{portalTitle}</dd>
+          </div>
+          <div>
             <dt className="mb-1 text-ink-soft">הסמכות</dt>
             <dd>
               <CertChips items={me?.certifications || []} />
@@ -70,7 +79,7 @@ export function WorkerPortalProfilePage() {
           </div>
         </dl>
 
-        <Link to="/worker/password" className="ui-btn ui-btn-primary mt-5 inline-flex">
+        <Link to={path('password')} className="ui-btn ui-btn-primary mt-5 inline-flex">
           <KeyRound className="size-4" aria-hidden />
           החלפת סיסמה
         </Link>
@@ -116,7 +125,7 @@ export function WorkerPortalProfilePage() {
           </button>
         ) : null}
         <Link
-          to="/worker/help"
+          to={path('help')}
           className="mt-4 inline-block text-sm font-semibold text-brand underline decoration-brand/30 underline-offset-4"
         >
           מדריך קצר: איך משתמשים

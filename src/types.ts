@@ -296,7 +296,12 @@ export interface InspectorQuestion {
 }
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical'
-export type IncidentStatus = 'open' | 'in_progress' | 'resolved'
+export type IncidentStatus =
+  | 'pending_approval'
+  | 'rejected'
+  | 'open'
+  | 'in_progress'
+  | 'resolved'
 export type IncidentKind = 'event' | 'fault'
 
 /** A manager's operational incident or equipment issue. */
@@ -311,6 +316,14 @@ export interface IncidentRecord {
   shiftDate?: string
   shiftType?: ShiftType
   handlingNotes?: string
+  /** Worker who submitted via the employee portal (faults awaiting approval). */
+  reportedByWorkerId?: string
+  reportedByName?: string
+  approvedBy?: string
+  approvedAt?: string
+  rejectedBy?: string
+  rejectedAt?: string
+  rejectionReason?: string
   createdAt: string
   createdBy: string
   updatedAt: string

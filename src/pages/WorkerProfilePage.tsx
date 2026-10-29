@@ -94,7 +94,12 @@ export function WorkerProfilePage() {
   )
   const experiencedLaneIds = new Set(history.flatMap((shift) => laneIdsFor(shift, worker.id)))
   const relatedOpenIncidents = (data.incidents ?? []).filter(
-    (incident) => incident.status !== 'resolved' && incident.laneId && experiencedLaneIds.has(incident.laneId),
+    (incident) =>
+      incident.status !== 'resolved' &&
+      incident.status !== 'rejected' &&
+      incident.status !== 'pending_approval' &&
+      incident.laneId &&
+      experiencedLaneIds.has(incident.laneId),
   )
 
   return (

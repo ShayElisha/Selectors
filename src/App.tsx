@@ -1,11 +1,19 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import { postClientErrorRemote } from './api'
 import { AppProvider, useApp } from './context/AppContext'
 import { ThemeProvider, useTheme } from './lib/theme'
 import { Shell } from './components/Shell'
-import { WorkerShell } from './components/WorkerShell'
+import {
+  LegacyWorkerPortalRedirect,
+  WorkerShell,
+} from './components/WorkerShell'
+import {
+  isAppModule,
+  workerPortalHomePath,
+  type AppModule,
+} from './auth'
 import { PageLoader } from './components/PageLoader'
 import { WorkerPortalProvider } from './context/WorkerPortalContext'
 import { HomePage } from './pages/HomePage'
@@ -34,6 +42,7 @@ import { WorkerBriefingsPage } from './pages/WorkerBriefingsPage'
 import { WorkerNotificationsPage } from './pages/WorkerNotificationsPage'
 import { WorkerHelpPage } from './pages/WorkerHelpPage'
 import { WorkerContactsPage } from './pages/WorkerContactsPage'
+import { WorkerFaultsPage } from './pages/WorkerFaultsPage'
 import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
@@ -47,22 +56,34 @@ import { isAppPath } from './routes'
 
 function ProtectedWorkerShell() {
   const { user } = useApp()
+  const params = useParams()
+  const requested = params.module
   if (!user) return <Navigate to="/login" replace />
   if (user.role === 'super_admin') return <Navigate to="/admin" replace />
   if (user.role !== 'worker') return <Navigate to="/" replace />
+  const homeModule: AppModule = isAppModule(user.module)
+    ? user.module
+    : 'selectors'
+  if (!isAppModule(requested) || requested !== homeModule) {
+    return <Navigate to={workerPortalHomePath(homeModule)} replace />
+  }
   return (
     <WorkerPortalProvider>
-      <WorkerShell>
+      <WorkerShell module={homeModule}>
         <Routes>
           <Route index element={<WorkerHomePage />} />
           <Route path="history" element={<WorkerHistoryPage />} />
           <Route path="contacts" element={<WorkerContactsPage />} />
+          <Route path="faults" element={<WorkerFaultsPage />} />
           <Route path="briefings" element={<WorkerBriefingsPage />} />
           <Route path="notifications" element={<WorkerNotificationsPage />} />
           <Route path="help" element={<WorkerHelpPage />} />
           <Route path="profile" element={<WorkerPortalProfilePage />} />
           <Route path="password" element={<ChangePasswordPage />} />
-          <Route path="*" element={<Navigate to="/worker" replace />} />
+          <Route
+            path="*"
+            element={<Navigate to={workerPortalHomePath(homeModule)} replace />}
+          />
         </Routes>
       </WorkerShell>
     </WorkerPortalProvider>
@@ -85,7 +106,9 @@ function ProtectedShell() {
   }
   if (!user) return <Navigate to="/login" replace />
   if (user.role === 'super_admin') return <Navigate to="/admin" replace />
-  if (user.role === 'worker') return <Navigate to="/worker" replace />
+  if (user.role === 'worker') {
+    return <Navigate to={workerPortalHomePath(user.module)} replace />
+  }
   const hasData = data.workers.length > 0 || data.lanes.length > 0
   if (loading && !hasData) {
     return <PageLoader fullScreen label="טוען נתונים…" />
@@ -137,7 +160,11 @@ export default function App() {
             <Route path="/help" element={<HelpPage />} />
             <Route path="/report" element={<ReportPage />} />
             <Route path="/algorithm" element={<AlgorithmPage />} />
-            <Route path="/worker/*" element={<ProtectedWorkerShell />} />
+            <Route
+              path="/portal/:module/*"
+              element={<ProtectedWorkerShell />}
+            />
+            <Route path="/worker/*" element={<LegacyWorkerPortalRedirect />} />
             <Route path="/*" element={<ProtectedShell />} />
           </Routes>
         </ErrorBoundary>

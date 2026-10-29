@@ -38,6 +38,7 @@ import {
   selfHealShiftRemote,
   saveShiftRemote,
   seedAppDataRemote,
+  reviewWorkerFaultRemote,
   verifyLoginCodeRemote,
   type LoginNextStep,
 } from '../api'
@@ -67,6 +68,7 @@ import {
   saveSession,
   saveShiftStep,
   staffKindForModule,
+  workerPortalHomePath,
   type AppModule,
   type SessionUser,
 } from '../auth'
@@ -544,6 +546,11 @@ interface AppContextValue {
     shiftType?: ShiftType
     handlingNotes?: string
   }) => void
+  reviewWorkerFault: (
+    id: string,
+    decision: 'approve' | 'reject',
+    rejectionReason?: string,
+  ) => Promise<void>
   deleteIncident: (id: string) => void
   reorderBriefingSections: (orderedIds: string[]) => void
   setBriefingSectionStarred: (id: string, starred: boolean) => void
@@ -1162,7 +1169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         session.role === 'super_admin'
           ? '/admin'
           : session.role === 'worker'
-            ? '/worker'
+            ? workerPortalHomePath(session.module)
             : '/',
         { replace: true },
       )
@@ -1179,7 +1186,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         session.role === 'super_admin'
           ? '/admin'
           : session.role === 'worker'
-            ? '/worker'
+            ? workerPortalHomePath(session.module)
             : '/',
         { replace: true },
       )
@@ -1396,7 +1403,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       path === '/help' ||
       path === '/report' ||
       path === '/algorithm'
-    const isWorkerPath = path === '/worker' || path.startsWith('/worker/')
+    const isWorkerPath =
+      path === '/worker' ||
+      path.startsWith('/worker/') ||
+      path === '/portal' ||
+      path.startsWith('/portal/')
     if (!isPublic && !isAppPath(path) && !isWorkerPath) return
     if (!user && !isPublic) {
       navigate('/login', { replace: true })
@@ -1427,7 +1438,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         path === '/admin/errors' ||
         isAppPath(path))
     ) {
-      navigate('/worker', { replace: true })
+      navigate(workerPortalHomePath(user.module), { replace: true })
     }
   }, [user, location.pathname, navigate])
 
@@ -3577,6 +3588,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...(incident.shiftDate ? { shiftDate: incident.shiftDate } : {}),
           ...(incident.shiftType ? { shiftType: incident.shiftType } : {}),
           ...(incident.handlingNotes?.trim() ? { handlingNotes: incident.handlingNotes.trim() } : {}),
+          ...(existing?.reportedByWorkerId
+            ? { reportedByWorkerId: existing.reportedByWorkerId }
+            : {}),
+          ...(existing?.reportedByName ? { reportedByName: existing.reportedByName } : {}),
+          ...(existing?.approvedBy ? { approvedBy: existing.approvedBy } : {}),
+          ...(existing?.approvedAt ? { approvedAt: existing.approvedAt } : {}),
+          ...(existing?.rejectedBy ? { rejectedBy: existing.rejectedBy } : {}),
+          ...(existing?.rejectedAt ? { rejectedAt: existing.rejectedAt } : {}),
+          ...(existing?.rejectionReason
+            ? { rejectionReason: existing.rejectionReason }
+            : {}),
           createdAt: existing?.createdAt ?? now,
           createdBy: existing?.createdBy ?? actor,
           updatedAt: now,
@@ -3591,6 +3613,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     },
     [patchData],
+  )
+
+  const reviewWorkerFault = useCallback(
+    async (
+      id: string,
+      decision: 'approve' | 'reject',
+      rejectionReason?: string,
+    ) => {
+      const result = await reviewWorkerFaultRemote(id, {
+        decision,
+        ...(rejectionReason?.trim()
+          ? { rejectionReason: rejectionReason.trim() }
+          : {}),
+      })
+      applyRemoteData(result.data)
+      notify.success(
+        decision === 'approve'
+          ? 'התקלה אושרה ונשלחה התראה לעובד'
+          : 'הדיווח נדחה ונשלחה התראה לעובד',
+      )
+    },
+    [applyRemoteData],
   )
 
   const deleteIncident = useCallback(
@@ -3964,6 +4008,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertBriefingSection,
       deleteBriefingSection,
       upsertIncident,
+      reviewWorkerFault,
       deleteIncident,
       reorderBriefingSections,
       setBriefingSectionStarred,
@@ -4064,6 +4109,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       upsertBriefingSection,
       deleteBriefingSection,
       upsertIncident,
+      reviewWorkerFault,
       deleteIncident,
       reorderBriefingSections,
       setBriefingSectionStarred,

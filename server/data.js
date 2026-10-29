@@ -285,7 +285,13 @@ export function normalizeData(raw, fallbackKind = "selector") {
     : [];
 
   const validIncidentSeverities = new Set(['low', 'medium', 'high', 'critical']);
-  const validIncidentStatuses = new Set(['open', 'in_progress', 'resolved']);
+  const validIncidentStatuses = new Set([
+    'pending_approval',
+    'rejected',
+    'open',
+    'in_progress',
+    'resolved',
+  ]);
   const incidents = Array.isArray(raw?.incidents)
     ? raw.incidents
         .map((item) => {
@@ -324,6 +330,29 @@ export function normalizeData(raw, fallbackKind = "selector") {
               : {}),
             ...(typeof item.handlingNotes === 'string' && item.handlingNotes.trim()
               ? { handlingNotes: item.handlingNotes.trim() }
+              : {}),
+            ...(typeof item.reportedByWorkerId === 'string' &&
+            item.reportedByWorkerId.trim()
+              ? { reportedByWorkerId: item.reportedByWorkerId.trim() }
+              : {}),
+            ...(typeof item.reportedByName === 'string' && item.reportedByName.trim()
+              ? { reportedByName: item.reportedByName.trim() }
+              : {}),
+            ...(typeof item.approvedBy === 'string' && item.approvedBy.trim()
+              ? { approvedBy: item.approvedBy.trim() }
+              : {}),
+            ...(typeof item.approvedAt === 'string' && item.approvedAt.trim()
+              ? { approvedAt: item.approvedAt.trim() }
+              : {}),
+            ...(typeof item.rejectedBy === 'string' && item.rejectedBy.trim()
+              ? { rejectedBy: item.rejectedBy.trim() }
+              : {}),
+            ...(typeof item.rejectedAt === 'string' && item.rejectedAt.trim()
+              ? { rejectedAt: item.rejectedAt.trim() }
+              : {}),
+            ...(typeof item.rejectionReason === 'string' &&
+            item.rejectionReason.trim()
+              ? { rejectionReason: item.rejectionReason.trim() }
               : {}),
             createdAt: String(item.createdAt || now),
             createdBy: String(item.createdBy || 'מנהל'),

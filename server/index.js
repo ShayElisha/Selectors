@@ -43,6 +43,11 @@ import {
   updateWorkerStatus,
 } from './workerPortal.js'
 import {
+  listWorkerIncidents,
+  reviewWorkerFaultReport,
+  submitWorkerFault,
+} from './workerIncidents.js'
+import {
   createWorkerNotice,
   listWorkerInbox,
   markAllWorkerNoticesRead,
@@ -306,6 +311,40 @@ app.get('/api/worker/history', async (req, res) => {
 app.get('/api/worker/contacts', async (req, res) => {
   try {
     res.json(await getWorkerContacts(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/incidents', async (req, res) => {
+  try {
+    res.json(await listWorkerIncidents(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/incidents', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `worker-incident:${clientKey(req)}`,
+      limit: 20,
+      windowMs: 15 * 60_000,
+    })
+    res.status(201).json(await submitWorkerFault(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/incidents/:id/review', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `incident-review:${clientKey(req)}`,
+      limit: 40,
+      windowMs: 15 * 60_000,
+    })
+    res.json(await reviewWorkerFaultReport(req, req.params.id, req.body || {}))
   } catch (err) {
     sendError(res, err)
   }

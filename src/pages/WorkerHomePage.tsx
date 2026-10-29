@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  CalendarDays,
   CheckCircle2,
   CircleHelp,
+  Clock,
   MessageCircle,
   Phone,
   RefreshCw,
@@ -21,6 +23,7 @@ import {
   phoneDigitsForWhatsApp,
   scheduleShiftStartReminder,
 } from '../lib/workerNotify'
+import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 import type { Intensity, ShiftType } from '../types'
 
 function shiftLabel(type: string) {
@@ -107,6 +110,61 @@ function useEndsAtCountdown(endsAt: string | null | undefined) {
   return left
 }
 
+const IL_TZ = 'Asia/Jerusalem'
+
+function formatPortalClock(now: Date) {
+  const weekday = now.toLocaleDateString('he-IL', {
+    timeZone: IL_TZ,
+    weekday: 'long',
+  })
+  const date = now.toLocaleDateString('he-IL', {
+    timeZone: IL_TZ,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  const time = now.toLocaleTimeString('he-IL', {
+    timeZone: IL_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  return { weekday, date, time }
+}
+
+function PortalClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+  const { weekday, date, time } = formatPortalClock(now)
+  return (
+    <div
+      className="rounded-xl border border-line/70 bg-surface/50 px-4 py-3"
+      aria-live="polite"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-ink-soft">
+            <CalendarDays className="size-3.5" aria-hidden />
+            {weekday}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-ink">{date}</p>
+        </div>
+        <p
+          className="inline-flex items-center gap-1.5 font-display text-2xl font-bold tabular-nums text-ink"
+          dir="ltr"
+        >
+          <Clock className="size-4 text-brand" aria-hidden />
+          <Ltr>{time}</Ltr>
+        </p>
+      </div>
+    </div>
+  )
+}
+
 const HELP_TIP_KEY = 'getin.worker.helpTipDismissed'
 
 export function WorkerHomePage() {
@@ -118,6 +176,7 @@ export function WorkerHomePage() {
     refreshHome,
     markArrived: markArrivedRemote,
   } = useWorkerPortal()
+  const { portalTitle, path } = useWorkerPortalPaths()
   const [busy, setBusy] = useState(false)
   const [showHelpTip, setShowHelpTip] = useState(() => {
     try {
@@ -179,18 +238,21 @@ export function WorkerHomePage() {
 
   if (!home) {
     return (
-      <SectionCard
-        title="המשמרת שלי"
-        subtitle={error || 'לא ניתן לטעון נתונים כרגע.'}
-      >
-        <button
-          type="button"
-          className="ui-btn ui-btn-primary"
-          onClick={() => void refreshHome()}
+      <div className="space-y-4">
+        <PortalClock />
+        <SectionCard
+          title="המשמרת שלי"
+          subtitle={error || 'לא ניתן לטעון נתונים כרגע.'}
         >
-          נסו שוב
-        </button>
-      </SectionCard>
+          <button
+            type="button"
+            className="ui-btn ui-btn-primary"
+            onClick={() => void refreshHome()}
+          >
+            נסו שוב
+          </button>
+        </SectionCard>
+      </div>
     )
   }
 
@@ -203,13 +265,15 @@ export function WorkerHomePage() {
 
   return (
     <div className="space-y-4">
+      <PortalClock />
+
       {showHelpTip ? (
         <div className="flex items-start gap-3 rounded-xl border border-brand/25 bg-brand/[0.06] p-3">
           <CircleHelp className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
           <div className="min-w-0 flex-1 text-sm text-ink-soft">
             חדשים כאן?{' '}
             <Link
-              to="/worker/help"
+              to={path('help')}
               className="font-semibold text-brand underline decoration-brand/30 underline-offset-4"
             >
               מדריך קצר — איך משתמשים
@@ -235,7 +299,7 @@ export function WorkerHomePage() {
 
       <SectionCard
         title="עכשיו"
-        subtitle={`${home.slot.date} · ${shiftLabel(home.slot.shiftType)} · ${home.slot.windowLabel}`}
+        subtitle={`${portalTitle} · ${home.slot.date} · ${shiftLabel(home.slot.shiftType)} · ${home.slot.windowLabel}`}
         actions={
           <button
             type="button"
@@ -302,7 +366,7 @@ export function WorkerHomePage() {
               <GateManagerCard manager={home.gateManager} />
             ) : null}
             <Link
-              to="/worker/contacts"
+              to={path('contacts')}
               className="inline-flex items-center gap-2 text-sm font-semibold text-brand underline-offset-2 hover:underline"
             >
               <Phone className="size-4" aria-hidden />

@@ -9,6 +9,8 @@ const SEVERITY_LABELS = {
 } as const
 
 const STATUS_LABELS = {
+  pending_approval: 'ממתין לאישור',
+  rejected: 'נדחה',
   open: 'פתוח',
   in_progress: 'בטיפול',
   resolved: 'טופל',

@@ -179,11 +179,23 @@ export function HomePage() {
 
   const openIncidents = useMemo(
     () => (data.incidents ?? [])
-      .filter((item) => item.status !== 'resolved')
+      .filter(
+        (item) =>
+          item.status !== 'resolved' &&
+          item.status !== 'rejected' &&
+          item.status !== 'pending_approval',
+      )
       .sort((a, b) => {
         const severityRank = { critical: 0, high: 1, medium: 2, low: 3 }
         return severityRank[a.severity] - severityRank[b.severity] || b.updatedAt.localeCompare(a.updatedAt)
       }),
+    [data.incidents],
+  )
+  const pendingFaultApprovals = useMemo(
+    () =>
+      (data.incidents ?? []).filter(
+        (item) => item.kind === 'fault' && item.status === 'pending_approval',
+      ).length,
     [data.incidents],
   )
   const activeHandoffs = useMemo(() => {
@@ -1111,6 +1123,20 @@ export function HomePage() {
                 כל היומן ({openIncidents.length})
               </button>
             </div>
+            {pendingFaultApprovals > 0 ? (
+              <button
+                type="button"
+                onClick={() => setView('incidents')}
+                className="mb-2 flex w-full items-center justify-between gap-2 rounded-lg border border-warn/30 bg-warn-soft/40 px-3 py-2 text-start"
+              >
+                <span className="text-[13px] font-semibold text-warn">
+                  {pendingFaultApprovals === 1
+                    ? 'דיווח תקלה אחד ממתין לאישור מנהל'
+                    : `${pendingFaultApprovals} דיווחי תקלה ממתינים לאישור מנהל`}
+                </span>
+                <span className="text-xs font-semibold text-brand">לאישור</span>
+              </button>
+            ) : null}
             {openIncidents.length ? (
               <ul className="space-y-1.5">
                 {openIncidents.slice(0, 4).map((incident) => (

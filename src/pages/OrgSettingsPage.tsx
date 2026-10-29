@@ -243,8 +243,8 @@ export function OrgSettingsPage() {
       </SectionCard>
 
       <SectionCard
-        title="אנשי קשר לפורטל העובדים"
-        subtitle="מספרים אלה מופיעים אצל העובדים במסך «אנשי קשר» יחד עם כל עובדי המחלקה — עם כפתור חיוג ו־WhatsApp."
+        title="אנשי קשר לפורטלי העובדים"
+        subtitle="מספרים אלה מופיעים בפורטל של כל מחלקה (סלקטורים, בודקים ומאבטחים) יחד עם עובדי אותה מחלקה — עם כפתור חיוג ו־WhatsApp."
       >
         <ul className="space-y-3">
           {portalContacts.map((contact, index) => (

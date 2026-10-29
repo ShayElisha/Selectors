@@ -797,3 +797,65 @@ export function updateWorkerStatusRemote(body: {
     body: JSON.stringify(body),
   })
 }
+
+export interface WorkerIncidentItem {
+  id: string
+  kind: 'fault' | 'event'
+  title: string
+  description: string
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  status:
+    | 'pending_approval'
+    | 'rejected'
+    | 'open'
+    | 'in_progress'
+    | 'resolved'
+  laneId?: string
+  shiftDate?: string
+  shiftType?: string
+  handlingNotes?: string
+  reportedByWorkerId?: string
+  reportedByName?: string
+  approvedBy?: string
+  approvedAt?: string
+  rejectedBy?: string
+  rejectedAt?: string
+  rejectionReason?: string
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+  updatedBy: string
+}
+
+export function fetchWorkerIncidentsRemote(): Promise<{
+  module: string
+  incidents: WorkerIncidentItem[]
+  lanes: { id: string; name: string }[]
+}> {
+  return request('/api/worker/incidents')
+}
+
+export function submitWorkerFaultRemote(body: {
+  title: string
+  description: string
+  severity?: 'low' | 'medium' | 'high' | 'critical'
+  laneId?: string
+}): Promise<WorkerIncidentItem> {
+  return request('/api/worker/incidents', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function reviewWorkerFaultRemote(
+  id: string,
+  body: {
+    decision: 'approve' | 'reject'
+    rejectionReason?: string
+  },
+): Promise<{ data: AppData; incident: WorkerIncidentItem }> {
+  return request(`/api/incidents/${encodeURIComponent(id)}/review`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}

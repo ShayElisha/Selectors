@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
+  AlertTriangle,
   Bell,
   BookOpen,
   CircleHelp,
@@ -12,6 +13,13 @@ import {
   UserRound,
 } from 'lucide-react'
 import { fetchWorkerNotificationsRemote } from '../api'
+import {
+  MODULE_LABELS,
+  MODULE_PORTAL_LABELS,
+  type AppModule,
+  isAppModule,
+  workerPortalPath,
+} from '../auth'
 import { useApp } from '../context/AppContext'
 import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { notifyNewWorkerInbox } from '../lib/workerNotify'
@@ -19,26 +27,45 @@ import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
 
-const NAV: {
-  to: string
+const NAV_ITEMS: {
+  sub: string
   label: string
   icon: typeof ClipboardList
   end?: boolean
 }[] = [
-  { to: '/worker', label: 'עכשיו', icon: ClipboardList, end: true },
-  { to: '/worker/history', label: 'היסטוריה', icon: History },
-  { to: '/worker/contacts', label: 'אנשי קשר', icon: Phone },
-  { to: '/worker/briefings', label: 'תדריכים', icon: BookOpen },
-  { to: '/worker/profile', label: 'הפרופיל שלי', icon: UserRound },
+  { sub: '', label: 'עכשיו', icon: ClipboardList, end: true },
+  { sub: 'history', label: 'היסטוריה', icon: History },
+  { sub: 'contacts', label: 'אנשי קשר', icon: Phone },
+  { sub: 'faults', label: 'תקלות', icon: AlertTriangle },
+  { sub: 'briefings', label: 'תדריכים', icon: BookOpen },
+  { sub: 'profile', label: 'הפרופיל שלי', icon: UserRound },
 ]
 
-export function WorkerShell({ children }: { children: React.ReactNode }) {
+export function WorkerShell({
+  module,
+  children,
+}: {
+  module: AppModule
+  children: React.ReactNode
+}) {
   const { user, logout } = useApp()
   const { loading, refreshing } = useWorkerPortal()
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [unread, setUnread] = useState(0)
+
+  const portalTitle = MODULE_PORTAL_LABELS[module]
+  const departmentLabel = MODULE_LABELS[module]
+  const homePath = workerPortalPath(module)
+  const nav = useMemo(
+    () =>
+      NAV_ITEMS.map((item) => ({
+        ...item,
+        to: workerPortalPath(module, item.sub),
+      })),
+    [module],
+  )
 
   const refreshUnread = useCallback(async () => {
     try {
@@ -56,6 +83,18 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(id)
   }, [refreshUnread, location.pathname])
 
+  useEffect(() => {
+    document.title = `${portalTitle} · שיבוצון`
+    return () => {
+      document.title = 'שיבוצון'
+    }
+  }, [portalTitle])
+
+  const go = (sub: string) => {
+    setMenuOpen(false)
+    navigate(workerPortalPath(module, sub))
+  }
+
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-24 pt-4 sm:pb-8 sm:pt-6">
       <header className="mb-5 flex items-center justify-between gap-3 no-print">
@@ -63,17 +102,18 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
           <BrandMark className="size-10 shrink-0" />
           <div className="min-w-0">
             <p className="truncate font-display text-base font-bold text-ink">
-              שיבוצון · פורטל עובדים
+              שיבוצון · {portalTitle}
             </p>
             <p className="truncate text-xs text-ink-soft">
               {user?.fullName}
               {user?.orgName ? ` · ${user.orgName}` : ''}
+              {` · מחלקת ${departmentLabel}`}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <Link
-            to="/worker/notifications"
+            to={workerPortalPath(module, 'notifications')}
             className="relative ui-btn ui-btn-ghost !px-2.5 !py-2"
             aria-label={
               unread > 0 ? `התראות, ${unread} שלא נקראו` : 'התראות'
@@ -105,10 +145,7 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
                   type="button"
                   role="menuitem"
                   className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/worker/notifications')
-                  }}
+                  onClick={() => go('notifications')}
                 >
                   <Bell className="size-4" aria-hidden />
                   התראות
@@ -118,10 +155,7 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
                   type="button"
                   role="menuitem"
                   className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/worker/contacts')
-                  }}
+                  onClick={() => go('contacts')}
                 >
                   <Phone className="size-4" aria-hidden />
                   אנשי קשר
@@ -130,10 +164,16 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
                   type="button"
                   role="menuitem"
                   className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/worker/help')
-                  }}
+                  onClick={() => go('faults')}
+                >
+                  <AlertTriangle className="size-4" aria-hidden />
+                  דיווח תקלה
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
+                  onClick={() => go('help')}
                 >
                   <CircleHelp className="size-4" aria-hidden />
                   איך משתמשים
@@ -142,10 +182,7 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
                   type="button"
                   role="menuitem"
                   className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/worker/password')
-                  }}
+                  onClick={() => go('password')}
                 >
                   <KeyRound className="size-4" aria-hidden />
                   החלפת סיסמה
@@ -181,11 +218,12 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
 
       <nav
         className="mb-5 hidden gap-1 rounded-xl border border-line/70 bg-card/70 p-1 sm:flex no-print"
-        aria-label="ניווט עובדים"
+        aria-label={`ניווט ${portalTitle}`}
       >
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const active = item.end
-            ? location.pathname === item.to || location.pathname === '/worker/'
+            ? location.pathname === item.to ||
+              location.pathname === `${homePath}/`
             : location.pathname.startsWith(item.to)
           const Icon = item.icon
           return (
@@ -211,12 +249,13 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
 
       <nav
         className="fixed inset-x-0 bottom-0 z-40 border-t border-line/80 bg-card/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl sm:hidden no-print"
-        aria-label="ניווט מובייל עובדים"
+        aria-label={`ניווט מובייל ${portalTitle}`}
       >
         <div className="mx-auto flex max-w-lg justify-around">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = item.end
-              ? location.pathname === item.to || location.pathname === '/worker/'
+              ? location.pathname === item.to ||
+                location.pathname === `${homePath}/`
               : location.pathname.startsWith(item.to)
             const Icon = item.icon
             return (
@@ -237,4 +276,14 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
       </nav>
     </div>
   )
+}
+
+/** Redirect legacy `/worker/*` bookmarks into the department portal. */
+export function LegacyWorkerPortalRedirect() {
+  const { user } = useApp()
+  const location = useLocation()
+  const module = isAppModule(user?.module) ? user.module : 'selectors'
+  const rest = location.pathname.replace(/^\/worker\/?/, '')
+  const target = workerPortalPath(module, rest) + location.search + location.hash
+  return <Navigate to={target} replace />
 }

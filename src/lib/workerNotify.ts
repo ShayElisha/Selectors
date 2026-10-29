@@ -1,3 +1,5 @@
+import { loadSession, workerPortalPath } from '../auth'
+
 const PERM_KEY = 'getin.worker.notify.permissionAsked'
 const SEEN_KEY = 'getin.worker.notify.seen'
 const REMINDER_PREFIX = 'getin.worker.reminder.'
@@ -84,7 +86,9 @@ export function notifyNewWorkerInbox(
       n.onclick = () => {
         window.focus()
         n.close()
-        window.location.assign('/worker/notifications')
+        window.location.assign(
+          workerPortalPath(loadSession()?.module, 'notifications'),
+        )
       }
     } catch {
       /* ignore */

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import {
+  AlertTriangle,
   Bell,
   BookOpen,
   ClipboardList,
@@ -10,6 +11,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { SectionCard } from '../components/ui'
+import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 
 function Step({
   icon: Icon,
@@ -34,11 +36,12 @@ function Step({
 }
 
 export function WorkerHelpPage() {
+  const { portalTitle, home, path } = useWorkerPortalPaths()
   return (
     <div className="space-y-4">
       <SectionCard
         title="איך משתמשים — מדריך קצר"
-        subtitle="למי שמגיע לראשונה לפורטל העובדים של שיבוצון."
+        subtitle={`למי שמגיע לראשונה ל${portalTitle} של שיבוצון.`}
       >
         <ol className="space-y-3">
           <Step icon={ClipboardList} title="מסך «עכשיו»">
@@ -71,6 +74,10 @@ export function WorkerHelpPage() {
             במסך «אנשי קשר» מופיעים כל עובדי המחלקה (מנהלים ועמיתים) ואנשי קשר
             שהוגדרו — עם כפתור חיוג ו־WhatsApp ישירות מהטלפון.
           </Step>
+          <Step icon={AlertTriangle} title="דיווח תקלה">
+            במסך «תקלות» אפשר לשלוח דיווח. התקלה נפתחת ביומן רק אחרי שאישור
+            מנהל המשמרת מתקבל.
+          </Step>
           <Step icon={UserRound} title="פרטים וסיסמה">
             בפרופיל רואים טלפון והסמכות (לקריאה). החלפת סיסמה — מתפריט או
             מהפרופיל.
@@ -78,10 +85,10 @@ export function WorkerHelpPage() {
         </ol>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <Link to="/worker" className="ui-btn ui-btn-primary">
+          <Link to={home} className="ui-btn ui-btn-primary">
             למסך עכשיו
           </Link>
-          <Link to="/worker/profile" className="ui-btn ui-btn-secondary">
+          <Link to={path('profile')} className="ui-btn ui-btn-secondary">
             להתראות דפדפן
           </Link>
         </div>

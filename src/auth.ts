@@ -20,6 +20,39 @@ export const MODULE_LABELS: Record<AppModule, string> = {
   security: 'מאבטחים',
 }
 
+/** Dedicated employee-portal title per department. */
+export const MODULE_PORTAL_LABELS: Record<AppModule, string> = {
+  selectors: 'פורטל סלקטורים',
+  inspectors: 'פורטל בודקים',
+  security: 'פורטל מאבטחים',
+}
+
+export function moduleForStaffKind(
+  kind: StaffKind | null | undefined,
+): AppModule {
+  if (kind === 'inspector') return 'inspectors'
+  if (kind === 'security') return 'security'
+  return 'selectors'
+}
+
+export function workerPortalHomePath(
+  module: AppModule | null | undefined,
+): string {
+  const key = isAppModule(module) ? module : 'selectors'
+  return `/portal/${key}`
+}
+
+export function workerPortalPath(
+  module: AppModule | null | undefined,
+  subPath = '',
+): string {
+  const base = workerPortalHomePath(module)
+  const clean = String(subPath || '')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+  return clean ? `${base}/${clean}` : base
+}
+
 /** Singular/plural nouns for error toasts and board copy per module. */
 export type PeopleLabels = {
   singular: string
@@ -215,6 +248,9 @@ export function loadAppDataCache(): AppData | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as AppData
     if (!Array.isArray(parsed?.workers) || !Array.isArray(parsed?.lanes)) return null
+    // Older cache entries omitted incidents; ignoring them forces a full server
+    // pull so a later save cannot wipe the DB collection with [].
+    if (!('incidents' in parsed) || !Array.isArray(parsed.incidents)) return null
     return {
       workers: parsed.workers,
       lanes: parsed.lanes,
@@ -232,6 +268,7 @@ export function loadAppDataCache(): AppData | null {
         ? parsed.customsBrokers
         : [],
       shiftModels: Array.isArray(parsed.shiftModels) ? parsed.shiftModels : [],
+      incidents: parsed.incidents,
       revision: Number(parsed.revision) || 0,
     }
   } catch {

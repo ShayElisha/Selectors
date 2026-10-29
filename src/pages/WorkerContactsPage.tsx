@@ -16,6 +16,7 @@ import {
 import { PageLoader } from '../components/PageLoader'
 import { Ltr, SectionCard } from '../components/ui'
 import { phoneDigitsForWhatsApp } from '../lib/workerNotify'
+import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 
 function kindIcon(kind: WorkerContactItem['kind']) {
   if (kind === 'gate_manager') return Shield
@@ -66,6 +67,7 @@ function ContactCard({ contact }: { contact: WorkerContactItem }) {
 }
 
 export function WorkerContactsPage() {
+  const { path } = useWorkerPortalPaths()
   const [contacts, setContacts] = useState<WorkerContactItem[]>([])
   const [orgName, setOrgName] = useState('')
   const [loading, setLoading] = useState(true)
@@ -150,7 +152,7 @@ export function WorkerContactsPage() {
 
       <p className="text-center text-[12px] text-ink-soft">
         לבעיות גישה או עדכון מספרים — פנו למנהל הארגון דרך{' '}
-        <Link to="/worker/help" className="font-semibold text-brand">
+        <Link to={path('help')} className="font-semibold text-brand">
           העזרה
         </Link>
         .

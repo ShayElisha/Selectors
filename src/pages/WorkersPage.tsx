@@ -1907,7 +1907,8 @@ export function WorkersPage() {
       >
         {dialog?.type === 'grantLogin' ? (
           <p>
-            להעניק ל־<strong>{dialog.name}</strong> גישה לפורטל העובדים?
+            להעניק ל־<strong>{dialog.name}</strong> גישה לפורטל המחלקה
+            (סלקטורים / בודקים / מאבטחים לפי סוג העובד)?
             תישלח סיסמה זמנית אל <Ltr>{dialog.email}</Ltr>. ההתחברות זהה
             להתחברות מנהלים (טלפון, סיסמה ואימות מייל).
           </p>
@@ -1933,7 +1934,7 @@ export function WorkersPage() {
       >
         {dialog?.type === 'revokeLogin' ? (
           <p>
-            להסיר מ־<strong>{dialog.name}</strong> את הגישה לפורטל העובדים?
+            להסיר מ־<strong>{dialog.name}</strong> את הגישה לפורטל המחלקה?
             לא יוכלו להתחבר יותר.
           </p>
         ) : null}
