@@ -1,3 +1,4 @@
+import { setDefaultResultOrder } from 'node:dns'
 import nodemailer from 'nodemailer'
 import {
   appDisplayName,
@@ -11,6 +12,9 @@ import {
   buildTestEmail,
   logoAttachment,
 } from './emailLayout.js'
+
+// Gmail frequently fails TLS handshake over IPv6 (alert 80); prefer IPv4.
+setDefaultResultOrder('ipv4first')
 
 export function isSmtpConfigured() {
   return Boolean(
@@ -113,7 +117,11 @@ export async function sendMail({ to, subject, text, html, attachments }) {
     const e = new Error(
       /Invalid login|Username and Password not accepted|EAUTH/i.test(detail)
         ? 'אימות SMTP נכשל — בדקו SMTP_USER ו־SMTP_PASS (App Password של Gmail)'
-        : 'שליחת המייל נכשלה',
+        : /tlsv1 alert internal error|SSL alert number 80|EPROTO|ssl3_read_bytes/i.test(
+              detail,
+            )
+          ? 'חיבור TLS לשרת המייל נכשל (לרוב Gmail/IPv6) — בדקו SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, App Password, ושהרשת לא חוסמת SMTP'
+          : 'שליחת המייל נכשלה',
     )
     e.status = 502
     e.cause = err
