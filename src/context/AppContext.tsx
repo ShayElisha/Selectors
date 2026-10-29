@@ -1540,7 +1540,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const startShift = useCallback((audience: ShiftAudience = 'inspector') => {
+  const startShift = useCallback((_audience: ShiftAudience = 'inspector') => {
     const module = activeModule(user)
     const lockedAudience: ShiftAudience = audienceForModule(module)
     const assignmentMode = assignmentModes[module]
