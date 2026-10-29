@@ -45,6 +45,7 @@ function OrgTable({
   orgs,
   busyId,
   onOpen,
+  onEditManagerEmail,
   onPatch,
   onApprove,
   onSuspend,
@@ -54,6 +55,7 @@ function OrgTable({
   orgs: OrganizationSummary[]
   busyId: string | null
   onOpen: (org: OrganizationSummary) => void
+  onEditManagerEmail: (org: OrganizationSummary) => void
   onPatch: (org: OrganizationSummary, body: Parameters<typeof reviewOrganizationRemote>[1]) => void
   onApprove: (org: OrganizationSummary) => void
   onSuspend: (org: OrganizationSummary) => void
@@ -98,7 +100,23 @@ function OrgTable({
                 <td className="px-3 py-3 text-ink-soft">
                   <div>{org.manager?.fullName || '—'}</div>
                   <div><Ltr>{org.manager?.phone || ''}</Ltr></div>
-                  <div><Ltr>{org.manager?.email || ''}</Ltr></div>
+                  <div>
+                    {org.manager?.email ? (
+                      <Ltr>{org.manager.email}</Ltr>
+                    ) : (
+                      <span className="font-semibold text-warn">אין מייל</span>
+                    )}
+                  </div>
+                  {org.manager ? (
+                    <button
+                      type="button"
+                      className="mt-1.5 text-[12px] font-semibold text-brand underline-offset-2 hover:underline"
+                      disabled={busy}
+                      onClick={() => onEditManagerEmail(org)}
+                    >
+                      עריכת מייל
+                    </button>
+                  ) : null}
                 </td>
                 <td className="px-3 py-3">{STATUS_LABEL[org.status]}</td>
                 <td className="px-3 py-3">
@@ -196,6 +214,16 @@ function OrgTable({
                         דחייה
                       </button>
                     )}
+                    {org.manager ? (
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-secondary"
+                        disabled={busy}
+                        onClick={() => onEditManagerEmail(org)}
+                      >
+                        עריכת מייל
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="ui-btn ui-btn-danger"
@@ -294,6 +322,7 @@ export function SuperAdminPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [moduleFilter, setModuleFilter] = useState<ModuleFilter>('all')
   const [selected, setSelected] = useState<OrganizationSummary | null>(null)
+  const [emailEditOrg, setEmailEditOrg] = useState<OrganizationSummary | null>(null)
   const [managerEmailDraft, setManagerEmailDraft] = useState('')
   const [approve, setApprove] = useState<OrganizationSummary | null>(null)
   const [approveModules, setApproveModules] = useState({
@@ -475,6 +504,7 @@ export function SuperAdminPage() {
       await deleteOrganizationRemote(org.id)
       setRows((current) => current.filter((row) => row.id !== org.id))
       if (selected?.id === org.id) setSelected(null)
+      if (emailEditOrg?.id === org.id) setEmailEditOrg(null)
       setDeleteTarget(null)
       setDeleteTyped('')
       notify.success('הארגון סומן למחיקה. אפשר לשחזר בתוך 7 ימים')
@@ -533,16 +563,19 @@ export function SuperAdminPage() {
     org: OrganizationSummary,
     body: Parameters<typeof reviewOrganizationRemote>[1],
     successMessage = 'הארגון עודכן',
-  ) => {
+  ): Promise<boolean> => {
     setBusyId(org.id)
     try {
       const saved = await reviewOrganizationRemote(org.id, body)
       setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
       setSelected((current) => (current?.id === saved.id ? saved : current))
+      setEmailEditOrg((current) => (current?.id === saved.id ? saved : current))
       if (saved.manager?.email != null) setManagerEmailDraft(saved.manager.email)
       notify.success(successMessage)
+      return true
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'העדכון נכשל')
+      return false
     } finally {
       setBusyId(null)
     }
@@ -550,17 +583,22 @@ export function SuperAdminPage() {
 
   const openOrg = (org: OrganizationSummary) => {
     setSelected(org)
+  }
+
+  const openManagerEmailEditor = (org: OrganizationSummary) => {
+    setEmailEditOrg(org)
     setManagerEmailDraft(org.manager?.email || '')
   }
 
   const saveManagerEmail = async () => {
-    if (!selected) return
+    if (!emailEditOrg) return
     const email = managerEmailDraft.trim()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       notify.error('נא להזין כתובת מייל תקינה')
       return
     }
-    await patch(selected, { managerEmail: email }, 'מייל מנהל הארגון נשמר')
+    const ok = await patch(emailEditOrg, { managerEmail: email }, 'מייל מנהל הארגון נשמר')
+    if (ok) setEmailEditOrg(null)
   }
 
   const confirmApprove = async () => {
@@ -842,37 +880,27 @@ export function SuperAdminPage() {
             <div><dt className="text-ink-soft">מנהל</dt><dd className="font-semibold">{selected.manager?.fullName || '—'}</dd></div>
             <div><dt className="text-ink-soft">טלפון</dt><dd><Ltr>{selected.manager?.phone || '—'}</Ltr></dd></div>
             <div className="sm:col-span-2">
-              <dt className="text-ink-soft">מייל מנהל הארגון (לאימות התחברות)</dt>
-              <dd className="mt-1.5 flex flex-wrap items-center gap-2">
-                <input
-                  type="email"
-                  className="ui-field min-w-[16rem] flex-1"
-                  dir="ltr"
-                  placeholder="manager@example.com"
-                  value={managerEmailDraft}
-                  disabled={busyId === selected.id || !selected.manager}
-                  onChange={(e) => setManagerEmailDraft(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="ui-btn ui-btn-primary disabled:opacity-40"
-                  disabled={
-                    busyId === selected.id ||
-                    !selected.manager ||
-                    managerEmailDraft.trim() === (selected.manager?.email || '')
-                  }
-                  onClick={() => void saveManagerEmail()}
-                >
-                  {busyId === selected.id ? 'שומר…' : 'שמירת מייל'}
-                </button>
+              <dt className="text-ink-soft">מייל מנהל</dt>
+              <dd className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="font-semibold">
+                  {selected.manager?.email ? (
+                    <Ltr>{selected.manager.email}</Ltr>
+                  ) : (
+                    <span className="text-warn">אין מייל</span>
+                  )}
+                </span>
+                {selected.manager ? (
+                  <button
+                    type="button"
+                    className="ui-btn ui-btn-secondary"
+                    onClick={() => openManagerEmailEditor(selected)}
+                  >
+                    עריכת מייל
+                  </button>
+                ) : (
+                  <p className="text-[12px] text-warn">לא נמצא חשבון מנהל לארגון.</p>
+                )}
               </dd>
-              {!selected.manager ? (
-                <p className="mt-1 text-[12px] text-warn">לא נמצא חשבון מנהל לארגון.</p>
-              ) : !selected.manager.email ? (
-                <p className="mt-1 text-[12px] text-warn">
-                  אין מייל — המנהל לא יוכל להשלים התחברות עד שתמלא כתובת.
-                </p>
-              ) : null}
             </div>
             <div>
               <dt className="text-ink-soft">תאריך הצטרפות</dt>
@@ -914,6 +942,7 @@ export function SuperAdminPage() {
               orgs={pending}
               busyId={busyId}
               onOpen={openOrg}
+              onEditManagerEmail={openManagerEmailEditor}
               onPatch={patch}
               onApprove={(org) => {
                 setApproveModules({ selectors: true, inspectors: false, security: false })
@@ -939,6 +968,7 @@ export function SuperAdminPage() {
               orgs={rest}
               busyId={busyId}
               onOpen={openOrg}
+              onEditManagerEmail={openManagerEmailEditor}
               onPatch={patch}
               onApprove={(org) => {
                 setApproveModules({ selectors: true, inspectors: false, security: false })
@@ -1086,6 +1116,74 @@ export function SuperAdminPage() {
                 onClick={() => void purge(purgeTarget)}
               >
                 מחיקה לצמיתות
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {emailEditOrg ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="manager-email-edit-title"
+            className="w-full max-w-md rounded-2xl border border-line bg-card p-4 shadow-xl"
+          >
+            <h3 id="manager-email-edit-title" className="font-display text-lg font-bold text-ink">
+              עריכת מייל מנהל
+            </h3>
+            <p className="mt-1 text-sm text-ink-soft">
+              {emailEditOrg.name}
+              {emailEditOrg.manager?.fullName ? ` · ${emailEditOrg.manager.fullName}` : ''}
+            </p>
+            <p className="mt-2 text-[12px] text-ink-soft">
+              המייל משמש לאימות התחברות של מנהל הארגון.
+            </p>
+            <label className="mt-3 block text-sm font-semibold text-ink">
+              כתובת מייל
+              <input
+                type="email"
+                className="ui-field mt-1.5 w-full"
+                dir="ltr"
+                autoFocus
+                placeholder="manager@example.com"
+                value={managerEmailDraft}
+                disabled={busyId === emailEditOrg.id}
+                onChange={(e) => setManagerEmailDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void saveManagerEmail()
+                  }
+                }}
+              />
+            </label>
+            {!emailEditOrg.manager?.email ? (
+              <p className="mt-2 text-[12px] text-warn">
+                אין מייל כרגע — המנהל לא יוכל להשלים התחברות עד שתמלא כתובת.
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="ui-btn ui-btn-ghost"
+                disabled={busyId === emailEditOrg.id}
+                onClick={() => setEmailEditOrg(null)}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="ui-btn ui-btn-primary disabled:opacity-40"
+                disabled={
+                  busyId === emailEditOrg.id ||
+                  !managerEmailDraft.trim() ||
+                  managerEmailDraft.trim() === (emailEditOrg.manager?.email || '')
+                }
+                onClick={() => void saveManagerEmail()}
+              >
+                {busyId === emailEditOrg.id ? 'שומר…' : 'שמירת מייל'}
               </button>
             </div>
           </div>
