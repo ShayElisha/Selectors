@@ -1,5 +1,11 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
-import { getAuditCollection, getDb, getMetaCollection, withDbTransaction } from './db.js'
+import {
+  getAuditCollection,
+  getDb,
+  getMetaCollection,
+  operationalDbTargets,
+  withDbTransaction,
+} from './db.js'
 import { appendAuditLog } from './audit.js'
 import {
   sendModulesOpenedEmail,
@@ -132,6 +138,76 @@ function modulesForAccount(account, org) {
   return { selectors: enabled.selectors, inspectors: false, security: false }
 }
 
+/** True when any module DB still marks this phone as מנהל ארגון. */
+async function workerMarksPhoneOrgManager(orgId, phone) {
+  const normalized = normalizePhone(phone)
+  if (!orgId || !normalized) return false
+  for (const target of operationalDbTargets()) {
+    try {
+      const db = await getDb(target)
+      const hit = await db.collection('workers').findOne({
+        orgId: String(orgId),
+        isOrgManager: true,
+        $or: [{ phone: normalized }, { phone: String(phone || '') }],
+      })
+      if (hit) return true
+    } catch (err) {
+      console.error(
+        `[orgs] org-manager worker lookup failed for ${target}:`,
+        err?.message || err,
+      )
+    }
+  }
+  return false
+}
+
+/**
+ * Repair accounts whose isOrgManager flag was wiped by an older cross-module
+ * sync, so org managers again receive every enabled module on login/refresh.
+ */
+async function ensureOrgManagerFlag(account, org) {
+  if (!account || !org) return account
+  if (accountLoginRole(account) === 'worker') return account
+  if (account.isOrgManager) return account
+
+  const accountCol = await accounts()
+  let shouldPromote = await workerMarksPhoneOrgManager(org._id, account.phone)
+
+  if (!shouldPromote) {
+    const existingFlag = await accountCol.findOne({
+      orgId: String(org._id),
+      status: 'active',
+      isOrgManager: true,
+    })
+    if (!existingFlag) {
+      if (
+        org.primaryAccountId &&
+        String(account._id) === String(org.primaryAccountId)
+      ) {
+        shouldPromote = true
+      } else {
+        const managers = await accountCol
+          .find({
+            orgId: String(org._id),
+            status: 'active',
+            role: { $ne: 'worker' },
+          })
+          .toArray()
+        shouldPromote =
+          managers.length === 1 && String(managers[0]._id) === String(account._id)
+      }
+    }
+  }
+
+  if (!shouldPromote) return account
+
+  await accountCol.updateOne(
+    { _id: account._id },
+    { $set: { isOrgManager: true, updatedAt: new Date().toISOString() } },
+  )
+  return { ...account, isOrgManager: true }
+}
+
 export async function refreshManagerSession(user) {
   return refreshOrgSession(user)
 }
@@ -156,6 +232,7 @@ export async function refreshOrgSession(user) {
   if (!account || (account.status && account.status !== 'active')) {
     throw httpError('החשבון אינו זמין. בדקו את פרטי הכניסה או פנו למנהל המערכת.', 401)
   }
+  account = await ensureOrgManagerFlag(account, org)
   const session = sessionFromAccount(account, org)
   if (user.module && session.modules[user.module]) session.module = user.module
   return session
@@ -505,15 +582,18 @@ export async function setOrganizationManagerEmail(orgId, emailRaw) {
   const previous = normalizeEmail(manager.email)
   await accountCol.updateOne(
     { _id: manager._id },
-    { $set: { email, updatedAt: new Date().toISOString() } },
+    {
+      $set: {
+        email,
+        isOrgManager: true,
+        updatedAt: new Date().toISOString(),
+      },
+    },
   )
 
   // Best-effort: keep matching worker rows in module DBs in sync for the same phone.
   const phone = normalizePhone(manager.phone)
-  const targets = ['selectors']
-  if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
-  if (process.env.MONGODB_URI_SECURITY?.trim()) targets.push('security')
-  for (const target of targets) {
+  for (const target of operationalDbTargets()) {
     try {
       const db = await getDb(target)
       await db.collection('workers').updateMany(
@@ -521,7 +601,7 @@ export async function setOrganizationManagerEmail(orgId, emailRaw) {
           orgId: String(orgId),
           $or: [{ phone }, { phone: manager.phone }],
         },
-        { $set: { email } },
+        { $set: { email, isOrgManager: true } },
       )
     } catch (err) {
       console.error(
@@ -745,6 +825,9 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
   if (account && !org) throw httpError('הארגון לא נמצא', 401)
   if (account && account.status !== 'active') {
     throw httpError('מספר הטלפון או הסיסמה אינם נכונים', 401)
+  }
+  if (account && org) {
+    account = await ensureOrgManagerFlag(account, org)
   }
 
   const identity = superAdmin || sessionFromAccount(account, org)

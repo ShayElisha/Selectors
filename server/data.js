@@ -435,6 +435,19 @@ function accountRoleForWorker(worker) {
   return null;
 }
 
+/**
+ * Shared login accounts store isOrgManager once for all modules.
+ * Promote when this module marks the worker as org manager; demote only when
+ * THIS module's previous row had the flag and the new row clears it; otherwise
+ * leave the account flag untouched (other modules may still hold it).
+ * @returns {boolean|undefined}
+ */
+function nextOrgManagerFlag(worker, prev) {
+  if (worker?.isOrgManager) return true;
+  if (prev?.isOrgManager) return false;
+  return undefined;
+}
+
 async function syncManagerAccess(workers, orgId, prevWorkers = []) {
   if (!orgId) return;
   const prevById = new Map((prevWorkers || []).map((w) => [w.id, w]));
@@ -442,16 +455,7 @@ async function syncManagerAccess(workers, orgId, prevWorkers = []) {
     const role = accountRoleForWorker(worker);
     if (!role || !worker.phone) continue;
     const prev = prevById.get(worker.id);
-    // isOrgManager lives on the shared login account. A person can be org
-    // manager + shift manager in inspectors while another module's worker
-    // copy lacks the flag — never demote unless this module intentionally
-    // clears it (prev was true, next is false).
-    let isOrgManager = Boolean(worker.isOrgManager);
-    if (!isOrgManager && prev?.isOrgManager) {
-      isOrgManager = false;
-    } else if (!isOrgManager) {
-      isOrgManager = undefined;
-    }
+    const isOrgManager = nextOrgManagerFlag(worker, prev);
     await upsertManagerAccount({
       orgId,
       workerId: worker.id,
@@ -557,6 +561,7 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
       mustChangePassword: true,
     };
     if (options.scope?.orgId) {
+      const isOrgManager = nextOrgManagerFlag(w, prev);
       await upsertManagerAccount({
         orgId: options.scope.orgId,
         workerId: w.id,
@@ -566,7 +571,7 @@ async function applyManagerInvites(workers, prevWorkers, options = {}) {
         passwordHash,
         mustChangePassword: true,
         staffKind: w.staffKind,
-        isOrgManager: Boolean(w.isOrgManager),
+        ...(typeof isOrgManager === "boolean" ? { isOrgManager } : {}),
         role: accountRoleForWorker(w),
       });
     }
@@ -1612,6 +1617,8 @@ export async function resendManagerTempPassword(workerId, actor, options = {}) {
   });
 
   const passwordHash = await hashPassword(tempPassword);
+  const prevTarget = data.workers.find((w) => w.id === target.id);
+  const isOrgManager = nextOrgManagerFlag(target, prevTarget);
   await upsertManagerAccount({
     orgId: scope.orgId,
     workerId: target.id,
@@ -1626,7 +1633,7 @@ export async function resendManagerTempPassword(workerId, actor, options = {}) {
       target.staffKind === "security"
         ? target.staffKind
         : "selector",
-    isOrgManager: Boolean(target.isOrgManager),
+    ...(typeof isOrgManager === "boolean" ? { isOrgManager } : {}),
     role: loginRole,
   });
   await writeState(
