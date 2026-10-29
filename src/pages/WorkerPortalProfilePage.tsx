@@ -23,7 +23,7 @@ export function WorkerPortalProfilePage() {
   const [permBusy, setPermBusy] = useState(false)
 
   if (loading && !home) {
-    return <PageLoader label="טוען נתונים…" />
+    return <PageLoader centered size="sm" label="טוען נתונים…" />
   }
 
   if (!home) {

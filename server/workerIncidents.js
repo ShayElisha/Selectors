@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { appendAuditLog } from './audit.js'
-import { publicData, readState, writeState } from './data.js'
+import { appendIncident, patchIncident, readState } from './data.js'
 import { scopeForRequest } from './scope.js'
 import { upsertTargetedWorkerNotice } from './workerNotices.js'
 import { requireWorkerActor } from './workerPortal.js'
@@ -45,8 +45,8 @@ function publicWorkerIncident(item) {
 }
 
 /**
- * List fault reports submitted by the signed-in worker (and shared pending ones
- * they opened). Includes lanes for the report form.
+ * List fault reports submitted by the signed-in worker.
+ * Includes lanes for the report form.
  */
 export async function listWorkerIncidents(req) {
   const { actor, scope } = await requireWorkerActor(req)
@@ -89,6 +89,13 @@ export async function submitWorkerFault(req, body = {}) {
 
   const severity = SEVERITIES.has(body.severity) ? body.severity : 'medium'
   const laneId = String(body.laneId || '').trim()
+  if (laneId) {
+    const state = await readState(scope)
+    if (!(state.lanes || []).some((lane) => lane.id === laneId)) {
+      throw httpError('העמדה שנבחרה אינה קיימת', 400)
+    }
+  }
+
   const now = new Date().toISOString()
   const incident = {
     id: randomUUID(),
@@ -106,34 +113,15 @@ export async function submitWorkerFault(req, body = {}) {
     updatedBy: String(actor.fullName || 'עובד'),
   }
 
-  let saved = null
-  for (let attempt = 0; attempt < 5 && !saved; attempt++) {
-    try {
-      const state = await readState(scope)
-      if (laneId && !(state.lanes || []).some((lane) => lane.id === laneId)) {
-        throw httpError('העמדה שנבחרה אינה קיימת', 400)
-      }
-      const next = await writeState(
-        {
-          ...state,
-          incidents: [incident, ...(state.incidents || [])],
-        },
-        {
-          actor,
-          scope,
-          expectedRevision: state.revision ?? 0,
-          skipManagerInvites: true,
-          skipAudit: true,
-        },
-      )
-      saved = (next.incidents || []).find((item) => item.id === incident.id) || incident
-    } catch (err) {
-      if (err?.status === 409) continue
-      throw err
+  let saved
+  try {
+    const result = await appendIncident(incident, { scope, actor })
+    saved = result.incident
+  } catch (err) {
+    if (err?.status === 409) {
+      throw httpError('הנתונים השתנו במקביל. נסו לשלוח שוב.', 409)
     }
-  }
-  if (!saved) {
-    throw httpError('הנתונים השתנו במקביל. נסו לשלוח שוב.', 409)
+    throw err
   }
 
   await appendAuditLog({
@@ -197,63 +185,42 @@ export async function reviewWorkerFaultReport(req, id, body = {}) {
 
   const now = new Date().toISOString()
   const actorName = String(actor.fullName || 'מנהל')
-  let savedIncident = null
-  let savedState = null
 
-  for (let attempt = 0; attempt < 5 && !savedState; attempt++) {
-    try {
-      const state = await readState(scope)
-      const existing = (state.incidents || []).find(
-        (item) => item && item.id === incidentId,
-      )
-      if (!existing) throw httpError('הדיווח לא נמצא', 404)
-      if (existing.kind !== 'fault') {
-        throw httpError('ניתן לאשר רק דיווחי תקלה', 400)
-      }
-      if (existing.status !== 'pending_approval') {
-        throw httpError('הדיווח כבר טופל', 400)
-      }
-
-      const next = {
-        ...existing,
-        status: decision === 'approve' ? 'open' : 'rejected',
-        updatedAt: now,
-        updatedBy: actorName,
-        ...(decision === 'approve'
-          ? { approvedBy: actorName, approvedAt: now }
-          : {
-              rejectedBy: actorName,
-              rejectedAt: now,
-              ...(reason ? { rejectionReason: reason } : {}),
-            }),
-      }
-
-      savedState = await writeState(
-        {
-          ...state,
-          incidents: (state.incidents || []).map((item) =>
-            item.id === incidentId ? next : item,
-          ),
-        },
-        {
-          actor,
-          scope,
-          expectedRevision: state.revision ?? 0,
-          skipManagerInvites: true,
-          skipAudit: true,
-        },
-      )
-      savedIncident =
-        (savedState.incidents || []).find((item) => item.id === incidentId) ||
-        next
-    } catch (err) {
-      if (err?.status === 409) continue
-      throw err
+  let savedIncident
+  let savedData
+  try {
+    const result = await patchIncident(
+      incidentId,
+      (existing) => {
+        if (existing.kind !== 'fault') {
+          throw httpError('ניתן לאשר רק דיווחי תקלה', 400)
+        }
+        if (existing.status !== 'pending_approval') {
+          throw httpError('הדיווח כבר טופל', 400)
+        }
+        return {
+          ...existing,
+          status: decision === 'approve' ? 'open' : 'rejected',
+          updatedAt: now,
+          updatedBy: actorName,
+          ...(decision === 'approve'
+            ? { approvedBy: actorName, approvedAt: now }
+            : {
+                rejectedBy: actorName,
+                rejectedAt: now,
+                ...(reason ? { rejectionReason: reason } : {}),
+              }),
+        }
+      },
+      { scope, actor },
+    )
+    savedIncident = result.incident
+    savedData = result.data
+  } catch (err) {
+    if (err?.status === 409) {
+      throw httpError('הנתונים השתנו במקביל. נסו שוב.', 409)
     }
-  }
-
-  if (!savedState || !savedIncident) {
-    throw httpError('הנתונים השתנו במקביל. נסו שוב.', 409)
+    throw err
   }
 
   await appendAuditLog({
@@ -299,7 +266,7 @@ export async function reviewWorkerFaultReport(req, id, body = {}) {
   }
 
   return {
-    data: publicData(savedState),
+    data: savedData,
     incident: publicWorkerIncident(savedIncident),
   }
 }

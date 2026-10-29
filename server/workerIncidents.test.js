@@ -2,23 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   readState,
-  writeState,
-  publicData,
+  appendIncident,
+  patchIncident,
   upsertTargetedWorkerNotice,
   appendAuditLog,
   requireWorkerActor,
   scopeForRequest,
 } = vi.hoisted(() => ({
   readState: vi.fn(),
-  writeState: vi.fn(),
-  publicData: vi.fn((data) => data),
+  appendIncident: vi.fn(),
+  patchIncident: vi.fn(),
   upsertTargetedWorkerNotice: vi.fn(),
   appendAuditLog: vi.fn(),
   requireWorkerActor: vi.fn(),
   scopeForRequest: vi.fn(),
 }))
 
-vi.mock('./data.js', () => ({ readState, writeState, publicData }))
+vi.mock('./data.js', () => ({ readState, appendIncident, patchIncident }))
 vi.mock('./workerNotices.js', () => ({ upsertTargetedWorkerNotice }))
 vi.mock('./audit.js', () => ({ appendAuditLog }))
 vi.mock('./workerPortal.js', () => ({ requireWorkerActor }))
@@ -50,7 +50,10 @@ describe('worker fault reports', () => {
       ],
       incidents: [],
     })
-    writeState.mockImplementation(async (payload) => payload)
+    appendIncident.mockImplementation(async (incident) => ({
+      data: { revision: 4, incidents: [incident] },
+      incident,
+    }))
     upsertTargetedWorkerNotice.mockResolvedValue(null)
     appendAuditLog.mockResolvedValue(undefined)
   })
@@ -69,20 +72,15 @@ describe('worker fault reports', () => {
     expect(created.status).toBe('pending_approval')
     expect(created.kind).toBe('fault')
     expect(created.reportedByWorkerId).toBe('w1')
-    expect(writeState).toHaveBeenCalledWith(
+    expect(appendIncident).toHaveBeenCalledWith(
       expect.objectContaining({
-        incidents: [
-          expect.objectContaining({
-            status: 'pending_approval',
-            kind: 'fault',
-            title: 'תקלה בשער',
-            reportedByWorkerId: 'w1',
-          }),
-        ],
+        status: 'pending_approval',
+        kind: 'fault',
+        title: 'תקלה בשער',
+        reportedByWorkerId: 'w1',
       }),
       expect.objectContaining({
         scope: { orgId: 'org-1', module: 'inspectors' },
-        expectedRevision: 3,
       }),
     )
     expect(upsertTargetedWorkerNotice).toHaveBeenCalledWith(
@@ -99,27 +97,23 @@ describe('worker fault reports', () => {
       actor: { id: 'm1', fullName: 'מנהל משמרת' },
       scope: { orgId: 'org-1', module: 'inspectors' },
     })
-    const pending = {
-      id: 'fault-1',
-      kind: 'fault',
-      title: 'תקלה בשער',
-      description: 'השער לא נפתח',
-      severity: 'high',
-      status: 'pending_approval',
-      reportedByWorkerId: 'w1',
-      reportedByName: 'בודק א',
-      createdAt: '2026-10-29T12:00:00.000Z',
-      createdBy: 'בודק א',
-      updatedAt: '2026-10-29T12:00:00.000Z',
-      updatedBy: 'בודק א',
-    }
-    readState.mockResolvedValue({
-      revision: 4,
-      lanes: [],
-      workers: [],
-      incidents: [pending],
+    patchIncident.mockImplementation(async (id, mutator) => {
+      const next = mutator({
+        id,
+        kind: 'fault',
+        title: 'תקלה בשער',
+        description: 'השער לא נפתח',
+        severity: 'high',
+        status: 'pending_approval',
+        reportedByWorkerId: 'w1',
+        reportedByName: 'בודק א',
+        createdAt: '2026-10-29T12:00:00.000Z',
+        createdBy: 'בודק א',
+        updatedAt: '2026-10-29T12:00:00.000Z',
+        updatedBy: 'בודק א',
+      })
+      return { data: { revision: 5, incidents: [next] }, incident: next }
     })
-    writeState.mockImplementation(async (payload) => payload)
 
     const result = await reviewWorkerFaultReport({}, 'fault-1', {
       decision: 'approve',
@@ -140,28 +134,23 @@ describe('worker fault reports', () => {
       actor: { id: 'm1', fullName: 'מנהל משמרת' },
       scope: { orgId: 'org-1', module: 'inspectors' },
     })
-    readState.mockResolvedValue({
-      revision: 5,
-      lanes: [],
-      workers: [],
-      incidents: [
-        {
-          id: 'fault-2',
-          kind: 'fault',
-          title: 'רעש חזק',
-          description: 'רעש ממנוע',
-          severity: 'medium',
-          status: 'pending_approval',
-          reportedByWorkerId: 'w1',
-          reportedByName: 'בודק א',
-          createdAt: '2026-10-29T12:00:00.000Z',
-          createdBy: 'בודק א',
-          updatedAt: '2026-10-29T12:00:00.000Z',
-          updatedBy: 'בודק א',
-        },
-      ],
+    patchIncident.mockImplementation(async (id, mutator) => {
+      const next = mutator({
+        id,
+        kind: 'fault',
+        title: 'רעש חזק',
+        description: 'רעש ממנוע',
+        severity: 'medium',
+        status: 'pending_approval',
+        reportedByWorkerId: 'w1',
+        reportedByName: 'בודק א',
+        createdAt: '2026-10-29T12:00:00.000Z',
+        createdBy: 'בודק א',
+        updatedAt: '2026-10-29T12:00:00.000Z',
+        updatedBy: 'בודק א',
+      })
+      return { data: { revision: 6, incidents: [next] }, incident: next }
     })
-    writeState.mockImplementation(async (payload) => payload)
 
     await reviewWorkerFaultReport({}, 'fault-2', {
       decision: 'reject',
@@ -181,7 +170,10 @@ describe('worker fault reports', () => {
   it('lists only the signed-in worker fault reports', async () => {
     readState.mockResolvedValue({
       revision: 1,
-      lanes: [{ id: 'lane-1', name: 'שער 1' }, { id: 'gate-manager', name: 'מנהל שער' }],
+      lanes: [
+        { id: 'lane-1', name: 'שער 1' },
+        { id: 'gate-manager', name: 'מנהל שער' },
+      ],
       incidents: [
         {
           id: 'a',

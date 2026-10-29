@@ -95,7 +95,7 @@ export function WorkerContactsPage() {
   }, [load])
 
   if (loading && contacts.length === 0) {
-    return <PageLoader label="טוען אנשי קשר…" />
+    return <PageLoader centered size="sm" label="טוען אנשי קשר…" />
   }
 
   return (

@@ -37,7 +37,7 @@ export function WorkerBriefingsPage() {
   }
 
   if (loading && !home) {
-    return <PageLoader label="טוען נתונים…" />
+    return <PageLoader centered size="sm" label="טוען נתונים…" />
   }
 
   if (!home) {

@@ -9,6 +9,7 @@ import {
   History,
   KeyRound,
   LogOut,
+  MoreHorizontal,
   Phone,
   UserRound,
 } from 'lucide-react'
@@ -41,6 +42,8 @@ const NAV_ITEMS: {
   { sub: 'profile', label: 'הפרופיל שלי', icon: UserRound },
 ]
 
+const MOBILE_PRIMARY_COUNT = 3
+
 export function WorkerShell({
   module,
   children,
@@ -53,6 +56,7 @@ export function WorkerShell({
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [unread, setUnread] = useState(0)
 
   const portalTitle = MODULE_PORTAL_LABELS[module]
@@ -65,6 +69,22 @@ export function WorkerShell({
         to: workerPortalPath(module, item.sub),
       })),
     [module],
+  )
+
+  const mobilePrimary = useMemo(() => {
+    if (nav.length <= 4) return nav
+    return nav.slice(0, MOBILE_PRIMARY_COUNT)
+  }, [nav])
+
+  const mobileMore = useMemo(() => {
+    if (nav.length <= 4) return []
+    return nav.slice(MOBILE_PRIMARY_COUNT)
+  }, [nav])
+
+  const moreActive = mobileMore.some((item) =>
+    item.end
+      ? location.pathname === item.to || location.pathname === `${homePath}/`
+      : location.pathname.startsWith(item.to),
   )
 
   const refreshUnread = useCallback(async () => {
@@ -84,6 +104,10 @@ export function WorkerShell({
   }, [refreshUnread, location.pathname])
 
   useEffect(() => {
+    setMoreOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
     document.title = `${portalTitle} · שיבוצון`
     return () => {
       document.title = 'שיבוצון'
@@ -92,11 +116,17 @@ export function WorkerShell({
 
   const go = (sub: string) => {
     setMenuOpen(false)
+    setMoreOpen(false)
     navigate(workerPortalPath(module, sub))
   }
 
+  const isActive = (item: (typeof nav)[number]) =>
+    item.end
+      ? location.pathname === item.to || location.pathname === `${homePath}/`
+      : location.pathname.startsWith(item.to)
+
   return (
-    <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-24 pt-4 sm:pb-8 sm:pt-6">
+    <div className="relative mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-24 pt-4 sm:pb-8 sm:pt-6">
       <header className="mb-5 flex items-center justify-between gap-3 no-print">
         <div className="flex min-w-0 items-center gap-3">
           <BrandMark className="size-10 shrink-0" />
@@ -132,7 +162,10 @@ export function WorkerShell({
               type="button"
               className="ui-btn ui-btn-ghost !px-2.5 !py-2 text-sm"
               aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={() => {
+                setMoreOpen(false)
+                setMenuOpen((v) => !v)
+              }}
             >
               תפריט
             </button>
@@ -206,14 +239,32 @@ export function WorkerShell({
       </header>
 
       {(loading || refreshing) && (
-        <div
-          className="mb-4 flex items-center gap-2.5 rounded-xl border border-line/80 bg-card/90 px-3.5 py-2.5 text-[13px] text-ink-soft shadow-sm backdrop-blur no-print"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="page-loader page-loader--sm shrink-0" aria-hidden />
-          {loading ? 'טוען נתונים מהשרת…' : 'מרענן נתונים ברקע…'}
-        </div>
+        <>
+          <div
+            className="mb-4 hidden items-center gap-2.5 rounded-xl border border-line/80 bg-card/90 px-3.5 py-2.5 text-[13px] text-ink-soft shadow-sm backdrop-blur sm:flex no-print"
+            role="status"
+            aria-live="polite"
+          >
+            <span
+              className="page-loader page-loader--sm shrink-0"
+              aria-hidden
+            />
+            {loading ? 'טוען נתונים מהשרת…' : 'מרענן נתונים ברקע…'}
+          </div>
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_oklab,var(--color-canvas)_72%,transparent)] px-6 backdrop-blur-[2px] sm:hidden no-print"
+            role="status"
+            aria-live="polite"
+            aria-label={loading ? 'טוען נתונים מהשרת' : 'מרענן נתונים ברקע'}
+          >
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-line/80 bg-card px-6 py-5 shadow-[var(--shadow-panel-hover)]">
+              <span className="page-loader page-loader--sm" aria-hidden />
+              <p className="text-sm font-medium text-ink-soft">
+                {loading ? 'טוען נתונים מהשרת…' : 'מרענן נתונים ברקע…'}
+              </p>
+            </div>
+          </div>
+        </>
       )}
 
       <nav
@@ -221,10 +272,7 @@ export function WorkerShell({
         aria-label={`ניווט ${portalTitle}`}
       >
         {nav.map((item) => {
-          const active = item.end
-            ? location.pathname === item.to ||
-              location.pathname === `${homePath}/`
-            : location.pathname.startsWith(item.to)
+          const active = isActive(item)
           const Icon = item.icon
           return (
             <Link
@@ -251,17 +299,39 @@ export function WorkerShell({
         className="fixed inset-x-0 bottom-0 z-40 border-t border-line/80 bg-card/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl sm:hidden no-print"
         aria-label={`ניווט מובייל ${portalTitle}`}
       >
+        {moreOpen && mobileMore.length > 0 ? (
+          <div className="mx-auto mb-1.5 max-w-lg overflow-hidden rounded-xl border border-line/80 bg-card shadow-[var(--shadow-panel-hover)]">
+            {mobileMore.map((item) => {
+              const active = isActive(item)
+              const Icon = item.icon
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => setMoreOpen(false)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 text-sm ${
+                    active
+                      ? 'bg-brand/10 font-semibold text-brand'
+                      : 'text-ink-soft hover:bg-surface hover:text-ink'
+                  }`}
+                >
+                  <Icon className="size-4" aria-hidden />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </div>
+        ) : null}
         <div className="mx-auto flex max-w-lg justify-around">
-          {nav.map((item) => {
-            const active = item.end
-              ? location.pathname === item.to ||
-                location.pathname === `${homePath}/`
-              : location.pathname.startsWith(item.to)
+          {mobilePrimary.map((item) => {
+            const active = isActive(item)
             const Icon = item.icon
             return (
               <Link
                 key={item.to}
                 to={item.to}
+                onClick={() => setMoreOpen(false)}
                 aria-current={active ? 'page' : undefined}
                 className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[11px] font-semibold ${
                   active ? 'text-brand' : 'text-ink-soft'
@@ -272,6 +342,23 @@ export function WorkerShell({
               </Link>
             )
           })}
+          {mobileMore.length > 0 ? (
+            <button
+              type="button"
+              aria-expanded={moreOpen}
+              aria-label="עוד אפשרויות ניווט"
+              onClick={() => {
+                setMenuOpen(false)
+                setMoreOpen((v) => !v)
+              }}
+              className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[11px] font-semibold ${
+                moreOpen || moreActive ? 'text-brand' : 'text-ink-soft'
+              }`}
+            >
+              <MoreHorizontal className="size-[18px]" aria-hidden />
+              <span className="truncate">עוד</span>
+            </button>
+          ) : null}
         </div>
       </nav>
     </div>

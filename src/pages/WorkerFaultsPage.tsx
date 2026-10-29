@@ -95,7 +95,7 @@ export function WorkerFaultsPage() {
   }
 
   if (loading && incidents.length === 0) {
-    return <PageLoader label="טוען דיווחי תקלות…" />
+    return <PageLoader centered size="sm" label="טוען דיווחי תקלות…" />
   }
 
   return (

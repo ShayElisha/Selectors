@@ -706,6 +706,25 @@ summary:focus-visible {
   transform: scale(0.85);
 }
 
+@media (max-width: 639px) {
+  .page-loader:not(.page-loader--sm) {
+    width: 32px;
+    height: 32px;
+    background: radial-gradient(8px, currentColor 94%, #0000);
+    transform: scale(0.9);
+  }
+
+  .page-loader:not(.page-loader--sm)::before {
+    background:
+      radial-gradient(7.2px at bottom right, #0000 94%, currentColor) top left,
+      radial-gradient(7.2px at bottom left, #0000 94%, currentColor) top right,
+      radial-gradient(7.2px at top right, #0000 94%, currentColor) bottom left,
+      radial-gradient(7.2px at top left, #0000 94%, currentColor) bottom right;
+    background-size: 16px 16px;
+    background-repeat: no-repeat;
+  }
+}
+
 .page-loader--sm::before {
   background:
     radial-gradient(5.04px at bottom right, #0000 94%, currentColor) top left,

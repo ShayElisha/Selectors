@@ -1710,6 +1710,162 @@ export async function writeState(data, options = {}) {
   return publicData(result);
 }
 
+/** Bump only the operational revision (leave historyRevision alone). */
+async function claimOperationalRevision(scope, current) {
+  const target = targetForScope(scope);
+  const meta = await getMetaCollection(target);
+  const doc = await meta.findOne({ _id: metaIdFor(scope) });
+  const live = Number(doc?.revision ?? 0);
+  if (!doc || live !== Number(current)) return null;
+  const nextRevision = live + 1;
+  const bumped = await meta.updateOne(
+    { _id: doc._id, revision: doc.revision },
+    {
+      $set: {
+        schema: "collections",
+        revision: nextRevision,
+        updatedAt: new Date(),
+      },
+    },
+  );
+  if (bumped.modifiedCount !== 1) return null;
+  return nextRevision;
+}
+
+/**
+ * Append one incident without rewriting the full org snapshot.
+ * Avoids long revision races when workers open fault reports.
+ */
+export async function appendIncident(incident, options = {}) {
+  const scope = options.scope;
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  const kind =
+    scope.module === "inspectors"
+      ? "inspector"
+      : scope.module === "security"
+        ? "security"
+        : "selector";
+  const row = normalizeData({ incidents: [incident] }, kind).incidents?.[0];
+  if (!row) {
+    const err = new Error("דיווח לא תקין");
+    err.status = 400;
+    throw err;
+  }
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope);
+    const latest = await readState(scope);
+    if ((latest.incidents || []).some((item) => item.id === row.id)) {
+      return { data: publicData(latest), incident: row };
+    }
+    const nextRevision = await claimOperationalRevision(
+      scope,
+      latest.revision ?? 0,
+    );
+    if (nextRevision == null) continue;
+
+    const target = targetForScope(scope);
+    const db = await getDb(target);
+    const stamped = stampScope({ ...row, listOrder: -Date.now() }, scope);
+    const { _id, ...doc } = stamped;
+    await db.collection(MODEL_COLLECTIONS.incidents).updateOne(
+      { _id },
+      {
+        $set: doc,
+        $setOnInsert: { listOrder: doc.listOrder ?? -Date.now() },
+      },
+      { upsert: true },
+    );
+
+    const savedState = {
+      ...latest,
+      incidents: [row, ...(latest.incidents || [])],
+      revision: nextRevision,
+    };
+    rememberState(scope, savedState);
+    return { data: publicData(savedState), incident: row };
+  }
+  throw conflictError(await readState(scope));
+}
+
+/**
+ * Patch one incident document (approve/reject) without a full-state rewrite.
+ */
+export async function patchIncident(id, mutator, options = {}) {
+  const scope = options.scope;
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  const incidentId = String(id || "").trim();
+  if (!incidentId) {
+    const err = new Error("חסר מזהה דיווח");
+    err.status = 400;
+    throw err;
+  }
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope);
+    const latest = await readState(scope);
+    const existing = (latest.incidents || []).find(
+      (item) => item && item.id === incidentId,
+    );
+    if (!existing) {
+      const err = new Error("הדיווח לא נמצא");
+      err.status = 404;
+      throw err;
+    }
+    const patched = mutator(existing);
+    if (!patched || typeof patched !== "object") {
+      const err = new Error("עדכון דיווח לא תקין");
+      err.status = 400;
+      throw err;
+    }
+    const kind =
+      scope.module === "inspectors"
+        ? "inspector"
+        : scope.module === "security"
+          ? "security"
+          : "selector";
+    const row = normalizeData({ incidents: [patched] }, kind).incidents?.[0];
+    if (!row) {
+      const err = new Error("דיווח לא תקין");
+      err.status = 400;
+      throw err;
+    }
+
+    const nextRevision = await claimOperationalRevision(
+      scope,
+      latest.revision ?? 0,
+    );
+    if (nextRevision == null) continue;
+
+    const target = targetForScope(scope);
+    const db = await getDb(target);
+    const stamped = stampScope({ ...row, listOrder: existing.listOrder ?? 0 }, scope);
+    const { _id, ...doc } = stamped;
+    await db
+      .collection(MODEL_COLLECTIONS.incidents)
+      .updateOne({ _id }, { $set: doc }, { upsert: true });
+
+    const savedState = {
+      ...latest,
+      incidents: (latest.incidents || []).map((item) =>
+        item.id === incidentId ? row : item,
+      ),
+      revision: nextRevision,
+    };
+    rememberState(scope, savedState);
+    return { data: publicData(savedState), incident: row };
+  }
+  throw conflictError(await readState(scope));
+}
+
 export async function loginByPhone(phoneRaw, credentials = {}) {
   return authenticateManager(phoneRaw, credentials);
 }
