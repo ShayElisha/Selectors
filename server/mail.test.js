@@ -32,6 +32,9 @@ describe('test email destination', () => {
       expect.objectContaining({ to: 'super-admin@example.com' }),
     )
     expect(close).toHaveBeenCalledOnce()
+    expect(createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ family: 4, lookup: expect.any(Function) }),
+    )
   })
 
   it('allows the local mail-test script to specify a destination', async () => {
@@ -40,6 +43,24 @@ describe('test email destination', () => {
     expect(sendMail).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'ops@example.com' }),
     )
+  })
+
+  it('retries SMTPS 465 after a TLS alert 80 on the primary port', async () => {
+    sendMail
+      .mockRejectedValueOnce(
+        Object.assign(new Error('tlsv1 alert internal error: SSL alert number 80'), {
+          code: 'EPROTO',
+        }),
+      )
+      .mockResolvedValueOnce({ messageId: 'fallback' })
+
+    await sendTestEmail({ to: 'ops@example.com' })
+
+    expect(createTransport).toHaveBeenCalledTimes(2)
+    expect(createTransport.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ port: 465, secure: true }),
+    )
+    expect(sendMail).toHaveBeenCalledTimes(2)
   })
 
   it('rejects an invalid test destination', async () => {

@@ -1,4 +1,4 @@
-import { setDefaultResultOrder } from 'node:dns'
+import { lookup as dnsLookup, setDefaultResultOrder } from 'node:dns'
 import nodemailer from 'nodemailer'
 import {
   appDisplayName,
@@ -53,25 +53,75 @@ function brandedFromAddress() {
   return `${appDisplayName()} <${mailboxAddress()}>`
 }
 
-function createTransport() {
-  const port = Number(process.env.SMTP_PORT || 587)
-  const host = String(process.env.SMTP_HOST || '').trim()
+function smtpHost() {
+  return String(process.env.SMTP_HOST || '').trim()
+}
+
+function configuredSmtpPort() {
+  return Number(process.env.SMTP_PORT || 587)
+}
+
+function isTlsInternalAlert(detail) {
+  return /tlsv1 alert internal error|SSL alert number 80|EPROTO|ssl3_read_bytes|wrong version number/i.test(
+    String(detail || ''),
+  )
+}
+
+/** Resolve SMTP host to IPv4 only — nodemailer's family option is not always enough. */
+function ipv4Lookup(hostname, _options, callback) {
+  dnsLookup(hostname, { family: 4, all: false }, callback)
+}
+
+/**
+ * @param {{ port?: number, secure?: boolean }} [opts]
+ */
+export function createTransport(opts = {}) {
+  const host = smtpHost()
+  const port = Number(opts.port ?? configuredSmtpPort())
+  const secure = opts.secure ?? port === 465
   const user = smtpUser()
   const pass = smtpPass()
-  const secure = port === 465
   return nodemailer.createTransport({
     host,
     port,
     secure,
     // Gmail often answers TLS alert 80 over IPv6; force IPv4 + TLS 1.2.
     family: 4,
+    lookup: ipv4Lookup,
     requireTLS: !secure,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
     auth: user && pass ? { user, pass } : undefined,
     tls: {
       minVersion: 'TLSv1.2',
       servername: host,
     },
   })
+}
+
+function transportAttempts() {
+  const primaryPort = configuredSmtpPort()
+  const primarySecure = primaryPort === 465
+  const attempts = [{ port: primaryPort, secure: primarySecure }]
+  // If STARTTLS (587) fails with TLS alert 80, Gmail SMTPS (465) often still works.
+  if (primaryPort !== 465) {
+    attempts.push({ port: 465, secure: true })
+  } else if (primaryPort !== 587) {
+    attempts.push({ port: 587, secure: false })
+  }
+  return attempts
+}
+
+function mapSendError(err) {
+  const detail = err instanceof Error ? err.message : String(err)
+  if (/Invalid login|Username and Password not accepted|EAUTH/i.test(detail)) {
+    return 'אימות SMTP נכשל — בדקו SMTP_USER ו־SMTP_PASS (App Password של Gmail)'
+  }
+  if (isTlsInternalAlert(detail)) {
+    return 'חיבור TLS לשרת המייל נכשל — המערכת ניסתה IPv4 ופורט חלופי; בדקו App Password וחסימות רשת ל־smtp.gmail.com'
+  }
+  return 'שליחת המייל נכשלה'
 }
 
 /**
@@ -99,36 +149,38 @@ export async function sendMail({ to, subject, text, html, attachments }) {
   }
 
   const from = brandedFromAddress()
-
-  const transporter = createTransport()
-  try {
-    await transporter.sendMail({
-      from,
-      to,
-      subject,
-      text,
-      html: html || undefined,
-      attachments: attachments?.length ? attachments : undefined,
-    })
-    return { queued: true, devLogged: false }
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err)
-    console.error('[mail] send failed', detail)
-    const e = new Error(
-      /Invalid login|Username and Password not accepted|EAUTH/i.test(detail)
-        ? 'אימות SMTP נכשל — בדקו SMTP_USER ו־SMTP_PASS (App Password של Gmail)'
-        : /tlsv1 alert internal error|SSL alert number 80|EPROTO|ssl3_read_bytes/i.test(
-              detail,
-            )
-          ? 'חיבור TLS לשרת המייל נכשל (לרוב Gmail/IPv6) — בדקו SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, App Password, ושהרשת לא חוסמת SMTP'
-          : 'שליחת המייל נכשלה',
-    )
-    e.status = 502
-    e.cause = err
-    throw e
-  } finally {
-    transporter.close?.()
+  const payload = {
+    from,
+    to,
+    subject,
+    text,
+    html: html || undefined,
+    attachments: attachments?.length ? attachments : undefined,
   }
+
+  let lastError = null
+  for (const attempt of transportAttempts()) {
+    const transporter = createTransport(attempt)
+    try {
+      await transporter.sendMail(payload)
+      return { queued: true, devLogged: false }
+    } catch (err) {
+      lastError = err
+      const detail = err instanceof Error ? err.message : String(err)
+      console.error(
+        `[mail] send failed via ${smtpHost()}:${attempt.port}`,
+        detail,
+      )
+      if (!isTlsInternalAlert(detail)) break
+    } finally {
+      transporter.close?.()
+    }
+  }
+
+  const e = new Error(mapSendError(lastError))
+  e.status = 502
+  e.cause = lastError
+  throw e
 }
 
 function withLogoAttachments() {
