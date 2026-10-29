@@ -65,3 +65,8 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 - Vercel Cron hits `GET /api/cron/load-rest` daily at `23:00 UTC` (~02:00 Israel daylight time)
 - Local `npm run start:api` / `dev:api` also runs the same check around 02:00 Asia/Jerusalem
 - Workers who had no real שיבוץ the previous Israel day get a −2 rest credit recorded; the tracking עומס already applies −2 per idle shift-family day from history (presence alone no longer blocks rest)
+
+## Shift reminders
+
+- Local API runs `/api/cron/shift-reminders` about every minute while `start:api` / `dev:api` is up
+- Vercel Hobby only allows daily crons, so the every-5-minutes schedule is not in `vercel.json` (would fail the deploy). On Pro you can add `"schedule": "*/5 * * * *"` for `/api/cron/shift-reminders` again

@@ -6,10 +6,6 @@
     {
       "path": "/api/cron/load-rest",
       "schedule": "0 23 * * *"
-    },
-    {
-      "path": "/api/cron/shift-reminders",
-      "schedule": "*/5 * * * *"
     }
   ],
   "headers": [
