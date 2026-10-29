@@ -321,6 +321,8 @@ export function reviewOrganizationRemote(
   patch: {
     status?: 'pending' | 'approved' | 'rejected' | 'suspended'
     modules?: { selectors?: boolean; inspectors?: boolean; security?: boolean }
+    /** Super-admin: set/update org manager MFA email */
+    managerEmail?: string
   },
 ): Promise<OrganizationSummary> {
   return request('/api/organizations', {

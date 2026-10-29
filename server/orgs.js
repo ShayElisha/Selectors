@@ -435,11 +435,22 @@ export async function reviewOrganization(id, patch) {
       security: Boolean(patch.modules.security),
     }
   }
-  if (Object.keys(next).length === 0) throw httpError('אין שינוי לעדכון', 400)
-  next.updatedAt = new Date().toISOString()
+  const managerEmailPatch =
+    patch?.managerEmail != null ? String(patch.managerEmail) : null
+  if (Object.keys(next).length === 0 && managerEmailPatch == null) {
+    throw httpError('אין שינוי לעדכון', 400)
+  }
 
-  await orgCol.updateOne({ _id: org._id }, { $set: next })
-  const saved = await orgCol.findOne({ _id: org._id })
+  let saved = org
+  if (Object.keys(next).length > 0) {
+    next.updatedAt = new Date().toISOString()
+    await orgCol.updateOne({ _id: org._id }, { $set: next })
+    saved = await orgCol.findOne({ _id: org._id })
+  }
+  if (managerEmailPatch != null) {
+    await setOrganizationManagerEmail(String(org._id), managerEmailPatch)
+    saved = await orgCol.findOne({ _id: org._id })
+  }
   if (next.status === 'approved' && org.status !== 'approved') {
     await notifyOrganizationApproved(saved)
   }
@@ -455,6 +466,78 @@ export async function reviewOrganization(id, patch) {
   }
   const rows = await listOrganizations()
   return rows.find((row) => row.id === String(saved._id)) || null
+}
+
+/** Super-admin: set/update the primary org manager login email (MFA destination). */
+export async function setOrganizationManagerEmail(orgId, emailRaw) {
+  const email = normalizeEmail(emailRaw)
+  if (!isValidEmail(email)) throw httpError('נא להזין כתובת מייל תקינה', 400)
+  const org = await getOrganization(orgId)
+  if (!org) throw httpError('הארגון לא נמצא', 404)
+
+  const accountCol = await accounts()
+  let manager = null
+  if (org.primaryAccountId) {
+    manager = await accountCol.findOne({
+      _id: String(org.primaryAccountId),
+      orgId: String(orgId),
+    })
+  }
+  if (!manager) {
+    manager = await accountCol.findOne({
+      orgId: String(orgId),
+      status: 'active',
+      isOrgManager: true,
+    })
+  }
+  if (!manager) {
+    manager = await accountCol.findOne({
+      orgId: String(orgId),
+      status: 'active',
+      role: { $ne: 'worker' },
+    })
+  }
+  if (!manager) {
+    manager = await accountCol.findOne({ orgId: String(orgId), status: 'active' })
+  }
+  if (!manager) throw httpError('לא נמצא מנהל לארגון הזה', 404)
+
+  const previous = normalizeEmail(manager.email)
+  await accountCol.updateOne(
+    { _id: manager._id },
+    { $set: { email, updatedAt: new Date().toISOString() } },
+  )
+
+  // Best-effort: keep matching worker rows in module DBs in sync for the same phone.
+  const phone = normalizePhone(manager.phone)
+  const targets = ['selectors']
+  if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
+  if (process.env.MONGODB_URI_SECURITY?.trim()) targets.push('security')
+  for (const target of targets) {
+    try {
+      const db = await getDb(target)
+      await db.collection('workers').updateMany(
+        {
+          orgId: String(orgId),
+          $or: [{ phone }, { phone: manager.phone }],
+        },
+        { $set: { email } },
+      )
+    } catch (err) {
+      console.error(
+        `[orgs] manager email sync failed for ${target}:`,
+        err?.message || err,
+      )
+    }
+  }
+
+  await appendAuditLog({
+    action: 'org_manager_email',
+    orgId: String(orgId),
+    details: previous
+      ? `מייל מנהל הארגון עודכן מ־${previous} ל־${email}`
+      : `מייל מנהל הארגון הוגדר: ${email}`,
+  })
 }
 
 function escapeRegex(value) {

@@ -294,6 +294,7 @@ export function SuperAdminPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [moduleFilter, setModuleFilter] = useState<ModuleFilter>('all')
   const [selected, setSelected] = useState<OrganizationSummary | null>(null)
+  const [managerEmailDraft, setManagerEmailDraft] = useState('')
   const [approve, setApprove] = useState<OrganizationSummary | null>(null)
   const [approveModules, setApproveModules] = useState({
     selectors: true,
@@ -531,18 +532,35 @@ export function SuperAdminPage() {
   const patch = async (
     org: OrganizationSummary,
     body: Parameters<typeof reviewOrganizationRemote>[1],
+    successMessage = 'הארגון עודכן',
   ) => {
     setBusyId(org.id)
     try {
       const saved = await reviewOrganizationRemote(org.id, body)
       setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
       setSelected((current) => (current?.id === saved.id ? saved : current))
-      notify.success('הארגון עודכן')
+      if (saved.manager?.email != null) setManagerEmailDraft(saved.manager.email)
+      notify.success(successMessage)
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'העדכון נכשל')
     } finally {
       setBusyId(null)
     }
+  }
+
+  const openOrg = (org: OrganizationSummary) => {
+    setSelected(org)
+    setManagerEmailDraft(org.manager?.email || '')
+  }
+
+  const saveManagerEmail = async () => {
+    if (!selected) return
+    const email = managerEmailDraft.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      notify.error('נא להזין כתובת מייל תקינה')
+      return
+    }
+    await patch(selected, { managerEmail: email }, 'מייל מנהל הארגון נשמר')
   }
 
   const confirmApprove = async () => {
@@ -823,7 +841,39 @@ export function SuperAdminPage() {
             <div><dt className="text-ink-soft">מודולים</dt><dd className="font-semibold">{moduleLabel(selected)}</dd></div>
             <div><dt className="text-ink-soft">מנהל</dt><dd className="font-semibold">{selected.manager?.fullName || '—'}</dd></div>
             <div><dt className="text-ink-soft">טלפון</dt><dd><Ltr>{selected.manager?.phone || '—'}</Ltr></dd></div>
-            <div><dt className="text-ink-soft">מייל</dt><dd><Ltr>{selected.manager?.email || '—'}</Ltr></dd></div>
+            <div className="sm:col-span-2">
+              <dt className="text-ink-soft">מייל מנהל הארגון (לאימות התחברות)</dt>
+              <dd className="mt-1.5 flex flex-wrap items-center gap-2">
+                <input
+                  type="email"
+                  className="ui-field min-w-[16rem] flex-1"
+                  dir="ltr"
+                  placeholder="manager@example.com"
+                  value={managerEmailDraft}
+                  disabled={busyId === selected.id || !selected.manager}
+                  onChange={(e) => setManagerEmailDraft(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-primary disabled:opacity-40"
+                  disabled={
+                    busyId === selected.id ||
+                    !selected.manager ||
+                    managerEmailDraft.trim() === (selected.manager?.email || '')
+                  }
+                  onClick={() => void saveManagerEmail()}
+                >
+                  {busyId === selected.id ? 'שומר…' : 'שמירת מייל'}
+                </button>
+              </dd>
+              {!selected.manager ? (
+                <p className="mt-1 text-[12px] text-warn">לא נמצא חשבון מנהל לארגון.</p>
+              ) : !selected.manager.email ? (
+                <p className="mt-1 text-[12px] text-warn">
+                  אין מייל — המנהל לא יוכל להשלים התחברות עד שתמלא כתובת.
+                </p>
+              ) : null}
+            </div>
             <div>
               <dt className="text-ink-soft">תאריך הצטרפות</dt>
               <dd>{selected.createdAt ? new Date(selected.createdAt).toLocaleString('he-IL') : '—'}</dd>
@@ -863,7 +913,7 @@ export function SuperAdminPage() {
             <OrgTable
               orgs={pending}
               busyId={busyId}
-              onOpen={setSelected}
+              onOpen={openOrg}
               onPatch={patch}
               onApprove={(org) => {
                 setApproveModules({ selectors: true, inspectors: false, security: false })
@@ -888,7 +938,7 @@ export function SuperAdminPage() {
             <OrgTable
               orgs={rest}
               busyId={busyId}
-              onOpen={setSelected}
+              onOpen={openOrg}
               onPatch={patch}
               onApprove={(org) => {
                 setApproveModules({ selectors: true, inspectors: false, security: false })
