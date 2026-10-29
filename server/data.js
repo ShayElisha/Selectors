@@ -4,6 +4,7 @@ import {
   getDb,
   getMetaCollection,
   getStateCollection,
+  operationalDbTargets,
   withDbTransaction,
 } from "./db.js";
 import {
@@ -446,6 +447,101 @@ function nextOrgManagerFlag(worker, prev) {
   if (worker?.isOrgManager) return true;
   if (prev?.isOrgManager) return false;
   return undefined;
+}
+
+function moduleLabelHe(module) {
+  if (module === "inspectors") return "בודקים";
+  if (module === "security") return "מאבטחים";
+  return "סלקטורים";
+}
+
+/**
+ * Phone and email must be unique per organization across every module DB.
+ * Empty emails are ignored; phones are compared as digits only.
+ */
+export async function assertUniqueWorkerContacts(workers, scope) {
+  if (!scope?.orgId || !scope?.module) return;
+
+  const phoneOwners = new Map();
+  const emailOwners = new Map();
+
+  for (const worker of workers || []) {
+    const phone = normalizePhone(worker?.phone);
+    if (phone) {
+      const prev = phoneOwners.get(phone);
+      if (prev && prev.id !== worker.id) {
+        const err = new Error(
+          `מספר הטלפון כבר בשימוש אצל ${prev.fullName || "עובד אחר"} במודול ${moduleLabelHe(scope.module)}. לא ניתן לשמור כפילות.`,
+        );
+        err.status = 409;
+        throw err;
+      }
+      phoneOwners.set(phone, {
+        id: worker.id,
+        fullName: worker.fullName || "",
+      });
+    }
+
+    const email = normalizeEmail(worker?.email);
+    if (email && isValidEmail(email)) {
+      const prev = emailOwners.get(email);
+      if (prev && prev.id !== worker.id) {
+        const err = new Error(
+          `כתובת המייל כבר בשימוש אצל ${prev.fullName || "עובד אחר"} במודול ${moduleLabelHe(scope.module)}. לא ניתן לשמור כפילות.`,
+        );
+        err.status = 409;
+        throw err;
+      }
+      emailOwners.set(email, {
+        id: worker.id,
+        fullName: worker.fullName || "",
+      });
+    }
+  }
+
+  if (phoneOwners.size === 0 && emailOwners.size === 0) return;
+
+  for (const target of operationalDbTargets()) {
+    if (target === scope.module) continue;
+    let docs = [];
+    try {
+      const db = await getDb(target);
+      docs = await db
+        .collection("workers")
+        .find(
+          { orgId: String(scope.orgId) },
+          { projection: { phone: 1, email: 1, fullName: 1, id: 1 } },
+        )
+        .toArray();
+    } catch (err) {
+      console.error(
+        `[data] cross-module contact check failed for ${target}:`,
+        err?.message || err,
+      );
+      continue;
+    }
+    const otherLabel = moduleLabelHe(target);
+    for (const other of docs) {
+      const phone = normalizePhone(other.phone);
+      if (phone && phoneOwners.has(phone)) {
+        const local = phoneOwners.get(phone);
+        const err = new Error(
+          `מספר הטלפון של ${local.fullName || "העובד"} כבר קיים במודול ${otherLabel} (${other.fullName || "עובד אחר"}). טלפון חייב להיות ייחודי בכל המודולים.`,
+        );
+        err.status = 409;
+        throw err;
+      }
+      const email = normalizeEmail(other.email);
+      if (email && isValidEmail(email) && emailOwners.has(email)) {
+        const local = emailOwners.get(email);
+        const err = new Error(
+          `כתובת המייל של ${local.fullName || "העובד"} כבר קיימת במודול ${otherLabel} (${other.fullName || "עובד אחר"}). מייל חייב להיות ייחודי בכל המודולים.`,
+        );
+        err.status = 409;
+        throw err;
+      }
+    }
+  }
 }
 
 async function syncManagerAccess(workers, orgId, prevWorkers = []) {
@@ -1490,6 +1586,7 @@ export async function writeState(data, options = {}) {
   if (!options.skipManagerInvites) {
     assertManagersHaveEmail(workers, prev?.workers);
   }
+  await assertUniqueWorkerContacts(workers, scope);
 
   const invited = await applyManagerInvites(workers, prev?.workers, options);
   workers = invited.workers;

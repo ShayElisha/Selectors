@@ -104,19 +104,24 @@ export function compareWorkers(
 
 export function findDuplicateWorkers(
   workers: Worker[],
-  candidate: { fullName: string; phone: string },
+  candidate: { fullName: string; phone: string; email?: string },
   excludeId?: string,
-): { samePhone: Worker[]; sameName: Worker[] } {
+): { samePhone: Worker[]; sameName: Worker[]; sameEmail: Worker[] } {
   const phone = digitsOnlyPhone(candidate.phone)
   const name = normalizeHeSearch(candidate.fullName)
+  const email = (candidate.email || '').trim().toLowerCase()
   const samePhone: Worker[] = []
   const sameName: Worker[] = []
+  const sameEmail: Worker[] = []
   for (const w of workers) {
     if (excludeId && w.id === excludeId) continue
     if (phone && digitsOnlyPhone(w.phone) === phone) samePhone.push(w)
     if (name && normalizeHeSearch(w.fullName) === name) sameName.push(w)
+    if (email && isValidEmail(email) && (w.email || '').trim().toLowerCase() === email) {
+      sameEmail.push(w)
+    }
   }
-  return { samePhone, sameName }
+  return { samePhone, sameName, sameEmail }
 }
 
 /** Lanes with no required certs — open to everyone including no-cert inspectors. */

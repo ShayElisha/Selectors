@@ -160,14 +160,33 @@ describe('sorting and duplicates', () => {
     expect(compareWorkers(b, a, 'name', 'asc')).toBeLessThan(0)
   })
 
-  it('finds duplicates without blocking', () => {
+  it('finds phone, email, and name duplicates', () => {
     const workers = [
-      w({ id: '1', fullName: 'אביב', phone: '0501111111' }),
-      w({ id: '2', fullName: 'אביב', phone: '0502222222' }),
+      w({ id: '1', fullName: 'אביב', phone: '0501111111', email: 'a@b.com' }),
+      w({ id: '2', fullName: 'אביב', phone: '0502222222', email: 'c@d.com' }),
     ]
-    const d = findDuplicateWorkers(workers, { fullName: 'אביב', phone: '0501111111' }, '1')
+    const d = findDuplicateWorkers(
+      workers,
+      { fullName: 'אביב', phone: '0501111111', email: 'a@b.com' },
+      '1',
+    )
     expect(d.sameName).toHaveLength(1)
     expect(d.samePhone).toHaveLength(0)
+    expect(d.sameEmail).toHaveLength(0)
+
+    const phoneDup = findDuplicateWorkers(
+      workers,
+      { fullName: 'חדש', phone: '050-111-1111', email: '' },
+      'x',
+    )
+    expect(phoneDup.samePhone).toHaveLength(1)
+
+    const emailDup = findDuplicateWorkers(
+      workers,
+      { fullName: 'חדש', phone: '0509999999', email: 'A@B.com' },
+      'x',
+    )
+    expect(emailDup.sameEmail).toHaveLength(1)
   })
 })
 

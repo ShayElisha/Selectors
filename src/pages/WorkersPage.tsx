@@ -398,13 +398,24 @@ function WorkerForm({
   const valid = Object.keys(errors).length === 0
   const dups = findDuplicateWorkers(
     workers,
-    { fullName: form.fullName, phone: form.phone },
+    { fullName: form.fullName, phone: form.phone, email: form.email },
     excludeId,
   )
+  const contactBlocked = dups.samePhone.length > 0 || dups.sameEmail.length > 0
   const showErrors = touched || dirty
   const showNameErr = showErrors && errors.fullName
-  const showPhoneErr = showErrors && errors.phone
-  const showEmailErr = showErrors && errors.email
+  const showPhoneErr =
+    (showErrors && errors.phone) || (showErrors && dups.samePhone.length > 0)
+  const showEmailErr =
+    (showErrors && errors.email) || (showErrors && dups.sameEmail.length > 0)
+  const phoneDupMessage =
+    dups.samePhone.length > 0
+      ? `מספר הטלפון כבר בשימוש אצל ${dups.samePhone.map((w) => w.fullName).join(', ')} במודול זה`
+      : null
+  const emailDupMessage =
+    dups.sameEmail.length > 0
+      ? `כתובת המייל כבר בשימוש אצל ${dups.sameEmail.map((w) => w.fullName).join(', ')} במודול זה`
+      : null
 
   useEffect(() => {
     const t = window.setTimeout(() => firstRef.current?.focus(), 0)
@@ -464,7 +475,11 @@ function WorkerForm({
               required
             />
           </bdi>
-          <FieldError message={showPhoneErr ? errors.phone : null} />
+          <FieldError
+            message={
+              showPhoneErr ? errors.phone || phoneDupMessage : null
+            }
+          />
         </div>
         <div className="sm:col-span-2">
           <FieldLabel htmlFor={emailId}>
@@ -490,7 +505,11 @@ function WorkerForm({
               required={Boolean(form.isManager || form.canLogin)}
             />
           </bdi>
-          <FieldError message={showEmailErr ? errors.email : null} />
+          <FieldError
+            message={
+              showEmailErr ? errors.email || emailDupMessage : null
+            }
+          />
           {form.isManager || form.canLogin ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-[13px] text-ink-soft">
               <Mail className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
@@ -688,18 +707,22 @@ function WorkerForm({
         </div>
       </div>
 
-      {(dups.samePhone.length > 0 || dups.sameName.length > 0) && (
+      {contactBlocked ? (
+        <p
+          className="mt-3 rounded-lg bg-hard/10 px-3 py-2 text-[13px] font-medium text-hard ring-1 ring-hard/20"
+          role="alert"
+        >
+          לא ניתן לשמור: טלפון ומייל חייבים להיות ייחודיים במודול זה ובין כל
+          המודולים (סלקטורים, בודקים, מאבטחים).
+        </p>
+      ) : dups.sameName.length > 0 ? (
         <p
           className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn ring-1 ring-warn/20"
           role="status"
         >
-          {dups.samePhone.length > 0 && dups.sameName.length > 0
-            ? 'אזהרה: קיים בודק עם אותו טלפון ואותו שם — ניתן לשמור בכל זאת.'
-            : dups.samePhone.length > 0
-              ? 'אזהרה: קיים בודק עם אותו מספר טלפון — ניתן לשמור בכל זאת.'
-              : 'אזהרה: קיים בודק עם אותו שם — ניתן לשמור בכל זאת.'}
+          אזהרה: קיים עובד עם אותו שם — ניתן לשמור בכל זאת.
         </p>
-      )}
+      ) : null}
 
       {saveError ? (
         <p className="mt-3 text-[13px] font-medium text-hard" role="alert">
@@ -715,10 +738,10 @@ function WorkerForm({
       <div className="mt-5 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={!dirty || !valid}
+          disabled={!dirty || !valid || contactBlocked}
           onClick={() => {
             setTouched(true)
-            if (!dirty || !valid) return
+            if (!dirty || !valid || contactBlocked) return
             onSave()
           }}
           className="ui-btn ui-btn-primary disabled:opacity-40"
@@ -1093,6 +1116,19 @@ export function WorkersPage() {
   const trySave = () => {
     const errors = validateWorkerForm(form)
     if (Object.keys(errors).length > 0) return
+    const dups = findDuplicateWorkers(
+      data.workers,
+      { fullName: form.fullName, phone: form.phone, email: form.email },
+      editingWorker?.id,
+    )
+    if (dups.samePhone.length > 0 || dups.sameEmail.length > 0) {
+      setFormSaveError(
+        dups.samePhone.length > 0
+          ? 'מספר הטלפון כבר בשימוש במודול זה — לא ניתן לשמור כפילות'
+          : 'כתובת המייל כבר בשימוש במודול זה — לא ניתן לשמור כפילות',
+      )
+      return
+    }
 
     const granting =
       form.isManager && (!editingWorker || !editingWorker.isManager)
