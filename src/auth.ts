@@ -20,6 +20,37 @@ export const MODULE_LABELS: Record<AppModule, string> = {
   security: 'מאבטחים',
 }
 
+/** Singular/plural nouns for error toasts and board copy per module. */
+export type PeopleLabels = {
+  singular: string
+  plural: string
+  thePlural: string
+}
+
+export function peopleLabelsForModule(
+  module: AppModule | null | undefined,
+): PeopleLabels {
+  if (module === 'security') {
+    return {
+      singular: 'מאבטח',
+      plural: 'מאבטחים',
+      thePlural: 'המאבטחים',
+    }
+  }
+  if (module === 'selectors') {
+    return {
+      singular: 'סלקטור',
+      plural: 'סלקטורים',
+      thePlural: 'הסלקטורים',
+    }
+  }
+  return {
+    singular: 'בודק',
+    plural: 'בודקים',
+    thePlural: 'הבודקים',
+  }
+}
+
 export function emptyOrgModules(): OrgModules {
   return { selectors: false, inspectors: false, security: false }
 }

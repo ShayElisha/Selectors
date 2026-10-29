@@ -44,6 +44,7 @@ import {
 } from './AssignmentExplainDialog'
 import { IntensityBadge, Ltr } from './ui'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
+import type { PeopleLabels } from '../auth'
 import type { ShiftDraft } from '../context/AppContext'
 import {
   boardsEqual,
@@ -84,6 +85,7 @@ import { avatarColor } from '../lib/avatarColor'
 export interface BoardStepProps {
   draft: ShiftDraft
   data: AppData
+  people: PeopleLabels
   morningCtx: SameDayMorningContext | null
   exportLines: ExportLaneLine[]
   unassignedNames: string[]
@@ -149,6 +151,7 @@ function WorkerCombobox({
   ariaLabel,
   onChange,
   disabled = false,
+  searchNoun = 'עובד',
 }: {
   options: WorkerChoice[]
   value: string
@@ -156,6 +159,7 @@ function WorkerCombobox({
   ariaLabel: string
   onChange: (workerId: string | null) => void
   disabled?: boolean
+  searchNoun?: string
 }) {
   const id = useId()
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -338,8 +342,8 @@ function WorkerCombobox({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={handleSearchKeyDown}
-                  placeholder="חיפוש בודק"
-                  aria-label="חיפוש בודק"
+                  placeholder={`חיפוש ${searchNoun}`}
+                  aria-label={`חיפוש ${searchNoun}`}
                   aria-controls={`${id}-listbox`}
                   aria-activedescendant={
                     `${id}-${activeIndex < 0 ? 'clear' : `option-${activeIndex}`}`
@@ -406,7 +410,7 @@ function WorkerCombobox({
                 ))}
                 {filtered.length === 0 ? (
                   <p className="px-3 py-4 text-center text-sm text-ink-soft">
-                    לא נמצאו בודקים
+                    לא נמצאו תוצאות
                   </p>
                 ) : null}
               </div>
@@ -421,6 +425,7 @@ function WorkerCombobox({
 export function BoardStep({
   draft,
   data,
+  people,
   morningCtx,
   exportLines,
   unassignedNames,
@@ -721,10 +726,7 @@ export function BoardStep({
   const shiftManagers = useMemo(
     () =>
       data.workers
-        .filter(
-          (worker) =>
-            worker.status === 'active' && worker.isManager && worker.isInspector,
-        )
+        .filter((worker) => worker.status === 'active' && worker.isManager)
         .sort((a, b) => a.fullName.localeCompare(b.fullName, 'he')),
     [data.workers],
   )
@@ -741,10 +743,11 @@ export function BoardStep({
       value={draft.gateManagerWorkerId ?? ''}
       placeholder={
         shiftManagers.length === 0
-          ? 'אין מנהל שהוא גם בודק'
+          ? `אין מנהל שהוא גם ${people.singular}`
           : 'בחרו מנהל משמרת'
       }
       ariaLabel="בחירת מנהל משמרת"
+      searchNoun={people.singular}
       disabled={locked || shiftManagers.length === 0}
       onChange={(workerId) => chooseGateManager(workerId ?? '')}
     />
@@ -756,7 +759,7 @@ export function BoardStep({
   const saveBlockedReason = slotConflict
     ? 'כבר קיים שיבוץ לאותו תאריך ומשמרת'
     : draft.unassignedWorkerIds.length > 0
-      ? `יש ${draft.unassignedWorkerIds.length} בודקים שלא שובצו — שבצו את כולם לפני השמירה`
+      ? `יש ${draft.unassignedWorkerIds.length} ${people.plural} שלא שובצו — שבצו את כולם לפני השמירה`
       : hasBoardErrors
         ? 'יש שגיאות בלוח שצריך לתקן לפני השמירה'
         : null
@@ -1053,7 +1056,8 @@ export function BoardStep({
             }))}
             value={workerId}
             placeholder="פנוי"
-            ariaLabel={`בודק בנתיב ${lane.name}`}
+            ariaLabel={`${people.singular} בנתיב ${lane.name}`}
+            searchNoun={people.singular}
             disabled
             onChange={() => undefined}
           />
@@ -1065,8 +1069,9 @@ export function BoardStep({
                 description: optionDescription(worker),
               }))}
               value={workerId}
-              placeholder="בחר בודק"
-              ariaLabel={`בודק בנתיב ${lane.name}${std > 1 ? ` משבצת ${slotIndex + 1}` : ''}`}
+              placeholder={`בחר ${people.singular}`}
+              ariaLabel={`${people.singular} בנתיב ${lane.name}${std > 1 ? ` משבצת ${slotIndex + 1}` : ''}`}
+              searchNoun={people.singular}
               onChange={(nextWorkerId) =>
                 handleSelectWorker(laneId, slotIndex, nextWorkerId)
               }
@@ -1133,7 +1138,7 @@ export function BoardStep({
             onClick={() => setAddPicker('worker')}
             className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand"
           >
-            הוספת בודק
+            הוספת {people.singular}
           </button>
         </div>
         ) : null}
@@ -1484,7 +1489,7 @@ export function BoardStep({
                                 }}
                               >
                                 <Plus className="size-4" aria-hidden />
-                                הוספת בודק
+                                הוספת {people.singular}
                               </button>
                             ) : null}
                             {slots.filter(Boolean).map((id) => {
@@ -1529,7 +1534,7 @@ export function BoardStep({
                                     }}
                                   >
                                     <UserX className="size-4" aria-hidden />
-                                    הסרת בודק
+                                    הסרת {people.singular}
                                   </button>
                                 </div>
                               )
@@ -1565,7 +1570,7 @@ export function BoardStep({
                             onClick={() => setSwapTarget({ laneId, slotIndex, workerId })}
                             className="inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-brand transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
                             title="החלפה"
-                            aria-label={`החלפה ל${data.workers.find((worker) => worker.id === workerId)?.fullName ?? 'בודק'}`}
+                            aria-label={`החלפה ל${data.workers.find((worker) => worker.id === workerId)?.fullName ?? people.singular}`}
                           >
                             <ArrowLeftRight className="size-4" aria-hidden />
                           </button>
@@ -1649,7 +1654,10 @@ export function BoardStep({
                     <button
                       type="button"
                       onClick={() =>
-                        runWithUndo('הוסר בודק מהממתינים', () => beginRemoval(id))
+                        runWithUndo(
+                          `הוסר ${people.singular} מהממתינים`,
+                          () => beginRemoval(id),
+                        )
                       }
                       className="inline-flex size-5 items-center justify-center rounded-md text-hard hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                       title={`הסר את ${name} מהממתינים`}
@@ -1927,7 +1935,7 @@ export function BoardStep({
                   </div>
                   {options.length === 0 ? (
                     <p className="rounded-xl bg-surface px-3 py-3 text-sm text-ink-soft">
-                      אין כרגע בודקים משובצים בנתיבים אחרים להחלפה.
+                      אין כרגע {people.plural} משובצים בנתיבים אחרים להחלפה.
                     </p>
                   ) : (
                     <ul className="max-h-72 space-y-1.5 overflow-y-auto">
@@ -1961,10 +1969,10 @@ export function BoardStep({
                               {(opt.lacksCertHere || opt.currentLacksThere) && (
                                 <span className="mt-0.5 block text-[10px] font-medium text-warn">
                                   {opt.lacksCertHere && opt.currentLacksThere
-                                    ? 'שימו לב: לשני הבודקים חסרה הסמכה מלאה אחרי ההחלפה'
+                                    ? `שימו לב: לשני ה${people.plural} חסרה הסמכה מלאה אחרי ההחלפה`
                                     : opt.lacksCertHere
                                       ? `שימו לב: ל${opt.workerName} חסרה הסמכה מלאה ל${lane.name}`
-                                      : `שימו לב: ל${current?.fullName ?? 'הבודק'} חסרה הסמכה מלאה ל${opt.laneName}`}
+                                      : `שימו לב: ל${current?.fullName ?? people.singular} חסרה הסמכה מלאה ל${opt.laneName}`}
                                 </span>
                               )}
                             </span>
@@ -2093,7 +2101,7 @@ export function BoardStep({
         <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center">
           <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-line bg-card p-4 shadow-xl">
             <h3 className="font-display text-lg font-bold text-ink">
-              {addPicker === 'lane' ? 'הוספת נתיב' : 'הוספת בודק'}
+              {addPicker === 'lane' ? 'הוספת נתיב' : `הוספת ${people.singular}`}
             </h3>
             <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
               {(addPicker === 'lane'
@@ -2110,7 +2118,10 @@ export function BoardStep({
                       if (addPicker === 'lane') {
                         runWithUndo('נוסף נתיב למשמרת', () => addBoardLane(item.id))
                       } else {
-                        runWithUndo('נוסף בודק לנוכחות', () => toggleWorker(item.id))
+                        runWithUndo(
+                          `נוסף ${people.singular} לנוכחות`,
+                          () => toggleWorker(item.id),
+                        )
                       }
                       setAddPicker(null)
                     }}

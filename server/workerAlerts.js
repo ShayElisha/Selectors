@@ -216,6 +216,7 @@ export async function runShiftReminderPass(opts = {}) {
     const modules = []
     if (org.modules?.inspectors) modules.push('inspectors')
     if (org.modules?.selectors) modules.push('selectors')
+    if (org.modules?.security) modules.push('security')
     for (const module of modules) {
       const scope = { orgId: org.id, module }
       try {

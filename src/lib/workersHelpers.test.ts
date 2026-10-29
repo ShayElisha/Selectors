@@ -246,6 +246,17 @@ describe('validation and history', () => {
     ).toEqual({})
     expect(
       validateWorkerForm({
+        fullName: 'מאבטח',
+        phone: '050-123-4567',
+        certifications: [],
+        status: 'active',
+        isInspector: false,
+        isManager: false,
+        staffKind: 'security',
+      }),
+    ).toEqual({})
+    expect(
+      validateWorkerForm({
         fullName: 'מנהל',
         phone: '050-123-4567',
         certifications: [],

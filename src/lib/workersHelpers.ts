@@ -236,8 +236,12 @@ export function validateWorkerForm(
   else if (!isValidIsraeliMobile(form.phone)) {
     errors.phone = 'מספר נייד ישראלי לא תקין (למשל 050-123-4567)'
   }
-  if (form.staffKind !== 'inspector' && form.staffKind !== 'selector') {
-    errors.role = 'יש לבחור אם העובד בודק או סלקטור'
+  if (
+    form.staffKind !== 'inspector' &&
+    form.staffKind !== 'selector' &&
+    form.staffKind !== 'security'
+  ) {
+    errors.role = 'יש לבחור אם העובד בודק, סלקטור או מאבטח'
   }
   const email = (form.email || '').trim()
   const needsLoginEmail = Boolean(form.isManager || form.canLogin)

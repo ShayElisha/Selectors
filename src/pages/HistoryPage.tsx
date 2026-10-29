@@ -462,7 +462,11 @@ function ShiftAccordion({
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-semibold text-ink">
                 {shiftName}
-                {shift.audience === 'selector' ? ' · סלקטורים' : ''}
+                {shift.audience === 'selector'
+                  ? ' · סלקטורים'
+                  : shift.audience === 'security'
+                    ? ' · מאבטחים'
+                    : ''}
               </span>
               {shift.signOff?.signedAt ? (
                 <span className="rounded-md bg-ok-soft px-1.5 py-0.5 text-[11px] font-bold text-ok">

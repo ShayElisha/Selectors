@@ -90,7 +90,12 @@ function StationCard({ station, active, onClick, workerNames }: {
 
 export function StationMapPage() {
   const { data, module } = useApp()
-  const moduleKey = module === 'inspectors' ? 'inspectors' : 'selectors'
+  const moduleKey =
+    module === 'inspectors'
+      ? 'inspectors'
+      : module === 'security'
+        ? 'security'
+        : 'selectors'
   const models = useMemo(() => resolveShiftModels(data.shiftModels, moduleKey), [data.shiftModels, moduleKey])
   const initial = currentShiftModel(models)
   const [date, setDate] = useState(initial.date)

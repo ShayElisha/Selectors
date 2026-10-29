@@ -454,6 +454,7 @@ export function buildModulesOpenedEmail({ fullName, organizationName, modules })
   const opened = [
     modules?.selectors ? 'סלקטורים' : '',
     modules?.inspectors ? 'בודקים' : '',
+    modules?.security ? 'מאבטחים' : '',
   ].filter(Boolean)
   const title = 'נפתח מודול בארגון'
   const intro = `נפתחו המודולים: ${opened.join(' ו') || 'מודול'}. אפשר להיכנס לשיבוצון.`

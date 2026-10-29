@@ -37,7 +37,7 @@ export function WorkerNoticeComposer({
   return (
     <SectionCard
       title="הודעה להתראות העובדים"
-      subtitle="תופיע בפעמון בפורטל העובדים של המודול הנוכחי (בודקים או סלקטורים)."
+      subtitle="תופיע בפעמון בפורטל העובדים של המודול הנוכחי (סלקטורים, בודקים או מאבטחים)."
     >
       <div className={`space-y-3 ${compact ? '' : ''}`}>
         <p className="flex items-start gap-2 text-[13px] text-ink-soft">

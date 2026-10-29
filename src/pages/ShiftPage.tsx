@@ -26,6 +26,7 @@ import {
   buildSameDayMorningContext,
   needsAfternoonNightRecovery,
 } from '../algorithm'
+import { peopleLabelsForModule } from '../auth'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import { ShiftDropDialog, ShiftDropSummary } from '../components/ShiftDropDialog'
@@ -150,12 +151,8 @@ export function ShiftPage() {
     user,
     module,
   } = useApp()
-  const roleName =
-    module === 'inspectors'
-      ? 'בודקים'
-      : module === 'security'
-        ? 'מאבטחים'
-        : 'סלקטורים'
+  const people = peopleLabelsForModule(module)
+  const roleName = people.plural
 
   const draftRef = useRef(draft)
   draftRef.current = draft
@@ -1021,7 +1018,7 @@ export function ShiftPage() {
                                   className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-line"
                                   title="אין דרישת הסמכה"
                                 >
-                                  פתוח לכל הבודקים
+                                  פתוח לכל {people.thePlural}
                                 </span>
                               ) : (
                                 certs.map((c) => (
@@ -1088,16 +1085,16 @@ export function ShiftPage() {
         <section className="ui-panel-solid rounded-2xl border-brand/10 p-4 shadow-[var(--shadow-panel)] sm:p-5">
           {attendanceWorkers.length === 0 ? (
             <div className="ui-empty">
-              <p className="ui-empty-title">אין בודקים פעילים</p>
+              <p className="ui-empty-title">אין {people.plural} פעילים</p>
               <p className="ui-empty-text">
-                הוסיפו או הפעילו בודקים במאגר. מנהל בלבד לא מופיע בשיבוץ.
+                הוסיפו או הפעילו {people.plural} במאגר. מנהל בלבד לא מופיע בשיבוץ.
               </p>
               <button
                 type="button"
                 onClick={() => setView('workers')}
                 className="ui-btn ui-btn-primary mt-2"
               >
-                למאגר בודקים
+                למאגר {people.plural}
               </button>
             </div>
           ) : (
@@ -1173,7 +1170,7 @@ export function ShiftPage() {
                   value={attendanceQuery}
                   onChange={(e) => setAttendanceQuery(e.target.value)}
                   placeholder="חיפוש לפי שם"
-                  aria-label="חיפוש בודקים"
+                  aria-label={`חיפוש ${people.plural}`}
                   className="ui-field min-h-11 w-full pe-3 ps-10"
                 />
               </div>
@@ -1440,7 +1437,7 @@ export function ShiftPage() {
               <div className="max-h-40 overflow-y-auto rounded-xl border border-line bg-surface/80 p-2 text-[12px] text-ink-soft">
                 {/* Per-lane K>=standard is necessary but not sufficient (shared qualified inspectors). */}
                 <p className="mb-1.5 text-[11px] text-ink-soft/90">
-                  בדיקה מקדימה בלבד — אינה מבטיחה שיבוץ מלא (בודק מוסמך יכול
+                  בדיקה מקדימה בלבד — אינה מבטיחה שיבוץ מלא ({people.singular} מוסמך יכול
                   להיספר לכמה נתיבים).
                 </p>
                 {feasibility.lanes.length === 0 ? (
@@ -1738,7 +1735,7 @@ export function ShiftPage() {
                 onClick={() => setAddPicker('worker')}
                 className="ui-btn ui-btn-secondary"
               >
-                הוספת בודק
+                הוספת {people.singular}
               </button>
               <button
                 type="button"
@@ -1868,6 +1865,7 @@ export function ShiftPage() {
         <BoardStep
           draft={draft}
           data={data}
+          people={people}
           morningCtx={morningCtx}
           exportLines={exportLines}
           unassignedNames={unassignedNames}
@@ -1907,7 +1905,7 @@ export function ShiftPage() {
                   <UserPlus className="size-4 sm:size-5" />
                 </span>
                 <h3 className="font-display text-base font-bold text-ink sm:text-lg">
-                  בודקים עודפים
+                  {people.plural} עודפים
                 </h3>
               </div>
               <button
@@ -1923,7 +1921,7 @@ export function ShiftPage() {
             {extraFlow === 'ask' && (
               <>
                 <p className="text-xs leading-relaxed text-ink-soft sm:text-sm">
-                  יש יותר בודקים (
+                  יש יותר {people.plural} (
                   {
                     laneStaffPresentIds(
                       draft.presentWorkerIds,
@@ -1934,7 +1932,7 @@ export function ShiftPage() {
                   שנבחרו ({draft.activeLaneIds.length}), ונותרו{' '}
                   {draft.unassignedWorkerIds.length} שלא שובצו.
                   <br />
-                  האם תרצה להוסיף בודק לעמדה נוספת?
+                  האם תרצה להוסיף {people.singular} לעמדה נוספת?
                 </p>
                 {(draft.explanations?.length ?? 0) > 0 && (
                   <p className="mt-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] font-medium text-accent sm:text-xs">
@@ -1963,7 +1961,7 @@ export function ShiftPage() {
             {extraFlow === 'pick' && (
               <>
                 <p className="mb-3 text-xs text-ink-soft sm:mb-4 sm:text-sm">
-                  בחר נתיב ובודק להוספה מעבר לתקן העמדה
+                  בחר נתיב ו{people.singular} להוספה מעבר לתקן העמדה
                 </p>
                 <div className="space-y-3">
                   <label className="block text-xs sm:text-sm">
@@ -1987,13 +1985,15 @@ export function ShiftPage() {
                     </select>
                   </label>
                   <label className="block text-xs sm:text-sm">
-                    <span className="mb-1 block text-ink-soft">בודק להוספה</span>
+                    <span className="mb-1 block text-ink-soft">
+                      {people.singular} להוספה
+                    </span>
                     <select
                       className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs sm:py-2.5 sm:text-sm"
                       value={pickWorkerId}
                       onChange={(e) => setPickWorkerId(e.target.value)}
                     >
-                      <option value="">— בחר בודק —</option>
+                      <option value="">— בחר {people.singular} —</option>
                       {unassignedWorkers.map(
                         (w) =>
                           w && (
@@ -2013,7 +2013,8 @@ export function ShiftPage() {
                       const w = data.workers.find((x) => x.id === pickWorkerId)
                       return w && !isQualified(w, pickLane) ? (
                         <p className="text-[11px] text-warn sm:text-xs">
-                          שימו לב: לבודק זה חסרה הסמכה מלאה לנתיב שנבחר.
+                          שימו לב: ל{people.singular} זה חסרה הסמכה מלאה לנתיב
+                          שנבחר.
                         </p>
                       ) : null
                     })()}
@@ -2181,7 +2182,7 @@ export function ShiftPage() {
         <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center">
           <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-line bg-card p-4 shadow-xl">
             <h3 className="font-display text-lg font-bold text-ink">
-              {addPicker === 'lane' ? 'הוספת נתיב' : 'הוספת בודק'}
+              {addPicker === 'lane' ? 'הוספת נתיב' : `הוספת ${people.singular}`}
             </h3>
             <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
               {(addPicker === 'lane'
@@ -2200,7 +2201,10 @@ export function ShiftPage() {
                       if (addPicker === 'lane') {
                         runWithUndo('נוסף נתיב למשמרת', () => addBoardLane(item.id))
                       } else {
-                        runWithUndo('נוסף בודק לנוכחות', () => toggleWorker(item.id))
+                        runWithUndo(
+                          `נוסף ${people.singular} לנוכחות`,
+                          () => toggleWorker(item.id),
+                        )
                       }
                       setAddPicker(null)
                     }}

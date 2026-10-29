@@ -144,7 +144,7 @@ export function CancellationsPage() {
                 <p className="text-xs text-ink-soft">עמדות: {lanesForDrop(shift, drop).map((id) => laneNames.get(id) ?? id).join(' · ') || 'לא צוין'} · משמרת {shift.signOff?.signedAt ? 'נסגרה' : 'פתוחה'}</p>
                 <p className="text-sm text-ink-soft">{drop.reason}</p>
               </div>
-              <span className="inline-flex items-center gap-1.5 text-xs text-ink-soft"><CalendarX2 className="size-3.5" aria-hidden />{shift.audience === 'selector' ? 'בודק/ת שטח' : 'בודק/ת'}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-ink-soft"><CalendarX2 className="size-3.5" aria-hidden />{shift.audience === 'selector' ? 'סלקטור/ית' : shift.audience === 'security' ? 'מאבטח/ת' : 'בודק/ת'}</span>
             </article>
           ))}
         </div>

@@ -14,7 +14,13 @@ const FOOTER_LINKS = [
 export function AppFooter({ className = '' }: { className?: string }) {
   const { user } = useApp()
   const area =
-    user?.module === 'inspectors' ? 'עמדות בודקים' : user?.module === 'selectors' ? 'עמדות סלקטורים' : 'שיבוץ'
+    user?.module === 'inspectors'
+      ? 'עמדות בודקים'
+      : user?.module === 'selectors'
+        ? 'עמדות סלקטורים'
+        : user?.module === 'security'
+          ? 'עמדות מאבטחים'
+          : 'שיבוץ'
   return (
     <footer
       className={`relative z-10 mt-auto border-t border-line/80 pt-5 text-center ${className}`}

@@ -77,7 +77,11 @@ function restEligibleWorkers(workers) {
     if (!worker || worker.status === 'inactive' || worker.status === 'archived') {
       return false
     }
-    return Boolean(worker.isInspector) || worker.staffKind === 'selector'
+    return (
+      Boolean(worker.isInspector) ||
+      worker.staffKind === 'selector' ||
+      worker.staffKind === 'security'
+    )
   })
 }
 

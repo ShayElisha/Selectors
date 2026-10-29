@@ -736,7 +736,11 @@ async function assembleState(
       incidents: fromOrderedDocs(incidents),
       revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
     },
-    scope?.module === "inspectors" ? "inspector" : "selector",
+    scope?.module === "inspectors"
+      ? "inspector"
+      : scope?.module === "security"
+        ? "security"
+        : "selector",
   );
 }
 
@@ -1731,6 +1735,7 @@ export async function upsertShift(id, body, actor, options = {}) {
   ) {
     schedule.assignmentMode =
       schedule.audience === "selector" ||
+      schedule.audience === "security" ||
       (scope?.module !== "inspectors" &&
         Array.isArray(schedule.rounds) &&
         schedule.rounds.length > 0)
@@ -1739,13 +1744,21 @@ export async function upsertShift(id, body, actor, options = {}) {
   }
   if (scope?.module === "inspectors") {
     schedule.audience = "inspector";
+  } else if (scope?.module === "security") {
+    schedule.audience = "security";
+  } else if (scope?.module === "selectors") {
+    schedule.audience = "selector";
   }
   if (schedule.assignmentMode !== "rounds") {
     delete schedule.rounds;
   }
 
   const audienceOf = (h) =>
-    h?.audience === "selector" ? "selector" : "inspector";
+    h?.audience === "selector"
+      ? "selector"
+      : h?.audience === "security"
+        ? "security"
+        : "inspector";
   const conflict = (state.history || []).find(
     (h) =>
       h.id !== schedule.id &&

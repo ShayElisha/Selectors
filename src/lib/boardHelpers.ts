@@ -192,7 +192,7 @@ export function validateBoard(opts: {
           code: 'duplicate_worker',
           laneId: lane.id,
           workerId: wid,
-          message: `${w?.fullName ?? 'בודק'} משובץ ביותר מנתיב אחד`,
+          message: `${w?.fullName ?? 'עובד'} משובץ ביותר מנתיב אחד`,
         })
       } else {
         seen.set(wid, lane.id)
