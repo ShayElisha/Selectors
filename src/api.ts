@@ -412,9 +412,17 @@ export function requestPasswordResetRemote(
   })
 }
 
+export interface OrgPortalContact {
+  id: string
+  name: string
+  role: string
+  phone: string
+}
+
 export interface OrgProfile {
   name: string
   logo: string
+  portalContacts?: OrgPortalContact[]
 }
 
 export interface OrgAssignmentSettings {
@@ -709,6 +717,23 @@ export interface WorkerHistoryResponse {
 
 export function fetchWorkerHistoryRemote(): Promise<WorkerHistoryResponse> {
   return request('/api/worker/history')
+}
+
+export interface WorkerContactItem {
+  id: string
+  name: string
+  role: string
+  phone: string
+  phoneDigits: string
+  kind: 'gate_manager' | 'org_manager' | 'shift_manager' | 'org_contact' | string
+}
+
+export function fetchWorkerContactsRemote(): Promise<{
+  module: string
+  orgName: string
+  contacts: WorkerContactItem[]
+}> {
+  return request('/api/worker/contacts')
 }
 
 export interface WorkerNotificationItem {

@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import { SectionCard } from '../components/ui'
 import type { AssignmentMode, AssignmentModes } from '../lib/assignmentMode'
+import type { OrgPortalContact } from '../api'
+import { formatIsraeliMobile, isValidIsraeliMobile } from '../lib/workersHelpers'
+
+function newContactDraft(): OrgPortalContact {
+  return {
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: '',
+    role: '',
+    phone: '',
+  }
+}
 
 const SECTIONS: { id: keyof AssignmentModes; title: string; people: string }[] = [
   { id: 'selectors', title: 'חלקת הסלקטורים', people: 'הסלקטורים' },
@@ -67,6 +79,10 @@ export function OrgSettingsPage() {
   } = useApp()
   const [orgName, setOrgName] = useState(orgProfile.name || user?.orgName || '')
   const [logo, setLogo] = useState(orgProfile.logo)
+  const [portalContacts, setPortalContacts] = useState<OrgPortalContact[]>(
+    orgProfile.portalContacts || [],
+  )
+  const [contactsSaving, setContactsSaving] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
   const [draft, setDraft] = useState<AssignmentModes>(assignmentModes)
   const [saving, setSaving] = useState(false)
@@ -75,6 +91,7 @@ export function OrgSettingsPage() {
   useEffect(() => {
     setOrgName(orgProfile.name || user?.orgName || '')
     setLogo(orgProfile.logo)
+    setPortalContacts(orgProfile.portalContacts || [])
   }, [orgProfile, user?.orgName])
 
   useEffect(() => {
@@ -111,12 +128,50 @@ export function OrgSettingsPage() {
   const saveProfile = async () => {
     setProfileSaving(true)
     try {
-      await saveOrgProfile({ name: orgName.trim(), logo })
+      await saveOrgProfile({
+        name: orgName.trim(),
+        logo,
+        portalContacts: orgProfile.portalContacts || [],
+      })
       notify.success('פרטי הארגון נשמרו')
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'שמירת פרטי הארגון נכשלה')
     } finally {
       setProfileSaving(false)
+    }
+  }
+
+  const savePortalContacts = async () => {
+    const cleaned = portalContacts
+      .map((c) => ({
+        ...c,
+        name: c.name.trim(),
+        role: c.role.trim(),
+        phone: formatIsraeliMobile(c.phone),
+      }))
+      .filter((c) => c.name || c.phone || c.role)
+    for (const c of cleaned) {
+      if (c.name.length < 2) {
+        notify.error('לכל איש קשר נדרש שם מלא')
+        return
+      }
+      if (!isValidIsraeliMobile(c.phone)) {
+        notify.error(`מספר טלפון לא תקין עבור ${c.name}`)
+        return
+      }
+    }
+    setContactsSaving(true)
+    try {
+      await saveOrgProfile({
+        name: orgProfile.name || orgName.trim() || user?.orgName || 'ארגון',
+        logo: orgProfile.logo || logo,
+        portalContacts: cleaned,
+      })
+      notify.success('אנשי הקשר נשמרו — יופיעו בפורטל העובדים')
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'שמירת אנשי הקשר נכשלה')
+    } finally {
+      setContactsSaving(false)
     }
   }
 
@@ -186,6 +241,105 @@ export function OrgSettingsPage() {
           </div>
         </div>
       </SectionCard>
+
+      <SectionCard
+        title="אנשי קשר לפורטל העובדים"
+        subtitle="מספרים אלה מופיעים אצל העובדים במסך «אנשי קשר» יחד עם מנהלי משמרת/ארגון — עם כפתור חיוג ו־WhatsApp."
+      >
+        <ul className="space-y-3">
+          {portalContacts.map((contact, index) => (
+            <li
+              key={contact.id}
+              className="grid gap-2 rounded-xl border border-line/70 bg-surface/40 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+            >
+              <label className="block text-[13px] font-semibold text-ink">
+                שם
+                <input
+                  className="ui-field mt-1"
+                  value={contact.name}
+                  maxLength={60}
+                  placeholder="לדוגמה: מוקד ביטחון"
+                  onChange={(e) =>
+                    setPortalContacts((rows) =>
+                      rows.map((row, i) =>
+                        i === index ? { ...row, name: e.target.value } : row,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <label className="block text-[13px] font-semibold text-ink">
+                תפקיד / תיאור
+                <input
+                  className="ui-field mt-1"
+                  value={contact.role}
+                  maxLength={40}
+                  placeholder="אופציונלי"
+                  onChange={(e) =>
+                    setPortalContacts((rows) =>
+                      rows.map((row, i) =>
+                        i === index ? { ...row, role: e.target.value } : row,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <label className="block text-[13px] font-semibold text-ink">
+                טלפון
+                <bdi dir="ltr" className="mt-1 block">
+                  <input
+                    className="ui-field w-full text-start"
+                    value={contact.phone}
+                    inputMode="tel"
+                    placeholder="050-123-4567"
+                    onChange={(e) =>
+                      setPortalContacts((rows) =>
+                        rows.map((row, i) =>
+                          i === index ? { ...row, phone: e.target.value } : row,
+                        ),
+                      )
+                    }
+                  />
+                </bdi>
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-ghost !px-2.5 text-hard"
+                  aria-label={`מחיקת ${contact.name || 'איש קשר'}`}
+                  onClick={() =>
+                    setPortalContacts((rows) => rows.filter((_, i) => i !== index))
+                  }
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="ui-btn ui-btn-secondary"
+            disabled={portalContacts.length >= 20}
+            onClick={() =>
+              setPortalContacts((rows) => [...rows, newContactDraft()])
+            }
+          >
+            <Plus className="size-4" aria-hidden />
+            הוספת איש קשר
+          </button>
+          <button
+            type="button"
+            className="ui-btn ui-btn-primary disabled:opacity-40"
+            disabled={contactsSaving}
+            onClick={() => void savePortalContacts()}
+          >
+            {contactsSaving ? 'שומר…' : 'שמירת אנשי קשר'}
+          </button>
+        </div>
+      </SectionCard>
+
       <SectionCard
         title="הגדרות שיבוץ"
         subtitle="לכל חלקה אפשר לבחור אם האנשים מתחלפים בסבבים או נשארים בנתיב אחד לכל המשמרת. ההגדרה חלה על משמרות חדשות. שיבוצים שכבר נשמרו נשארים כמו שהיו."

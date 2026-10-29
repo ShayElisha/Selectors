@@ -383,8 +383,16 @@ interface AppContextValue {
   saveRoundMinutes: (minutes: { selectors: number; inspectors: number; security: number }) => Promise<void>
   staggerRounds: { selectors: boolean; inspectors: boolean; security: boolean }
   saveStaggerRounds: (stagger: { selectors: boolean; inspectors: boolean; security: boolean }) => Promise<void>
-  orgProfile: { name: string; logo: string }
-  saveOrgProfile: (profile: { name: string; logo: string }) => Promise<void>
+  orgProfile: {
+    name: string
+    logo: string
+    portalContacts?: { id: string; name: string; role: string; phone: string }[]
+  }
+  saveOrgProfile: (profile: {
+    name: string
+    logo: string
+    portalContacts?: { id: string; name: string; role: string; phone: string }[]
+  }) => Promise<void>
   login: (
     phone: string,
     password: string,
@@ -754,7 +762,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     inspectors: false,
     security: false,
   })
-  const [orgProfile, setOrgProfile] = useState({ name: '', logo: '' })
+  const [orgProfile, setOrgProfile] = useState<{
+    name: string
+    logo: string
+    portalContacts?: { id: string; name: string; role: string; phone: string }[]
+  }>({ name: '', logo: '' })
   const roundMinutesRef = useRef(roundMinutes)
   roundMinutesRef.current = roundMinutes
   const staggerRef = useRef(staggerRoundsSetting)
@@ -1293,7 +1305,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const saveOrgProfile = useCallback(
-    async (profile: { name: string; logo: string }) => {
+    async (profile: {
+      name: string
+      logo: string
+      portalContacts?: { id: string; name: string; role: string; phone: string }[]
+    }) => {
       const saved = await saveOrgSettings({ profile })
       if (saved.organization) {
         setOrgProfile(saved.organization)

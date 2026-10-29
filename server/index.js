@@ -36,6 +36,7 @@ import { listSystemErrors, recordClientError, recordServerError } from './system
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
 import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, loginEmailForIdentity, purgeOrganization, readOrgAssignmentSettings, recordSuccessfulLogin, refreshLoginIdentity, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
 import {
+  getWorkerContacts,
   getWorkerHome,
   getWorkerHistory,
   requireWorkerActor,
@@ -297,6 +298,14 @@ app.get('/api/worker/home', async (req, res) => {
 app.get('/api/worker/history', async (req, res) => {
   try {
     res.json(await getWorkerHistory(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/contacts', async (req, res) => {
+  try {
+    res.json(await getWorkerContacts(req))
   } catch (err) {
     sendError(res, err)
   }

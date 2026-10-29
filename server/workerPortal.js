@@ -3,7 +3,12 @@ import {
   loadWorkerPortalBundle,
   upsertShift,
 } from './data.js'
-import { getOrganization, refreshOrgSession } from './orgs.js'
+import {
+  getOrganization,
+  listOrgPortalContacts,
+  normalizePhone,
+  refreshOrgSession,
+} from './orgs.js'
 import { requireUser } from './session.js'
 import { appendAuditLog } from './audit.js'
 
@@ -738,5 +743,115 @@ export async function getWorkerHistory(req) {
     laneStats: analytics.laneStats,
     intensityStats: analytics.intensityStats,
     laneHistory: analytics.laneHistory,
+  }
+}
+
+function formatPortalPhone(phone) {
+  const digits = normalizePhone(phone)
+  if (digits.length === 10 && digits.startsWith('05')) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
+  }
+  if (digits.length === 9 && digits.startsWith('0')) {
+    return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`
+  }
+  return digits || String(phone || '')
+}
+
+/**
+ * Contacts workers may call: shift gate manager, org/shift managers, and
+ * org-configured portal contacts. Deduped by phone; never exposes the full roster.
+ */
+export async function getWorkerContacts(req) {
+  const { actor, org, scope } = await requireWorkerActor(req)
+  const now = new Date()
+  const state = await loadWorkerPortalBundle(scope, {
+    fromDate: daysAgoISO(1, now),
+    toDate: daysAheadISO(1, now),
+    includeLanes: false,
+    includeQuestions: false,
+  })
+
+  const items = []
+  const seen = new Set()
+  const push = (entry) => {
+    const phone = normalizePhone(entry.phone)
+    if (phone.length < 9) return
+    if (seen.has(phone)) return
+    if (phone === normalizePhone(actor.phone)) return
+    seen.add(phone)
+    items.push({
+      id: String(entry.id),
+      name: String(entry.name || '').trim() || 'איש קשר',
+      role: String(entry.role || '').trim(),
+      phone: formatPortalPhone(phone),
+      phoneDigits: phone,
+      kind: entry.kind,
+    })
+  }
+
+  const relevant = findRelevantShift(
+    state.history,
+    actor.id,
+    state.shiftModels,
+    now,
+  )
+  const phase = relevant.phase
+  const shift = relevant.shift
+  const gateId = String(shift?.gateManagerWorkerId || '').trim()
+  if (gateId && (phase === 'active' || phase === 'upcoming')) {
+    let gateDoc = (state.workers || []).find((w) => w.id === gateId) || null
+    if (!gateDoc) {
+      const extras = await findScopedWorkers(scope, [gateId])
+      gateDoc = extras[0] || null
+    }
+    if (gateDoc) {
+      push({
+        id: `gate:${gateDoc.id}`,
+        name: gateDoc.fullName,
+        role: 'מנהל המשמרת',
+        phone: gateDoc.phone,
+        kind: 'gate_manager',
+      })
+    }
+  }
+
+  const managers = (state.workers || [])
+    .filter(
+      (w) =>
+        w &&
+        w.status !== 'inactive' &&
+        w.status !== 'archived' &&
+        w.id !== actor.id &&
+        (w.isOrgManager || w.isManager) &&
+        normalizePhone(w.phone).length >= 9,
+    )
+    .sort((a, b) => {
+      const rank = (w) => (w.isOrgManager ? 0 : 1)
+      return rank(a) - rank(b) || String(a.fullName || '').localeCompare(String(b.fullName || ''), 'he')
+    })
+  for (const w of managers) {
+    push({
+      id: `worker:${w.id}`,
+      name: w.fullName,
+      role: w.isOrgManager ? 'מנהל ארגון' : 'מנהל משמרת',
+      phone: w.phone,
+      kind: w.isOrgManager ? 'org_manager' : 'shift_manager',
+    })
+  }
+
+  for (const c of listOrgPortalContacts(org)) {
+    push({
+      id: `org:${c.id}`,
+      name: c.name,
+      role: c.role || 'איש קשר ארגוני',
+      phone: c.phone,
+      kind: 'org_contact',
+    })
+  }
+
+  return {
+    module: scope.module,
+    orgName: org.name || '',
+    contacts: items,
   }
 }

@@ -1185,11 +1185,66 @@ export async function readOrgAssignmentSettings(orgId) {
   }
 }
 
+export function listOrgPortalContacts(org) {
+  const raw = Array.isArray(org?.portalContacts) ? org.portalContacts : []
+  const out = []
+  const seenPhones = new Set()
+  for (const item of raw) {
+    if (out.length >= 20) break
+    const name = String(item?.name || '').trim()
+    const role = String(item?.role || '').trim().slice(0, 40)
+    const phone = normalizePhone(item?.phone)
+    if (name.length < 2 || name.length > 60) continue
+    if (phone.length < 9) continue
+    if (seenPhones.has(phone)) continue
+    seenPhones.add(phone)
+    out.push({
+      id: String(item?.id || randomUUID()),
+      name,
+      role,
+      phone,
+    })
+  }
+  return out
+}
+
+function normalizePortalContactsInput(raw) {
+  if (raw == null) return null
+  if (!Array.isArray(raw)) throw httpError('רשימת אנשי קשר אינה תקינה', 400)
+  if (raw.length > 20) throw httpError('ניתן לשמור עד 20 אנשי קשר', 400)
+  const out = []
+  const seenPhones = new Set()
+  for (const item of raw) {
+    const name = String(item?.name || '').trim()
+    const role = String(item?.role || '').trim().slice(0, 40)
+    const phone = normalizePhone(item?.phone)
+    if (!name && !phone && !role) continue
+    if (name.length < 2 || name.length > 60) {
+      throw httpError('שם איש קשר צריך להיות בין 2 ל־60 תווים', 400)
+    }
+    if (phone.length < 9) {
+      throw httpError(`מספר טלפון לא תקין עבור ${name}`, 400)
+    }
+    if (seenPhones.has(phone)) {
+      throw httpError(`מספר הטלפון של ${name} כפול ברשימה`, 400)
+    }
+    seenPhones.add(phone)
+    out.push({
+      id: String(item?.id || randomUUID()),
+      name,
+      role,
+      phone,
+    })
+  }
+  return out
+}
+
 function publicOrgProfile(org) {
   const logo = typeof org?.logo === 'string' ? org.logo : ''
   return {
     name: String(org?.name || ''),
     logo: logo.startsWith('data:image/') ? logo : '',
+    portalContacts: listOrgPortalContacts(org),
   }
 }
 
@@ -1209,16 +1264,24 @@ export async function updateOrgProfile(orgId, profile) {
   } else {
     logo = ''
   }
-  await orgCol.updateOne(
-    { _id: org._id },
-    { $set: { name, logo, updatedAt: new Date().toISOString() } },
-  )
+  const portalContacts = normalizePortalContactsInput(profile?.portalContacts)
+  const fields = { name, logo, updatedAt: new Date().toISOString() }
+  if (portalContacts) fields.portalContacts = portalContacts
+  await orgCol.updateOne({ _id: org._id }, { $set: fields })
+  const details = []
+  if (name !== org.name) details.push(`שם הארגון עודכן ל־${name}`)
+  if (logo !== (org.logo || '')) details.push('לוגו הארגון עודכן')
+  if (portalContacts) details.push('אנשי קשר לפורטל העובדים עודכנו')
   await appendAuditLog({
     action: 'org_profile',
     orgId: String(org._id),
-    details: name !== org.name ? `שם הארגון עודכן ל־${name}` : 'לוגו הארגון עודכן',
+    details: details.join(' · ') || 'פרטי הארגון עודכנו',
   })
-  return publicOrgProfile({ name, logo })
+  return publicOrgProfile({
+    name,
+    logo,
+    portalContacts: portalContacts ?? org.portalContacts,
+  })
 }
 
 export async function updateOrgAssignmentSettings(orgId, patch, actor) {

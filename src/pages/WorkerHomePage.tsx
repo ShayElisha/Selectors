@@ -301,6 +301,13 @@ export function WorkerHomePage() {
             {(upcoming || active) && home.gateManager ? (
               <GateManagerCard manager={home.gateManager} />
             ) : null}
+            <Link
+              to="/worker/contacts"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-brand underline-offset-2 hover:underline"
+            >
+              <Phone className="size-4" aria-hidden />
+              כל אנשי הקשר לחיוג
+            </Link>
 
             {active ? (
               <>

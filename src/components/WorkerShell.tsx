@@ -8,6 +8,7 @@ import {
   History,
   KeyRound,
   LogOut,
+  Phone,
   UserRound,
 } from 'lucide-react'
 import { fetchWorkerNotificationsRemote } from '../api'
@@ -26,6 +27,7 @@ const NAV: {
 }[] = [
   { to: '/worker', label: 'עכשיו', icon: ClipboardList, end: true },
   { to: '/worker/history', label: 'היסטוריה', icon: History },
+  { to: '/worker/contacts', label: 'אנשי קשר', icon: Phone },
   { to: '/worker/briefings', label: 'תדריכים', icon: BookOpen },
   { to: '/worker/profile', label: 'הפרופיל שלי', icon: UserRound },
 ]
@@ -111,6 +113,18 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
                   <Bell className="size-4" aria-hidden />
                   התראות
                   {unread > 0 ? ` (${unread})` : ''}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/worker/contacts')
+                  }}
+                >
+                  <Phone className="size-4" aria-hidden />
+                  אנשי קשר
                 </button>
                 <button
                   type="button"
