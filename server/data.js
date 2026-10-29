@@ -215,7 +215,10 @@ function normalizeCustomsBrokersList(list) {
 }
 
 export function normalizeData(raw, fallbackKind = "selector") {
-  const kind = fallbackKind === "inspector" ? "inspector" : "selector";
+  const kind =
+    fallbackKind === "inspector" || fallbackKind === "security"
+      ? fallbackKind
+      : "selector";
   const briefingSections = Array.isArray(raw?.briefingSections)
     ? raw.briefingSections
         .map((s) => {
@@ -432,11 +435,23 @@ function accountRoleForWorker(worker) {
   return null;
 }
 
-async function syncManagerAccess(workers, orgId) {
+async function syncManagerAccess(workers, orgId, prevWorkers = []) {
   if (!orgId) return;
+  const prevById = new Map((prevWorkers || []).map((w) => [w.id, w]));
   for (const worker of workers) {
     const role = accountRoleForWorker(worker);
     if (!role || !worker.phone) continue;
+    const prev = prevById.get(worker.id);
+    // isOrgManager lives on the shared login account. A person can be org
+    // manager + shift manager in inspectors while another module's worker
+    // copy lacks the flag — never demote unless this module intentionally
+    // clears it (prev was true, next is false).
+    let isOrgManager = Boolean(worker.isOrgManager);
+    if (!isOrgManager && prev?.isOrgManager) {
+      isOrgManager = false;
+    } else if (!isOrgManager) {
+      isOrgManager = undefined;
+    }
     await upsertManagerAccount({
       orgId,
       workerId: worker.id,
@@ -449,7 +464,7 @@ async function syncManagerAccess(workers, orgId) {
         worker.staffKind === "security"
           ? worker.staffKind
           : "selector",
-      isOrgManager: Boolean(worker.isOrgManager),
+      ...(typeof isOrgManager === "boolean" ? { isOrgManager } : {}),
       role,
     });
   }
@@ -458,17 +473,19 @@ async function syncManagerAccess(workers, orgId) {
 function assertManagersHaveEmail(workers, prevWorkers) {
   const prevById = new Map((prevWorkers || []).map((w) => [w.id, w]));
   for (const w of workers) {
-    const needsLogin = Boolean(w.isManager || w.canLogin);
+    const needsLogin = Boolean(w.isManager || w.isOrgManager || w.canLogin);
     if (!needsLogin) continue;
     if (isValidEmail(w.email)) continue;
     const prev = prevById.get(w.id);
     const newlyLogin =
       !prev ||
       (!prev.isManager && w.isManager) ||
+      (!prev.isOrgManager && w.isOrgManager) ||
       (!prev.canLogin && w.canLogin);
-    if (newlyLogin) {
+    // Org managers / shift managers must keep a valid email for MFA login.
+    if (newlyLogin || w.isOrgManager || w.isManager) {
       const err = new Error(
-        `לא ניתן לפתוח גישה ללא מייל תקין (${w.fullName || "ללא שם"})`,
+        `לא ניתן לשמור מנהל ללא מייל תקין (${w.fullName || "ללא שם"})`,
       );
       err.status = 400;
       throw err;
@@ -1453,7 +1470,11 @@ export async function writeState(data, options = {}) {
 
   const normalized = normalizeData(
     data,
-    scope.module === "inspectors" ? "inspector" : "selector",
+    scope.module === "inspectors"
+      ? "inspector"
+      : scope.module === "security"
+        ? "security"
+        : "selector",
   );
   let workers = mergeWorkerSecrets(normalized.workers, prev?.workers);
   assertOrgManagerEdits(workers, prev?.workers, options.actor);
@@ -1463,7 +1484,7 @@ export async function writeState(data, options = {}) {
 
   const invited = await applyManagerInvites(workers, prev?.workers, options);
   workers = invited.workers;
-  await syncManagerAccess(workers, scope.orgId);
+  await syncManagerAccess(workers, scope.orgId, prev?.workers);
 
   const payload = {
     ...normalized,

@@ -846,13 +846,19 @@ export async function upsertManagerAccount({
     throw httpError(`מספר הטלפון של ${fullName || 'המשתמש'} שייך לארגון אחר`, 409)
   }
   const loginRole = role === 'worker' ? 'worker' : 'org_manager'
+  const nextEmail = normalizeEmail(email)
   const fields = {
     orgId: String(orgId),
     fullName: String(fullName || ''),
     phone: normalized,
-    email: normalizeEmail(email),
     status: 'active',
     role: loginRole,
+  }
+  // Keep an existing login email when a module-local worker row has none.
+  if (isValidEmail(nextEmail)) {
+    fields.email = nextEmail
+  } else if (!existing || !isValidEmail(existing.email)) {
+    fields.email = nextEmail
   }
   if (passwordHash) {
     fields.passwordHash = passwordHash
