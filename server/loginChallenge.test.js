@@ -20,7 +20,7 @@ const identity = {
   role: 'org_manager',
   orgId: 'org-1',
   orgName: 'ארגון',
-  modules: { selectors: true, inspectors: false },
+  modules: { selectors: true, inspectors: false, security: false },
   module: 'selectors',
   isOrgManager: true,
   staffKind: 'selector',

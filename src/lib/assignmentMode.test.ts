@@ -10,10 +10,19 @@ describe('assignment modes', () => {
     expect(normalizeAssignmentModes(undefined)).toEqual({
       selectors: 'rounds',
       inspectors: 'single',
+      security: 'rounds',
     })
     expect(
-      normalizeAssignmentModes({ selectors: 'single', inspectors: 'rounds' }),
-    ).toEqual({ selectors: 'single', inspectors: 'rounds' })
+      normalizeAssignmentModes({
+        selectors: 'single',
+        inspectors: 'rounds',
+        security: 'single',
+      }),
+    ).toEqual({
+      selectors: 'single',
+      inspectors: 'rounds',
+      security: 'single',
+    })
   })
 
   it('reads a saved mode before older selector data', () => {
@@ -27,6 +36,7 @@ describe('assignment modes', () => {
 
   it('treats older selector shifts as rounds and inspector shifts as one placement', () => {
     expect(usesRounds({ audience: 'selector' })).toBe(true)
+    expect(usesRounds({ audience: 'security' })).toBe(true)
     expect(usesRounds({ audience: 'inspector' })).toBe(false)
     expect(usesRounds({})).toBe(false)
   })

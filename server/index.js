@@ -198,6 +198,7 @@ app.get('/api/health', async (_req, res) => {
   try {
     await getDb('selectors')
     if (process.env.MONGODB_URI_INSPECTORS?.trim()) await getDb('inspectors')
+    if (process.env.MONGODB_URI_SECURITY?.trim()) await getDb('security')
     res.json({
       ok: true,
       db: true,
@@ -497,7 +498,9 @@ app.get('/api/session', async (req, res) => {
     const fresh = req.activeUser || await refreshManagerSession(user)
     const requested = String(req.headers['x-app-module'] || '')
     if (
-      (requested === 'selectors' || requested === 'inspectors') &&
+      (requested === 'selectors' ||
+        requested === 'inspectors' ||
+        requested === 'security') &&
       fresh.modules?.[requested]
     ) {
       fresh.module = requested

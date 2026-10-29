@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { refreshManagerSession, getBearerToken, verifySessionToken } = vi.hoisted(
+const { refreshOrgSession, getBearerToken, verifySessionToken } = vi.hoisted(
   () => ({
-    refreshManagerSession: vi.fn(),
+    refreshOrgSession: vi.fn(),
     getBearerToken: vi.fn(),
     verifySessionToken: vi.fn(),
   }),
 )
 
-vi.mock('./orgs.js', () => ({ refreshManagerSession }))
+vi.mock('./orgs.js', () => ({ refreshOrgSession }))
 vi.mock('./session.js', () => ({ getBearerToken, verifySessionToken }))
 
 import { createActiveUserMiddleware } from './activeUser.js'
@@ -24,14 +24,18 @@ describe('active user middleware', () => {
     await createActiveUserMiddleware(sendError)({}, {}, next)
 
     expect(next).toHaveBeenCalledOnce()
-    expect(refreshManagerSession).not.toHaveBeenCalled()
+    expect(refreshOrgSession).not.toHaveBeenCalled()
   })
 
   it('refreshes and attaches active organization managers', async () => {
     const tokenUser = { id: 'manager-1', role: 'org_manager' }
-    const activeUser = { ...tokenUser, orgId: 'org-1', modules: { selectors: true } }
+    const activeUser = {
+      ...tokenUser,
+      orgId: 'org-1',
+      modules: { selectors: true, inspectors: false, security: false },
+    }
     verifySessionToken.mockReturnValue(tokenUser)
-    refreshManagerSession.mockResolvedValue(activeUser)
+    refreshOrgSession.mockResolvedValue(activeUser)
     const req = {}
     const next = vi.fn()
 
@@ -44,7 +48,7 @@ describe('active user middleware', () => {
   it('passes refresh failures to the shared error handler', async () => {
     const error = Object.assign(new Error('inactive'), { status: 401 })
     verifySessionToken.mockReturnValue({ id: 'manager-1', role: 'org_manager' })
-    refreshManagerSession.mockRejectedValue(error)
+    refreshOrgSession.mockRejectedValue(error)
     const sendError = vi.fn()
     const next = vi.fn()
     const res = {}

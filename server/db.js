@@ -22,9 +22,15 @@ function store() {
   return globalThis.__mongoClients
 }
 
-/** Selectors and org accounts use MONGODB_URI. Inspectors use their own database. */
+/**
+ * Selectors and org accounts use MONGODB_URI.
+ * Inspectors → MONGODB_URI_INSPECTORS.
+ * Security (מאבטחים) → MONGODB_URI_SECURITY.
+ */
 export function mongoTarget(moduleName) {
-  return moduleName === 'inspectors' ? 'inspectors' : 'selectors'
+  if (moduleName === 'inspectors') return 'inspectors'
+  if (moduleName === 'security') return 'security'
+  return 'selectors'
 }
 
 function uriFor(target) {
@@ -33,13 +39,25 @@ function uriFor(target) {
     if (!uri) throw new Error('Missing MONGODB_URI_INSPECTORS')
     return uri
   }
+  if (target === 'security') {
+    const uri = process.env.MONGODB_URI_SECURITY?.trim()
+    if (!uri) throw new Error('Missing MONGODB_URI_SECURITY')
+    return uri
+  }
   const uri = process.env.MONGODB_URI?.trim()
   if (!uri) throw new Error('Missing MONGODB_URI')
   return uri
 }
 
+export function operationalDbTargets() {
+  const targets = ['selectors']
+  if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
+  if (process.env.MONGODB_URI_SECURITY?.trim()) targets.push('security')
+  return targets
+}
+
 export async function getClient(target = 'selectors') {
-  const key = target === 'inspectors' ? 'inspectors' : 'selectors'
+  const key = mongoTarget(target)
   const clients = store()
   if (!clients[key]) {
     const client = new MongoClient(uriFor(key), clientOptions)

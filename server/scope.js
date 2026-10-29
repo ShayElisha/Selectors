@@ -7,7 +7,22 @@ function requestedModule(req) {
   const header = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader
   const query = req.query?.module
   const raw = String(header || query || '')
-  if (raw === 'inspectors' || raw === 'selectors') return raw
+  if (raw === 'inspectors' || raw === 'selectors' || raw === 'security') return raw
+  return ''
+}
+
+function publicModules(modules) {
+  return {
+    selectors: Boolean(modules?.selectors),
+    inspectors: Boolean(modules?.inspectors),
+    security: Boolean(modules?.security),
+  }
+}
+
+function defaultModule(modules) {
+  if (modules?.selectors) return 'selectors'
+  if (modules?.inspectors) return 'inspectors'
+  if (modules?.security) return 'security'
   return ''
 }
 
@@ -34,13 +49,10 @@ export async function scopeForRequest(req) {
     err.status = 403
     throw err
   }
-  const modules = {
-    selectors: Boolean(org.modules?.selectors),
-    inspectors: Boolean(org.modules?.inspectors),
-  }
+  const modules = publicModules(org.modules)
   let module = requestedModule(req)
   if (!module) {
-    module = modules.selectors ? 'selectors' : modules.inspectors ? 'inspectors' : ''
+    module = defaultModule(modules)
   }
   if (!module || !modules[module]) {
     const err = new Error('המודול הזה לא פתוח לארגון')

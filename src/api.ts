@@ -57,7 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function fetchAppData(
-  module?: 'selectors' | 'inspectors',
+  module?: 'selectors' | 'inspectors' | 'security',
   knownRevision?: number,
 ): Promise<AppData | { unchanged: true; revision: number }> {
   const headers: Record<string, string> = {}
@@ -252,7 +252,7 @@ export interface OrganizationSummary {
   id: string
   name: string
   status: 'pending' | 'approved' | 'rejected' | 'suspended' | 'deleted'
-  modules: { selectors: boolean; inspectors: boolean }
+  modules: { selectors: boolean; inspectors: boolean; security: boolean }
   createdAt: string
   approvedAt?: string
   rejectedAt?: string
@@ -320,7 +320,7 @@ export function reviewOrganizationRemote(
   id: string,
   patch: {
     status?: 'pending' | 'approved' | 'rejected' | 'suspended'
-    modules?: { selectors?: boolean; inspectors?: boolean }
+    modules?: { selectors?: boolean; inspectors?: boolean; security?: boolean }
   },
 ): Promise<OrganizationSummary> {
   return request('/api/organizations', {
@@ -416,10 +416,14 @@ export interface OrgProfile {
 }
 
 export interface OrgAssignmentSettings {
-  modules: { selectors: boolean; inspectors: boolean }
-  assignmentModes: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
-  roundMinutes?: { selectors: number; inspectors: number }
-  staggerRounds?: { selectors: boolean; inspectors: boolean }
+  modules: { selectors: boolean; inspectors: boolean; security: boolean }
+  assignmentModes: {
+    selectors: 'rounds' | 'single'
+    inspectors: 'rounds' | 'single'
+    security: 'rounds' | 'single'
+  }
+  roundMinutes?: { selectors: number; inspectors: number; security: number }
+  staggerRounds?: { selectors: boolean; inspectors: boolean; security: boolean }
   organization?: OrgProfile
 }
 
@@ -439,9 +443,13 @@ export function fetchOrgSettings(): Promise<OrgAssignmentSettings> {
 }
 
 export function saveOrgSettings(body: {
-  assignmentModes?: { selectors: 'rounds' | 'single'; inspectors: 'rounds' | 'single' }
-  roundMinutes?: { selectors: number; inspectors: number }
-  staggerRounds?: { selectors: boolean; inspectors: boolean }
+  assignmentModes?: {
+    selectors: 'rounds' | 'single'
+    inspectors: 'rounds' | 'single'
+    security: 'rounds' | 'single'
+  }
+  roundMinutes?: { selectors: number; inspectors: number; security: number }
+  staggerRounds?: { selectors: boolean; inspectors: boolean; security: boolean }
   profile?: OrgProfile
 }): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings', {
@@ -544,10 +552,10 @@ export interface WorkerHomeResponse {
     phone: string
     email: string
     certifications: string[]
-    staffKind: 'inspector' | 'selector'
+    staffKind: 'inspector' | 'selector' | 'security'
     status: string
   }
-  module: 'selectors' | 'inspectors'
+  module: 'selectors' | 'inspectors' | 'security'
   slot: {
     date: string
     shiftType: string

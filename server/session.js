@@ -38,8 +38,8 @@ function fromB64url(str) {
  *   role?: 'super_admin' | 'org_manager' | 'worker',
  *   orgId?: string | null,
  *   orgName?: string | null,
- *   modules?: { selectors?: boolean, inspectors?: boolean },
- *   module?: 'selectors' | 'inspectors' | null,
+ *   modules?: { selectors?: boolean, inspectors?: boolean, security?: boolean },
+ *   module?: 'selectors' | 'inspectors' | 'security' | null,
  * }} user
  * @returns {string}
  */
@@ -54,6 +54,7 @@ export function createSessionToken(user) {
     modules: {
       selectors: Boolean(user.modules?.selectors),
       inspectors: Boolean(user.modules?.inspectors),
+      security: Boolean(user.modules?.security),
     },
     module: user.module || null,
     isOrgManager: Boolean(user.isOrgManager),
@@ -75,8 +76,8 @@ export function createSessionToken(user) {
  *   role: 'super_admin' | 'org_manager' | 'worker',
  *   orgId: string | null,
  *   orgName: string | null,
- *   modules: { selectors: boolean, inspectors: boolean },
- *   module: 'selectors' | 'inspectors' | null,
+ *   modules: { selectors: boolean, inspectors: boolean, security: boolean },
+ *   module: 'selectors' | 'inspectors' | 'security' | null,
  * } | null}
  */
 export function verifySessionToken(token) {
@@ -104,9 +105,18 @@ export function verifySessionToken(token) {
     }
     if (Date.now() > Number(payload.exp)) return null
     const module =
-      payload.module === 'inspectors' || payload.module === 'selectors'
+      payload.module === 'inspectors' ||
+      payload.module === 'selectors' ||
+      payload.module === 'security'
         ? payload.module
         : null
+    const modules = {
+      selectors: Boolean(payload.modules?.selectors),
+      inspectors: Boolean(payload.modules?.inspectors),
+      security: Boolean(payload.modules?.security),
+    }
+    const enabledCount =
+      Number(modules.selectors) + Number(modules.inspectors) + Number(modules.security)
     return {
       id: String(payload.id),
       fullName: String(payload.fullName || ''),
@@ -114,18 +124,15 @@ export function verifySessionToken(token) {
       role: payload.role,
       orgId: payload.orgId ? String(payload.orgId) : null,
       orgName: payload.orgName ? String(payload.orgName) : null,
-      modules: {
-        selectors: Boolean(payload.modules?.selectors),
-        inspectors: Boolean(payload.modules?.inspectors),
-      },
+      modules,
       module,
       isOrgManager:
         payload.isOrgManager === true ||
-        (payload.isOrgManager == null &&
-          Boolean(payload.modules?.selectors) &&
-          Boolean(payload.modules?.inspectors)),
+        (payload.isOrgManager == null && enabledCount >= 2),
       staffKind:
-        payload.staffKind === 'inspector' || payload.staffKind === 'selector'
+        payload.staffKind === 'inspector' ||
+        payload.staffKind === 'selector' ||
+        payload.staffKind === 'security'
           ? payload.staffKind
           : null,
     }
@@ -153,8 +160,8 @@ export function getBearerToken(req) {
  *   role: 'super_admin' | 'org_manager' | 'worker',
  *   orgId: string | null,
  *   orgName: string | null,
- *   modules: { selectors: boolean, inspectors: boolean },
- *   module: 'selectors' | 'inspectors' | null,
+ *   modules: { selectors: boolean, inspectors: boolean, security: boolean },
+ *   module: 'selectors' | 'inspectors' | 'security' | null,
  * }}
  */
 export function requireUser(req) {

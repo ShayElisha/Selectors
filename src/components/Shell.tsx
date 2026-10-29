@@ -29,6 +29,7 @@ import {
   Siren,
   CircleHelp,
 } from 'lucide-react'
+import { audienceForModule, MODULE_LABELS } from '../auth'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
 import { toast } from '../lib/notify'
@@ -274,17 +275,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setMoreOpen(false)
     setProfileOpen(false)
     if (id === 'shift' && !draft) {
-      const models = resolveShiftModels(
-        data.shiftModels,
-        module === 'inspectors' ? 'inspectors' : 'selectors',
-      )
+      const models = resolveShiftModels(data.shiftModels, module)
       const ctx = currentShiftModel(models)
       const existing = findShiftForSlot(
         data.history,
         ctx.date,
         ctx.model.id as ShiftType,
         undefined,
-        module === 'inspectors' ? 'inspector' : undefined,
+        audienceForModule(module),
       )
       if (existing) {
         loadShiftFromHistory(existing.id)
@@ -296,10 +294,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setView(id)
   }
 
-  const manageNav = useMemo(
-    () => (user?.isOrgManager ? [...MANAGE, SETTINGS_NAV] : MANAGE),
-    [user?.isOrgManager],
-  )
+  const manageNav = useMemo(() => {
+    const peopleLabel = MODULE_LABELS[module]
+    const items = MANAGE.map((item) =>
+      item.id === 'workers' ? { ...item, label: peopleLabel } : item,
+    )
+    return user?.isOrgManager ? [...items, SETTINGS_NAV] : items
+  }, [module, user?.isOrgManager])
   const reportNav = REPORTS.filter(
     (item) => item.id !== 'customsBrokers' || module === 'inspectors',
   )
@@ -388,9 +389,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </h1>
               <p className="mt-1 flex flex-wrap items-center gap-1.5 break-words text-[13px] text-ink-soft sm:text-sm">
                 <span>
-                  {module === 'inspectors'
-                    ? 'ניהול ושיבוץ עמדות בודקים'
-                    : 'ניהול ושיבוץ עמדות סלקטורים'}
+                  {`ניהול ושיבוץ עמדות ${MODULE_LABELS[module]}`}
                   {(orgProfile.name || user?.orgName)
                     ? ` · ${orgProfile.name || user?.orgName}`
                     : ''}
@@ -406,40 +405,37 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           {user?.role === 'org_manager' &&
-            (user.modules.selectors || user.modules.inspectors) && (
+            (user.modules.selectors ||
+              user.modules.inspectors ||
+              user.modules.security) && (
               <div
                 className="mt-3 inline-flex rounded-lg border border-line/80 bg-card p-0.5"
                 role="group"
                 aria-label="בחירת מודול"
               >
-                {user.modules.selectors && (
-                  <button
-                    type="button"
-                    aria-pressed={module === 'selectors'}
-                    onClick={() => setModule('selectors')}
-                    className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${
-                      module === 'selectors'
-                        ? 'bg-brand text-white'
-                        : 'text-ink-soft hover:text-ink'
-                    }`}
-                  >
-                    סלקטורים
-                  </button>
-                )}
-                {user.modules.inspectors && (
-                  <button
-                    type="button"
-                    aria-pressed={module === 'inspectors'}
-                    onClick={() => setModule('inspectors')}
-                    className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${
-                      module === 'inspectors'
-                        ? 'bg-brand text-white'
-                        : 'text-ink-soft hover:text-ink'
-                    }`}
-                  >
-                    בודקים
-                  </button>
-                )}
+                {(
+                  [
+                    ['selectors', 'סלקטורים'],
+                    ['inspectors', 'בודקים'],
+                    ['security', 'מאבטחים'],
+                  ] as const
+                )
+                  .filter(([id]) => user.modules[id])
+                  .map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={module === id}
+                      onClick={() => setModule(id)}
+                      className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${
+                        module === id
+                          ? 'bg-brand text-white'
+                          : 'text-ink-soft hover:text-ink'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
               </div>
             )}
         </div>
@@ -503,7 +499,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                       </p>
                       <p className="mt-0.5 text-[11px] leading-relaxed text-ink-soft">
                         {user.orgName || 'מנהל'} ·{' '}
-                        {module === 'inspectors' ? 'בודקים' : 'סלקטורים'}
+                        {MODULE_LABELS[module]}
                       </p>
                     </div>
                     <button

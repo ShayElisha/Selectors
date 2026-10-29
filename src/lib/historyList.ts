@@ -300,7 +300,12 @@ export function shiftCountsLabel(shift: ShiftSchedule): string {
   ]
   if (usesRounds(shift)) {
     const rounds = shift.rounds?.length ?? 0
-    const who = shift.audience === 'selector' ? 'סלקטורים' : ''
+    const who =
+      shift.audience === 'selector'
+        ? 'סלקטורים'
+        : shift.audience === 'security'
+          ? 'מאבטחים'
+          : ''
     parts.unshift(
       [who, rounds > 0 ? `${rounds} סבבים` : 'סבבים']
         .filter(Boolean)

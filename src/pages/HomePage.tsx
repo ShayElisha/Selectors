@@ -19,6 +19,7 @@ import {
   Map as MapIcon,
   Plus,
 } from 'lucide-react'
+import { audienceForModule, MODULE_LABELS } from '../auth'
 import { useApp } from '../context/AppContext'
 import {
   formatInspectorShiftWindow,
@@ -128,8 +129,9 @@ export function HomePage() {
     assignmentModes,
   } = useApp()
   const inspectorModule = module === 'inspectors'
+  const moduleAudience = audienceForModule(module)
   const showSelectorEntry =
-    !inspectorModule && assignmentModes.selectors === 'rounds'
+    module === 'selectors' && assignmentModes.selectors === 'rounds'
 
   const activeWorkers = data.workers.filter(
     (w) => w.status === 'active' && w.isInspector,
@@ -207,17 +209,20 @@ export function HomePage() {
   }, [shiftModels, nowTick])
 
   const currentShift: ShiftSchedule | null = useMemo(() => {
-    const matches = data.history.filter(
-      (h) =>
-        h.date === currentCtx.date &&
-        h.shiftType === currentCtx.shiftType &&
-        h.audience !== 'selector',
-    )
+    const matches = data.history.filter((h) => {
+      if (h.date !== currentCtx.date || h.shiftType !== currentCtx.shiftType) {
+        return false
+      }
+      if (moduleAudience === 'selector') return h.audience === 'selector'
+      if (moduleAudience === 'security') return h.audience === 'security'
+      return h.audience !== 'selector' && h.audience !== 'security'
+    })
     if (matches.length === 0) return null
     return matches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-  }, [data.history, currentCtx.date, currentCtx.shiftType])
+  }, [data.history, currentCtx.date, currentCtx.shiftType, moduleAudience])
 
   const selectorShift: ShiftSchedule | null = useMemo(() => {
+    if (module !== 'selectors') return null
     const matches = data.history.filter(
       (h) =>
         h.date === currentCtx.date &&
@@ -226,7 +231,7 @@ export function HomePage() {
     )
     if (matches.length === 0) return null
     return matches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-  }, [data.history, currentCtx.date, currentCtx.shiftType])
+  }, [data.history, currentCtx.date, currentCtx.shiftType, module])
 
   const previousShifts = useMemo(() => {
     const hidden = new Set(
@@ -865,9 +870,9 @@ export function HomePage() {
         )}
       </SectionCard>
 
-      {!inspectorModule && selectorShift ? (
+      {module === 'selectors' && selectorShift ? (
         <SectionCard
-          title={`סלקטורים · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
+          title={`${MODULE_LABELS.selectors} · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
           subtitle={
             <>
               סבבים של שעתיים · <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
@@ -1041,7 +1046,11 @@ export function HomePage() {
                       <Ltr>{formatShiftDate(shift.date)}</Ltr>
                       {' · '}
                       {shiftModelLabel(shiftModels, shift.shiftType)}
-                      {shift.audience === 'selector' ? ' · סלקטורים' : ''}
+                      {shift.audience === 'selector'
+                        ? ` · ${MODULE_LABELS.selectors}`
+                        : shift.audience === 'security'
+                          ? ` · ${MODULE_LABELS.security}`
+                          : ''}
                     </p>
                     <p className="mt-0.5 text-[13px] text-ink-soft">
                       {pluralizeHe(lanes, lanePlural)} ·{' '}

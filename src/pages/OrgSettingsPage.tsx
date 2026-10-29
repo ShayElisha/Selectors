@@ -8,6 +8,7 @@ import type { AssignmentMode, AssignmentModes } from '../lib/assignmentMode'
 const SECTIONS: { id: keyof AssignmentModes; title: string; people: string }[] = [
   { id: 'selectors', title: 'חלקת הסלקטורים', people: 'הסלקטורים' },
   { id: 'inspectors', title: 'חלקת הבודקים', people: 'הבודקים' },
+  { id: 'security', title: 'חלקת המאבטחים', people: 'המאבטחים' },
 ]
 
 const CHOICES: { id: AssignmentMode; title: string; text: string }[] = [
@@ -80,7 +81,8 @@ export function OrgSettingsPage() {
     setDraft((current) => {
       const untouched =
         current.selectors === savedModes.current.selectors &&
-        current.inspectors === savedModes.current.inspectors
+        current.inspectors === savedModes.current.inspectors &&
+        current.security === savedModes.current.security
       savedModes.current = assignmentModes
       return untouched ? assignmentModes : current
     })
@@ -91,7 +93,8 @@ export function OrgSettingsPage() {
   const visible = SECTIONS.filter((section) => user.modules[section.id])
   const dirty =
     draft.selectors !== assignmentModes.selectors ||
-    draft.inspectors !== assignmentModes.inspectors
+    draft.inspectors !== assignmentModes.inspectors ||
+    draft.security !== assignmentModes.security
 
   const save = async () => {
     setSaving(true)
@@ -255,16 +258,17 @@ export function OrgSettingsPage() {
                     </select>
                   </label>
                 ) : null}
-                {section.id === 'selectors' && draft[section.id] === 'rounds' ? (
+                {(section.id === 'selectors' || section.id === 'security') &&
+                draft[section.id] === 'rounds' ? (
                   <label className="mt-3 flex items-start gap-2 text-[13px] text-ink">
                     <input
                       type="checkbox"
                       className="mt-0.5 size-4 accent-[var(--color-brand)]"
-                      checked={staggerRounds.selectors}
+                      checked={staggerRounds[section.id]}
                       onChange={(e) =>
                         void saveStaggerRounds({
                           ...staggerRounds,
-                          selectors: e.target.checked,
+                          [section.id]: e.target.checked,
                         }).catch((err: unknown) =>
                           notify.error(
                             err instanceof Error ? err.message : 'שמירת הסבבים המדורגים נכשלה',
@@ -275,7 +279,7 @@ export function OrgSettingsPage() {
                     <span>
                       <span className="font-semibold">סבבים מדורגים</span>
                       <span className="mt-0.5 block text-ink-soft">
-                        חלק מהסלקטורים מתחלפים בשעה עגולה וחלק בחצי שעה, כדי שהשער לא יישאר ריק באמצע ההחלפה. חל על משמרות חדשות.
+                        חלק מ{section.people} מתחלפים בשעה עגולה וחלק בחצי שעה, כדי שהשער לא יישאר ריק באמצע ההחלפה. חל על משמרות חדשות.
                       </span>
                     </span>
                   </label>

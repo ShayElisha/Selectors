@@ -1925,9 +1925,9 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
   })
 
   it('falls back to another morning continuer only when the occupant does not continue', () => {
-    // Rule 3: no certified afternoon arrival AND the lane's own morning
+    // Tier 3: no after-night / afternoon-only AND the lane's own morning
     // occupant is not working the afternoon → only then pull a different
-    // morning worker (tier 2) onto the swap seat.
+    // morning worker onto the swap seat.
     const otherMorning = worker('x', 'OtherMorning')
     const history = [
       shift(
@@ -1955,10 +1955,10 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
   })
 
   it('reclassifies an afternoon arrival who is listed in the morning presentWorkerIds', () => {
-    // Root-cause documentation: a worker is "afternoon-only" (tier 0) ONLY when
+    // Root-cause documentation: a worker is "afternoon-only" (tier 1) ONLY when
     // they are NOT in the morning shift's presentWorkerIds / assignments.
     // If the morning board lists them as present (even unseated), they become a
-    // morning worker (tier 2) and the morning occupant (tier 1) wins מכס.
+    // morning worker (tier 3) and the morning occupant (tier 2) wins מכס.
     // Fix on the data side: do NOT mark afternoon-only staff as present in the
     // morning board — "present" means present for THAT shift.
     const occupant = worker('c', 'Occupant')
@@ -1989,7 +1989,7 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
   it('warns and disables tier logic when no morning board is saved', () => {
     const occupant = worker('c', 'Occupant')
     const freshArrival = worker('o', 'AfternoonOnly')
-    // No history at all: morningCtx.found === false → everyone is tier 0.
+    // No history at all: morningCtx.found === false → everyone is afternoon-only (tier 1).
     const result = runAssignmentAlgorithm(
       [customs],
       [occupant, freshArrival],
@@ -2000,6 +2000,42 @@ describe('afternoon handoff — swap seat stays with the morning occupant', () =
     // Without a morning board the handoff rules cannot run at all — the
     // algorithm warns and treats everyone as an afternoon arrival.
     expect(result.warnings.some((w) => w.includes('אין שיבוץ בוקר'))).toBe(true)
+  })
+
+  it('switches intensity for morning→afternoon continuers (hard↛hard, easy↛easy)', () => {
+    // Different lane ids than morning so same-day lane-repeat does not force the swap.
+    const hardMorning = worker('h', 'HardMorning')
+    const easyMorning = worker('e', 'EasyMorning')
+    const hardAm = lane('hard-am', 'קשה בוקר', { intensity: 'hard' })
+    const easyAm = lane('easy-am', 'קל בוקר', { intensity: 'easy' })
+    const hardPm = lane('hard-pm', 'קשה צהריים', { intensity: 'hard' })
+    const easyPm = lane('easy-pm', 'קל צהריים', { intensity: 'easy' })
+    const history = [
+      shift(
+        'm1',
+        '2026-03-10',
+        'morning',
+        [
+          { laneId: 'hard-am', workerIds: ['h'] },
+          { laneId: 'easy-am', workerIds: ['e'] },
+        ],
+        ['h', 'e'],
+        ['hard-am', 'easy-am'],
+      ),
+    ]
+    const result = runAssignmentAlgorithm(
+      [hardPm, easyPm],
+      [hardMorning, easyMorning],
+      history,
+      [hardAm, easyAm, hardPm, easyPm],
+      { date: '2026-03-10', shiftType: 'afternoon', rngSeed: 91 },
+    )
+    expect(
+      result.assignments.find((a) => a.laneId === 'hard-pm')?.workerIds,
+    ).toEqual(['e'])
+    expect(
+      result.assignments.find((a) => a.laneId === 'easy-pm')?.workerIds,
+    ).toEqual(['h'])
   })
 
   it('keeps the occupant when certified arrivals are absent but uncertified arrivals exist', () => {

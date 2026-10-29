@@ -29,7 +29,7 @@ describe('scopeForRequest', () => {
     getOrganization.mockResolvedValue({
       _id: 'org-1',
       status: 'approved',
-      modules: { selectors: true, inspectors: false },
+      modules: { selectors: true, inspectors: false, security: false },
     })
   })
 

@@ -11,6 +11,8 @@
   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` — SMTP delivery for sign-in verification codes, manager invitations, temporary passwords, password resets, and organization emails
 - Required only when enabling the inspectors module:
   - `MONGODB_URI_INSPECTORS` — separate Atlas connection string for inspectors data
+- Required only when enabling the security (מאבטחים) module:
+  - `MONGODB_URI_SECURITY` — separate Atlas connection string for security/guards data (same schema as selectors: workers, lanes, shifts, …)
 - Optional:
   - `PORT` — local API port; defaults to `3001`
   - `SMTP_FROM` — sender address; defaults to the authenticated SMTP mailbox

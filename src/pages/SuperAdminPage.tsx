@@ -30,10 +30,15 @@ const STATUS_LABEL = {
 } as const
 
 type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'suspended' | 'no_module'
-type ModuleFilter = 'all' | 'selectors' | 'inspectors' | 'none'
+type ModuleFilter = 'all' | 'selectors' | 'inspectors' | 'security' | 'none'
 
 function noModule(org: OrganizationSummary) {
-  return org.status === 'approved' && !org.modules.selectors && !org.modules.inspectors
+  return (
+    org.status === 'approved' &&
+    !org.modules.selectors &&
+    !org.modules.inspectors &&
+    !org.modules.security
+  )
 }
 
 function OrgTable({
@@ -107,6 +112,7 @@ function OrgTable({
                           modules: {
                             selectors: e.target.checked,
                             inspectors: org.modules.inspectors,
+                            security: org.modules.security,
                           },
                         })
                       }
@@ -123,11 +129,29 @@ function OrgTable({
                           modules: {
                             selectors: org.modules.selectors,
                             inspectors: e.target.checked,
+                            security: org.modules.security,
                           },
                         })
                       }
                     />
                     בודקים
+                  </label>
+                  <label className="mt-2 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(org.modules.security)}
+                      disabled={busy || org.status !== 'approved'}
+                      onChange={(e) =>
+                        void onPatch(org, {
+                          modules: {
+                            selectors: org.modules.selectors,
+                            inspectors: org.modules.inspectors,
+                            security: e.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    מאבטחים
                   </label>
                 </td>
                 <td className="px-3 py-3">
@@ -224,6 +248,7 @@ function moduleLabel(org: OrganizationSummary): string {
   const labels = [
     org.modules.selectors ? 'סלקטורים' : '',
     org.modules.inspectors ? 'בודקים' : '',
+    org.modules.security ? 'מאבטחים' : '',
   ].filter(Boolean)
   return labels.length > 0 ? labels.join(' · ') : 'אין'
 }
@@ -273,6 +298,7 @@ export function SuperAdminPage() {
   const [approveModules, setApproveModules] = useState({
     selectors: true,
     inspectors: false,
+    security: false,
   })
   const [deleteTarget, setDeleteTarget] = useState<OrganizationSummary | null>(null)
   const [deleteTyped, setDeleteTyped] = useState('')
@@ -355,7 +381,11 @@ export function SuperAdminPage() {
       idleMonth: approved.filter((org) => !inLastDays(org.lastLoginAt, 30)).length,
       neverSinceApproval: approved.filter((org) => !org.lastLoginAt).length,
       openModules: approved.reduce(
-        (sum, org) => sum + Number(org.modules.selectors) + Number(org.modules.inspectors),
+        (sum, org) =>
+          sum +
+          Number(org.modules.selectors) +
+          Number(org.modules.inspectors) +
+          Number(org.modules.security),
         0,
       ),
     }
@@ -372,7 +402,12 @@ export function SuperAdminPage() {
       if (statusFilter === 'no_module' && !noModule(org)) return false
       if (moduleFilter === 'selectors' && !org.modules.selectors) return false
       if (moduleFilter === 'inspectors' && !org.modules.inspectors) return false
-      if (moduleFilter === 'none' && (org.modules.selectors || org.modules.inspectors)) return false
+      if (moduleFilter === 'security' && !org.modules.security) return false
+      if (
+        moduleFilter === 'none' &&
+        (org.modules.selectors || org.modules.inspectors || org.modules.security)
+      )
+        return false
       return true
     })
   }, [live, query, statusFilter, moduleFilter])
@@ -512,7 +547,11 @@ export function SuperAdminPage() {
 
   const confirmApprove = async () => {
     if (!approve) return
-    if (!approveModules.selectors && !approveModules.inspectors) {
+    if (
+      !approveModules.selectors &&
+      !approveModules.inspectors &&
+      !approveModules.security
+    ) {
       notify.error('בחרו לפחות מודול אחד')
       return
     }
@@ -768,6 +807,7 @@ export function SuperAdminPage() {
           <option value="all">כל המודולים</option>
           <option value="selectors">סלקטורים</option>
           <option value="inspectors">בודקים</option>
+          <option value="security">מאבטחים</option>
           <option value="none">בלי מודול</option>
         </select>
       </div>
@@ -826,7 +866,7 @@ export function SuperAdminPage() {
               onOpen={setSelected}
               onPatch={patch}
               onApprove={(org) => {
-                setApproveModules({ selectors: true, inspectors: false })
+                setApproveModules({ selectors: true, inspectors: false, security: false })
                 setApprove(org)
               }}
               onSuspend={(org) => void patch(org, { status: 'suspended' })}
@@ -851,7 +891,7 @@ export function SuperAdminPage() {
               onOpen={setSelected}
               onPatch={patch}
               onApprove={(org) => {
-                setApproveModules({ selectors: true, inspectors: false })
+                setApproveModules({ selectors: true, inspectors: false, security: false })
                 setApprove(org)
               }}
               onSuspend={(org) => void patch(org, { status: 'suspended' })}
@@ -1022,6 +1062,14 @@ export function SuperAdminPage() {
                 onChange={(e) => setApproveModules((m) => ({ ...m, inspectors: e.target.checked }))}
               />
               בודקים
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={approveModules.security}
+                onChange={(e) => setApproveModules((m) => ({ ...m, security: e.target.checked }))}
+              />
+              מאבטחים
             </label>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="ui-btn ui-btn-ghost" onClick={() => setApprove(null)}>ביטול</button>

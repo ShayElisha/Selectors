@@ -19,9 +19,19 @@ type Station = {
   missing: number
 }
 
-function selectedShift(data: ReturnType<typeof useApp>['data'], date: string, type: ShiftType, audience: 'selector' | 'inspector') {
+function selectedShift(
+  data: ReturnType<typeof useApp>['data'],
+  date: string,
+  type: ShiftType,
+  audience: 'selector' | 'inspector' | 'security',
+) {
   return [...data.history]
-    .filter((shift) => shift.date === date && shift.shiftType === type && (audience === 'selector' ? shift.audience === 'selector' : shift.audience !== 'selector'))
+    .filter((shift) => {
+      if (shift.date !== date || shift.shiftType !== type) return false
+      if (audience === 'selector') return shift.audience === 'selector'
+      if (audience === 'security') return shift.audience === 'security'
+      return shift.audience !== 'selector' && shift.audience !== 'security'
+    })
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
 }
 
@@ -96,7 +106,12 @@ export function StationMapPage() {
       setSelectedLaneId(null)
     }
   }, [models, shiftType])
-  const audience = module === 'inspectors' ? 'inspector' : 'selector'
+  const audience =
+    module === 'inspectors'
+      ? 'inspector'
+      : module === 'security'
+        ? 'security'
+        : 'selector'
   const shift = useMemo(() => selectedShift(data, date, shiftType, audience), [data, date, shiftType, audience])
   const workerNames = useMemo(() => new Map(data.workers.map((worker) => [worker.id, worker.fullName])), [data.workers])
   const rounds = shift?.rounds ?? []

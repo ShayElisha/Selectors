@@ -67,7 +67,7 @@ export function findShiftForSlot(
   date: string,
   shiftType: ShiftType,
   excludeId?: string,
-  audience?: 'inspector' | 'selector',
+  audience?: 'inspector' | 'selector' | 'security',
 ): { id: string; date: string; shiftType: ShiftType; updatedAt?: string } | null {
   const matches = history.filter(
     (h) =>
@@ -77,7 +77,9 @@ export function findShiftForSlot(
       (audience == null ||
         (audience === 'selector'
           ? h.audience === 'selector'
-          : h.audience !== 'selector')),
+          : audience === 'security'
+            ? h.audience === 'security'
+            : h.audience !== 'selector' && h.audience !== 'security')),
   )
   if (matches.length === 0) return null
   return matches.sort((a, b) =>

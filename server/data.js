@@ -971,7 +971,9 @@ function emptyState() {
 }
 
 function targetForScope(scope) {
-  return scope?.module === "inspectors" ? "inspectors" : "selectors";
+  if (scope?.module === "inspectors") return "inspectors";
+  if (scope?.module === "security") return "security";
+  return "selectors";
 }
 
 let inspectorsMigration = null;

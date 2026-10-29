@@ -57,12 +57,16 @@ import {
   clearSession,
   loadAppDataCache,
   loadDraftJson,
+  audienceForModule,
+  isAppModule,
+  isStaffKind,
   loadSession,
   loadShiftStep,
   saveAppDataCache,
   saveDraftJson,
   saveSession,
   saveShiftStep,
+  staffKindForModule,
   type AppModule,
   type SessionUser,
 } from '../auth'
@@ -134,6 +138,7 @@ import type {
   ShiftSignOff,
   SeatSegment,
   ShiftType,
+  StaffKind,
   StaffingStandard,
   WindowAdjustment,
   View,
@@ -273,13 +278,12 @@ function fixTagForSeats(
   return assignmentFixTag(primaryAssignmentFix(kinds.length > 0 ? kinds : ['other']))
 }
 
-function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector'): Worker {
+function normalizeWorkerRoles(w: Worker, fallbackKind: StaffKind): Worker {
   const isManager = Boolean(w.isManager)
   const hasInspector = Object.prototype.hasOwnProperty.call(w, 'isInspector')
   let isInspector = hasInspector ? Boolean(w.isInspector) : !isManager
   if (!isInspector && !isManager) isInspector = true
-  const staffKind =
-    w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : fallbackKind
+  const staffKind = isStaffKind(w.staffKind) ? w.staffKind : fallbackKind
   const isOrgManager = Boolean(w.isOrgManager)
   return {
     ...w,
@@ -291,8 +295,17 @@ function normalizeWorkerRoles(w: Worker, fallbackKind: 'inspector' | 'selector')
   }
 }
 
-function normalizeAppData(data: AppData, module: 'selectors' | 'inspectors' = 'selectors'): AppData {
-  const fallbackKind = module === 'inspectors' ? 'inspector' : 'selector'
+function activeModule(user: SessionUser | null | undefined): AppModule {
+  return isAppModule(user?.module) ? user.module : 'selectors'
+}
+
+function parseShiftAudience(value: unknown): ShiftAudience {
+  if (value === 'selector' || value === 'security' || value === 'inspector') return value
+  return 'inspector'
+}
+
+function normalizeAppData(data: AppData, module: AppModule = 'selectors'): AppData {
+  const fallbackKind = staffKindForModule(module)
   return {
     ...data,
     workers: data.workers.map((worker) => normalizeWorkerRoles(worker, fallbackKind)),
@@ -366,10 +379,10 @@ interface AppContextValue {
   setModule: (module: AppModule) => void
   assignmentModes: AssignmentModes
   saveAssignmentModes: (modes: AssignmentModes) => Promise<void>
-  roundMinutes: { selectors: number; inspectors: number }
-  saveRoundMinutes: (minutes: { selectors: number; inspectors: number }) => Promise<void>
-  staggerRounds: { selectors: boolean; inspectors: boolean }
-  saveStaggerRounds: (stagger: { selectors: boolean; inspectors: boolean }) => Promise<void>
+  roundMinutes: { selectors: number; inspectors: number; security: number }
+  saveRoundMinutes: (minutes: { selectors: number; inspectors: number; security: number }) => Promise<void>
+  staggerRounds: { selectors: boolean; inspectors: boolean; security: boolean }
+  saveStaggerRounds: (stagger: { selectors: boolean; inspectors: boolean; security: boolean }) => Promise<void>
   orgProfile: { name: string; logo: string }
   saveOrgProfile: (profile: { name: string; logo: string }) => Promise<void>
   login: (
@@ -562,9 +575,9 @@ const emptyData: AppData = {
 
 const AppContext = createContext<AppContextValue | null>(null)
 
-function selectorRoundBounds(shiftType: string, models: ShiftModel[] | undefined, inspectors: boolean) {
+function selectorRoundBounds(shiftType: string, models: ShiftModel[] | undefined, module: AppModule) {
   const model = shiftModelById(
-    resolveShiftModels(models, inspectors ? 'inspectors' : 'selectors'),
+    resolveShiftModels(models, module),
     shiftType,
   )
   if (!model) return undefined
@@ -649,7 +662,7 @@ function restoreDraft(): ShiftDraft | null {
     if (!parsed?.id || !Array.isArray(parsed.activeLaneIds)) return null
     return {
       ...parsed,
-      audience: parsed.audience === 'selector' ? 'selector' : 'inspector',
+      audience: parseShiftAudience(parsed.audience),
       assignmentMode: assignmentModeOf(parsed),
       rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
       workerWindows:
@@ -710,7 +723,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const location = useLocation()
   const initialCache = useMemo(() => {
     const cached = loadAppDataCache()
-    return cached ? normalizeAppData(cached, loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors') : null
+    return cached ? normalizeAppData(cached, activeModule(loadSession())) : null
   }, [])
   const [data, setData] = useState<AppData>(() => initialCache ?? emptyData)
   const persistedDataRef = useRef<AppData>(initialCache ?? emptyData)
@@ -731,10 +744,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [assignmentModes, setAssignmentModes] = useState<AssignmentModes>(
     DEFAULT_ASSIGNMENT_MODES,
   )
-  const [roundMinutes, setRoundMinutes] = useState({ selectors: 120, inspectors: 120 })
+  const [roundMinutes, setRoundMinutes] = useState({
+    selectors: 120,
+    inspectors: 120,
+    security: 120,
+  })
   const [staggerRoundsSetting, setStaggerRoundsSetting] = useState({
     selectors: false,
     inspectors: false,
+    security: false,
   })
   const [orgProfile, setOrgProfile] = useState({ name: '', logo: '' })
   const roundMinutesRef = useRef(roundMinutes)
@@ -818,7 +836,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const applyRemoteData = useCallback((remote: AppData) => {
     const next = normalizeAppData(
       remote,
-      loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
+      activeModule(loadSession()),
     )
     skipNextSync.current = true
     dataRef.current = next
@@ -927,7 +945,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (e instanceof ApiError && e.status === 409 && e.current) {
             const server = normalizeAppData(
               e.current,
-              loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
+              activeModule(loadSession()),
             )
             const latestLocal = pendingSaveRef.current ?? snapshot
             pendingSaveRef.current = null
@@ -936,7 +954,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ...mergeConcurrentAppData(persistedDataRef.current, latestLocal, server),
                 revision: server.revision,
               },
-              loadSession()?.module === 'inspectors' ? 'inspectors' : 'selectors',
+              activeModule(loadSession()),
             )
             persistedDataRef.current = server
             skipNextSync.current = true
@@ -1218,12 +1236,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setRoundMinutes({
               selectors: Number(settings.roundMinutes.selectors) || 120,
               inspectors: Number(settings.roundMinutes.inspectors) || 120,
+              security: Number(settings.roundMinutes.security) || 120,
             })
           }
           if (settings.staggerRounds) {
             setStaggerRoundsSetting({
               selectors: settings.staggerRounds.selectors === true,
               inspectors: settings.staggerRounds.inspectors === true,
+              security: settings.staggerRounds.security === true,
             })
           }
           if (settings.organization) setOrgProfile(settings.organization)
@@ -1238,7 +1258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [user?.token, user?.role])
 
   const saveRoundMinutes = useCallback(
-    async (minutes: { selectors: number; inspectors: number }) => {
+    async (minutes: { selectors: number; inspectors: number; security: number }) => {
       const saved = await saveOrgSettings({
         assignmentModes,
         roundMinutes: minutes,
@@ -1247,6 +1267,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRoundMinutes({
           selectors: Number(saved.roundMinutes.selectors) || 120,
           inspectors: Number(saved.roundMinutes.inspectors) || 120,
+          security: Number(saved.roundMinutes.security) || 120,
         })
       }
     },
@@ -1254,7 +1275,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const saveStaggerRounds = useCallback(
-    async (stagger: { selectors: boolean; inspectors: boolean }) => {
+    async (stagger: { selectors: boolean; inspectors: boolean; security: boolean }) => {
       const saved = await saveOrgSettings({
         assignmentModes,
         roundMinutes,
@@ -1264,6 +1285,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setStaggerRoundsSetting({
           selectors: saved.staggerRounds.selectors === true,
           inspectors: saved.staggerRounds.inspectors === true,
+          security: saved.staggerRounds.security === true,
         })
       }
     },
@@ -1296,6 +1318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRoundMinutes({
         selectors: Number(saved.roundMinutes.selectors) || 120,
         inspectors: Number(saved.roundMinutes.inspectors) || 120,
+        security: Number(saved.roundMinutes.security) || 120,
       })
     }
   }, [])
@@ -1322,6 +1345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           Boolean(prev?.isOrgManager) !== Boolean(next.isOrgManager) ||
           Boolean(prev?.modules.selectors) !== Boolean(next.modules?.selectors) ||
           Boolean(prev?.modules.inspectors) !== Boolean(next.modules?.inspectors) ||
+          Boolean(prev?.modules.security) !== Boolean(next.modules?.security) ||
           prev?.module !== next.module
         saveSession(next)
         if (changed) setUser(next)
@@ -1409,7 +1433,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           id: item.id,
           date: item.date,
           shiftType: item.shiftType,
-          audience: item.audience === 'selector' ? 'selector' : 'inspector',
+          audience: parseShiftAudience(item.audience),
           assignmentMode: assignmentModeOf(item),
           activeLaneIds: item.activeLaneIds,
           presentWorkerIds: item.presentWorkerIds,
@@ -1467,7 +1491,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(gateManagerWorkerId ? { gateManagerWorkerId } : {}),
       assignmentMode: usesRounds(d) ? 'rounds' : 'single',
       assignments: usesRounds(d) ? [] : stripEmpty(d.assignments),
-      ...(d.audience === 'selector' ? { audience: 'selector' as const } : {}),
+      ...(d.audience === 'selector' || d.audience === 'security'
+        ? { audience: d.audience }
+        : {}),
       ...(usesRounds(d)
         ? {
             rounds: d.rounds ?? [],
@@ -1515,14 +1541,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const startShift = useCallback((audience: ShiftAudience = 'inspector') => {
-    const inspectors = user?.module === 'inspectors'
-    const lockedAudience: ShiftAudience = inspectors ? 'inspector' : audience
-    const assignmentMode =
-      assignmentModes[inspectors ? 'inspectors' : 'selectors']
-    const models = resolveShiftModels(
-      data.shiftModels,
-      inspectors ? 'inspectors' : 'selectors',
-    )
+    const module = activeModule(user)
+    const lockedAudience: ShiftAudience = audienceForModule(module)
+    const assignmentMode = assignmentModes[module]
+    const models = resolveShiftModels(data.shiftModels, module)
     const catalog = models.map((model) => model.id as ShiftType)
     const clock = currentShiftModel(models)
     const shiftType = catalog.includes(clock.model.id as ShiftType)
@@ -1541,8 +1563,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       rounds: [],
       workerWindows: {},
       windowAdjustments: {},
-      staggerRounds:
-        staggerRef.current[inspectors ? 'inspectors' : 'selectors'],
+      staggerRounds: staggerRef.current[module],
       warnings: [],
       unassignedWorkerIds: [],
       explanations: [],
@@ -1955,18 +1976,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
-        bounds: selectorRoundBounds(
-          d.shiftType,
-          data.shiftModels,
-          user?.module === 'inspectors',
-        ),
+        bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
         roundMinutes:
           roundMinutesRef.current[
-            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+            activeModule(user)
           ],
         stagger:
           staggerRef.current[
-            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+            activeModule(user)
           ],
         windowAdjustments: d.windowAdjustments,
         lanes: data.lanes,
@@ -1981,7 +1998,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return withGateManagerSync(
         {
           ...d,
-          audience: user?.module === 'inspectors' ? 'inspector' : 'selector',
+          audience: audienceForModule(user?.module),
           assignmentMode: 'rounds',
           assignments: [],
           rounds: result.rounds,
@@ -2009,18 +2026,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
         const result = assignSelectorRounds({
           shiftType: d.shiftType,
-          bounds: selectorRoundBounds(
-            d.shiftType,
-            data.shiftModels,
-            user?.module === 'inspectors',
-          ),
+          bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
           roundMinutes:
             roundMinutesRef.current[
-              user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+              activeModule(user)
             ],
           stagger:
             staggerRef.current[
-              user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+              activeModule(user)
             ],
           windowAdjustments: d.windowAdjustments,
           lanes: data.lanes,
@@ -2035,7 +2048,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return withGateManagerSync(
           {
             ...next,
-            audience: user?.module === 'inspectors' ? 'inspector' : 'selector',
+            audience: audienceForModule(user?.module),
             assignmentMode: 'rounds',
             rounds: result.rounds,
             warnings: result.warnings,
@@ -2289,18 +2302,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
-        bounds: selectorRoundBounds(
-          d.shiftType,
-          data.shiftModels,
-          user?.module === 'inspectors',
-        ),
+        bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
         roundMinutes:
           roundMinutesRef.current[
-            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+            activeModule(user)
           ],
         stagger:
           staggerRef.current[
-            user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+            activeModule(user)
           ],
         windowAdjustments: d.windowAdjustments,
         lanes: data.lanes,
@@ -2330,7 +2339,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return withGateManagerSync(
         {
           ...d,
-          audience: user?.module === 'inspectors' ? 'inspector' : 'selector',
+          audience: audienceForModule(user?.module),
           assignmentMode: 'rounds',
           assignments: [],
           rounds: result.rounds,
@@ -2488,7 +2497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ),
               d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
               roundMinutesRef.current[
-                user?.module === 'inspectors' ? 'inspectors' : 'selectors'
+                activeModule(user)
               ],
             ),
             warnings: [],
@@ -3039,11 +3048,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const toastId = toast.loading('מחשב שיבוץ חליפי אופטימלי...')
       window.setTimeout(() => {
         try {
-          const inspectors = user?.module === 'inspectors'
+          const moduleKey = activeModule(user)
           const bounds = selectorRoundBounds(
             current.shiftType,
             data.shiftModels,
-            Boolean(inspectors),
+            moduleKey,
           )
           const start = bounds?.start ?? 6 * 60
           const end = bounds?.end ?? start + 8 * 60
@@ -3066,7 +3075,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }),
             rounds: usesRounds(current),
             roundMinutes:
-              roundMinutesRef.current[inspectors ? 'inspectors' : 'selectors'],
+              roundMinutesRef.current[moduleKey],
             bounds,
           })
           setHealPlan(plan)
@@ -3862,7 +3871,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       user,
       assigning,
       assignProgress,
-      module: user?.module === 'inspectors' ? 'inspectors' : 'selectors',
+      module: activeModule(user),
       setModule,
       assignmentModes,
       saveAssignmentModes,

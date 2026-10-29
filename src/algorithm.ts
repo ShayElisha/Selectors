@@ -304,6 +304,11 @@ export interface BoardEvaluation {
    * Higher is better — keeps rested people on hard through optimization.
    */
   idleOnHard: number
+  /**
+   * Morning→afternoon continuers kept on the same extreme intensity
+   * (hard→hard or easy→easy). Lower is better.
+   */
+  sameIntensityContinuation: number
   minDaysSince: number
   totalRotation: number
 }
@@ -543,6 +548,11 @@ export interface WorkerHistoryProfile {
   prevCalendarDayLaneIds: Set<string>
   laneRecency: Map<string, number>
   lastWasHard: boolean
+  /**
+   * Dominant intensity from the same-day morning placement, when this person
+   * continues into an afternoon shift. Used to avoid hard→hard / easy→easy.
+   */
+  morningIntensity: Intensity | null
   lastShiftType: ShiftType | null
   shiftsSeen: number
   /**
@@ -1156,19 +1166,45 @@ export function buildSameDayMorningContext(
 
 /**
  * Afternoon handoff priority (lower = better):
- * 0 — arrives only for afternoon
- * 1 — long shift, was on THIS handoff lane in the morning
- * 2 — long shift, other morning continuer
+ * 0 — arrived after last night's shift (mandatory first choice)
+ * 1 — arrives only for afternoon (certified / present, not from morning)
+ * 2 — long shift, was on THIS handoff lane in the morning (keep them if no 0/1)
+ * 3 — long shift, other morning continuer
  */
 export function afternoonHandoffTier(
   workerId: string,
   laneId: string,
   morning: SameDayMorningContext | null,
+  afternoonAfterNight = false,
 ): number {
-  if (!morning?.found) return 0
-  if (!morning.morningWorkerIds.has(workerId)) return 0
-  if (morning.workersByLane.get(laneId)?.has(workerId)) return 1
-  return 2
+  if (afternoonAfterNight) return 0
+  if (!morning?.found) return 1
+  if (!morning.morningWorkerIds.has(workerId)) return 1
+  if (morning.workersByLane.get(laneId)?.has(workerId)) return 2
+  return 3
+}
+
+/** Soft penalty when a morning→afternoon continuer stays on the same extreme intensity. */
+export function continuationIntensityPenalty(
+  profile: Pick<
+    WorkerHistoryProfile,
+    'continuesFromMorning' | 'morningIntensity'
+  >,
+  laneIntensity: Intensity,
+): number {
+  if (!profile.continuesFromMorning || !profile.morningIntensity) return 0
+  const morning = profile.morningIntensity
+  if (morning === 'hard' && laneIntensity === 'hard') return 2
+  if (morning === 'easy' && laneIntensity === 'easy') return 2
+  // Medium is flexible; hard/easy switching onto medium (or the opposite extreme) is fine.
+  return 0
+}
+
+function dominantMorningIntensity(lanes: Lane[]): Intensity | null {
+  if (lanes.length === 0) return null
+  if (lanes.some((lane) => lane.intensity === 'hard')) return 'hard'
+  if (lanes.every((lane) => lane.intensity === 'easy')) return 'easy'
+  return 'medium'
 }
 
 function versatility(worker: Worker, otherOpenLanes: Lane[]): number {
@@ -1225,6 +1261,7 @@ export function buildWorkerProfile(
     prevCalendarDayLaneIds: new Set(),
     laneRecency: new Map(),
     lastWasHard: false,
+    morningIntensity: null,
     lastShiftType: null,
     shiftsSeen: 0,
     afternoonAfterNight: false,
@@ -1397,6 +1434,9 @@ export function buildWorkerProfile(
     if (placements.length === 0) continue
 
     profile.shiftsSeen += 1
+    if (shift.shiftType === 'morning' && profile.morningIntensity == null) {
+      profile.morningIntensity = dominantMorningIntensity(placements)
+    }
     // Same-day earlier is more recent than prior-day history — override "last"
     if (!sameDayLastCaptured) {
       profile.lastShiftType = shift.shiftType
@@ -1424,11 +1464,11 @@ export function buildWorkerProfile(
 
 /**
  * Ranking for a lane (lower compare result = better). Order:
- * 1) afternoon handoff tier
- * 2) on handoff seats: night→afternoon people before other same-tier candidates
- * 3) night→afternoon recovery on easy / away from hard
- * 4) short-return avoidance (almost-hard when alternatives exist in sort set)
- * 5) standard objective: do not repeat whoever sat this lane last
+ * 1) afternoon handoff tier (after-night → afternoon-only → morning same-lane → other morning)
+ * 2) night→afternoon recovery on easy / away from hard
+ * 3) short-return avoidance (almost-hard when alternatives exist in sort set)
+ * 4) standard objective: do not repeat whoever sat this lane last
+ * 5) morning→afternoon continuers: avoid hard→hard and easy→easy
  * 6) hard lanes: idle ≥ IDLE_HARD_REST_DAYS, then clearly lower recent load
  * 7) Maximum Distance rotation — raw score (not continuous)
  * 8) load / hard balance by intensity (relative hard rate)
@@ -1457,15 +1497,19 @@ function compareForLane(
   const afternoonShift = isAfternoonShift(currentShiftType)
 
   if (lane.afternoonHandoff && afternoonShift) {
-    const ta = afternoonHandoffTier(a.id, lane.id, morning)
-    const tb = afternoonHandoffTier(b.id, lane.id, morning)
+    const ta = afternoonHandoffTier(
+      a.id,
+      lane.id,
+      morning,
+      !relaxNightRecovery && pa.afternoonAfterNight,
+    )
+    const tb = afternoonHandoffTier(
+      b.id,
+      lane.id,
+      morning,
+      !relaxNightRecovery && pb.afternoonAfterNight,
+    )
     if (ta !== tb) return ta - tb
-    // Same handoff tier: last night's worker belongs on החלפת צהריים first.
-    if (!relaxNightRecovery) {
-      const aNight = pa.afternoonAfterNight ? 1 : 0
-      const bNight = pb.afternoonAfterNight ? 1 : 0
-      if (aNight !== bNight) return bNight - aNight
-    }
     // Inside the same handoff tier, the person away from this seat longer wins.
     const handoffRa = rotationScoreFor(pa, lane.id).rawScore
     const handoffRb = rotationScoreFor(pb, lane.id).rawScore
@@ -1521,6 +1565,14 @@ function compareForLane(
       if (easyLeft > 0) return aRec - bRec
       return bRec - aRec
     }
+  }
+
+  // Morning→afternoon continuers: switch extremes (hard↛hard, easy↛easy).
+  // Medium stays flexible. Rotation still decides among equal fits.
+  if (afternoonShift) {
+    const ca = continuationIntensityPenalty(pa, lane.intensity)
+    const cb = continuationIntensityPenalty(pb, lane.intensity)
+    if (ca !== cb) return ca - cb
   }
 
   if (objective === 'loadFair' && pa.load !== pb.load) {
@@ -1991,6 +2043,7 @@ export function evaluateBoard(
   let rotSum = 0
   let recoveryOnHard = 0
   let idleOnHard = 0
+  let sameIntensityContinuation = 0
   let handoffScoreSum = 0
   let handoffTierPenalty = 0
   let handoffN = 0
@@ -2051,11 +2104,21 @@ export function evaluateBoard(
       idleOnHard += 1
     }
 
+    if (afternoonShift && continuationIntensityPenalty(profile, lane.intensity) > 0) {
+      sameIntensityContinuation += 1
+    }
+
     if (lane.afternoonHandoff && afternoonShift) {
-      const tier = afternoonHandoffTier(workerId, lane.id, ctx.morning ?? null)
-      // tier 0 best → 100, tier 1 → 70, tier 2 → 35; night after night boosts further
-      const base = tier === 0 ? 100 : tier === 1 ? 70 : 35
-      handoffScoreSum += profile.afternoonAfterNight ? Math.min(100, base + 15) : base
+      const tier = afternoonHandoffTier(
+        workerId,
+        lane.id,
+        ctx.morning ?? null,
+        profile.afternoonAfterNight,
+      )
+      // 0 after-night → 100, 1 afternoon-only → 80, 2 morning same-lane → 55, 3 other morning → 30
+      const base =
+        tier === 0 ? 100 : tier === 1 ? 80 : tier === 2 ? 55 : 30
+      handoffScoreSum += base
       handoffTierPenalty += tier
       handoffN += 1
       if (profile.afternoonAfterNight) nightOnHandoff += 1
@@ -2194,6 +2257,7 @@ export function evaluateBoard(
     lastOccupantRepeats,
     recoveryOnHard,
     idleOnHard,
+    sameIntensityContinuation,
     minDaysSince: boardMinDaysSince(assignments, ctx.profiles),
     totalRotation: rotSum,
   }
@@ -2263,6 +2327,7 @@ function illegalBoardEval(
     lastOccupantRepeats: Number.POSITIVE_INFINITY,
     recoveryOnHard: Number.POSITIVE_INFINITY,
     idleOnHard: Number.NEGATIVE_INFINITY,
+    sameIntensityContinuation: Number.POSITIVE_INFINITY,
     minDaysSince: 0,
     totalRotation: 0,
   }
@@ -2328,6 +2393,10 @@ export function isBoardBetter(
   if (next.nightOnHandoff !== current.nightOnHandoff) {
     return next.nightOnHandoff > current.nightOnHandoff
   }
+  // Morning→afternoon: avoid keeping hard on hard / easy on easy.
+  if (next.sameIntensityContinuation !== current.sameIntensityContinuation) {
+    return next.sameIntensityContinuation < current.sameIntensityContinuation
+  }
 
   if (next.idleOnHard !== current.idleOnHard) {
     return next.idleOnHard > current.idleOnHard
@@ -2378,12 +2447,24 @@ export function handoffTierViolationCount(
     const lane = laneById.get(laneId)
     if (!lane?.afternoonHandoff || seated.size === 0) continue
     for (const seatedId of seated) {
-      const seatedTier = afternoonHandoffTier(seatedId, laneId, morning)
       const seatedNight = profiles?.get(seatedId)?.afternoonAfterNight === true
+      const seatedTier = afternoonHandoffTier(
+        seatedId,
+        laneId,
+        morning,
+        seatedNight,
+      )
       for (const [wid, w] of workersById) {
         if (seated.has(wid)) continue
         if (!isQualified(w, lane)) continue
-        const challengerTier = afternoonHandoffTier(wid, laneId, morning)
+        const challengerNight =
+          profiles?.get(wid)?.afternoonAfterNight === true
+        const challengerTier = afternoonHandoffTier(
+          wid,
+          laneId,
+          morning,
+          challengerNight,
+        )
         if (challengerTier < seatedTier) {
           violations += 1
           break
@@ -2394,7 +2475,7 @@ export function handoffTierViolationCount(
           challengerTier === seatedTier &&
           !seatedNight &&
           !onHandoff.has(wid) &&
-          profiles?.get(wid)?.afternoonAfterNight === true
+          challengerNight
         ) {
           violations += 1
           break
@@ -2640,8 +2721,9 @@ function explainLanePriority(
 }
 
 function handoffTierLabel(tier: number): string {
-  if (tier === 0) return 'מגיע רק לצהריים — עדיפות כמחליף'
-  if (tier === 1) return 'המשיך מבוקר באותה עמדה (אין מחליף צהריים)'
+  if (tier === 0) return 'מגיע אחרי לילה — חובה בעדיפות ראשונה'
+  if (tier === 1) return 'מגיע רק לצהריים — עדיפות כמחליף'
+  if (tier === 2) return 'המשיך מבוקר באותה עמדה (אין מחליף צהריים/אחרי־לילה)'
   return 'המשיך מבוקר מעמדה אחרת (אין מחליף צהריים)'
 }
 
@@ -2754,7 +2836,12 @@ function buildPlacementReasons(
     isAfternoonShift(currentShiftType) &&
     morning?.found
   ) {
-    const tier = afternoonHandoffTier(worker.id, lane.id, morning)
+    const tier = afternoonHandoffTier(
+      worker.id,
+      lane.id,
+      morning,
+      p.afternoonAfterNight,
+    )
     reasons.push(`החלפת צהריים: ${handoffTierLabel(tier)}`)
   }
 
@@ -2870,17 +2957,30 @@ function buildPlacementReasons(
       isAfternoonShift(currentShiftType) &&
       morning?.found
     ) {
-      const ta = afternoonHandoffTier(worker.id, lane.id, morning)
-      const tb = afternoonHandoffTier(rival.id, lane.id, morning)
+      const ta = afternoonHandoffTier(
+        worker.id,
+        lane.id,
+        morning,
+        p.afternoonAfterNight,
+      )
+      const tb = afternoonHandoffTier(
+        rival.id,
+        lane.id,
+        morning,
+        rp.afternoonAfterNight,
+      )
       if (ta !== tb) {
         diffs.push(`מתאים יותר להחלפת צהריים מ${rival.fullName}`)
-      } else if (p.afternoonAfterNight !== rp.afternoonAfterNight) {
-        if (p.afternoonAfterNight) {
-          diffs.push(
-            `הגיע אחרי לילה — עדיפות להחלפת צהריים לפני ${rival.fullName}`,
-          )
-        }
       }
+    }
+    if (
+      isAfternoonShift(currentShiftType) &&
+      continuationIntensityPenalty(p, lane.intensity) <
+        continuationIntensityPenalty(rp, lane.intensity)
+    ) {
+      diffs.push(
+        `מעבר עצימות מבוקר (לא נשאר על ${INTENSITY_LABELS[p.morningIntensity ?? lane.intensity]}) לפני ${rival.fullName}`,
+      )
     }
     const aRec = recoveringIds.has(worker.id)
     const bRec = recoveringIds.has(rival.id)
@@ -3134,11 +3234,8 @@ function greedyAssignPass(
     let pool = qualified
 
     /**
-     * Afternoon handoff lane with a saved morning board: split the pool by
-     * handoff tier BEFORE any soft filter. If no certified afternoon arrival
-     * (tier 0) covers the תקן, the morning occupant of THIS seat (tier 1)
-     * stays in place — never pushed out by soft filters — and another morning
-     * worker (tier 2) is considered only as last resort.
+     * Afternoon handoff lane: split the pool by handoff tier BEFORE soft filters.
+     * 0 after-night → 1 afternoon-only → 2 morning same-lane → 3 other morning.
      */
     let handoffFallback = false
     const morning = morningCtx && morningCtx.found ? morningCtx : null
@@ -3147,9 +3244,15 @@ function greedyAssignPass(
       isAfternoonShift(currentShiftType) &&
       morning
     ) {
-      const byTier = [0, 1, 2].map((tier) =>
+      const byTier = [0, 1, 2, 3].map((tier) =>
         pool.filter(
-          (w) => afternoonHandoffTier(w.id, lane.id, morning) === tier,
+          (w) =>
+            afternoonHandoffTier(
+              w.id,
+              lane.id,
+              morning,
+              profiles.get(w.id)?.afternoonAfterNight === true,
+            ) === tier,
         ),
       )
       const chosen: Worker[] = []
@@ -3158,23 +3261,15 @@ function greedyAssignPass(
         tierIndex < byTier.length &&
         chosen.length < lane.staffingStandard
       ) {
-        chosen.push(...byTier[tierIndex])
+        chosen.push(...(byTier[tierIndex] ?? []))
         tierIndex += 1
       }
-      if (tierIndex > 1) {
-        // Fallback below tier 0 — keep whoever sat here this morning in place
-        // rather than pulling someone from a different morning seat.
+      if (tierIndex > 2) {
+        // Fell into morning tiers — keep same-lane morning before other morning.
         pool = chosen
         handoffFallback = true
       } else {
-        pool = byTier[0]
-      }
-      // Prefer last-night arrivals inside the chosen handoff pool when they cover תקן.
-      const nightFirst = pool.filter(
-        (w) => profiles.get(w.id)?.afternoonAfterNight === true,
-      )
-      if (nightFirst.length >= lane.staffingStandard) {
-        pool = nightFirst
+        pool = chosen.length > 0 ? chosen : pool
       }
     }
 
@@ -3342,12 +3437,17 @@ function greedyAssignPass(
     ) {
       for (const id of picked) {
         if (profiles.get(id)?.afternoonAfterNight) continue
-        const tier = afternoonHandoffTier(id, lane.id, morningCtx)
-        if (tier === 1) {
+        const tier = afternoonHandoffTier(
+          id,
+          lane.id,
+          morningCtx,
+          false,
+        )
+        if (tier === 2) {
           warnings.push(
-            `נתיב "${lane.name}" — ממשיך מבוקר (היה שם בבוקר); לא נמצא מחליף צהריים`,
+            `נתיב "${lane.name}" — ממשיך מבוקר (היה שם בבוקר); לא נמצא אחרי־לילה או מחליף צהריים`,
           )
-        } else if (tier === 2) {
+        } else if (tier === 3) {
           warnings.push(
             `נתיב "${lane.name}" — מולא ע״י ממשיך משמרת ארוכה אחר (אין מחליף צהריים / איש הבוקר לא ממשיך)`,
           )
@@ -3496,11 +3596,11 @@ function assignWorkersGlobally(
       if (rank == null) continue
       const profile = profiles.get(worker.id)
       if (!profile) continue
+      const night = profile.afternoonAfterNight
       const tier =
         lane.afternoonHandoff && afternoonShift
-          ? afternoonHandoffTier(worker.id, lane.id, morning)
+          ? afternoonHandoffTier(worker.id, lane.id, morning, night)
           : 0
-      const night = profile.afternoonAfterNight
       const nightAwayCost =
         hasHandoffLane &&
         night &&
@@ -3521,6 +3621,9 @@ function assignWorkersGlobally(
       const recentReturnCost = isShortReturnToLane(profile, lane.id)
         ? Math.floor(repeatPenalty / 2)
         : 0
+      const intensitySwitchCost = afternoonShift
+        ? continuationIntensityPenalty(profile, lane.intensity) * 4
+        : 0
       const cost =
         tier * handoffPenalty +
         (lane.intensity === 'hard' && recoveringIds.has(worker.id)
@@ -3530,6 +3633,7 @@ function assignWorkersGlobally(
         lastOccupantCost +
         (profile.daysSinceLastVisit.has(lane.id) ? repeatPenalty : 0) +
         recentReturnCost +
+        intensitySwitchCost +
         rank
       const edge = addEdge(
         workerNodeById.get(worker.id)!,
@@ -3954,12 +4058,12 @@ function runAssignmentAlgorithmInternal(
         morningCtx?.found &&
         !profiles.get(workerId)?.afternoonAfterNight
       ) {
-        const tier = afternoonHandoffTier(workerId, lane.id, morningCtx)
-        if (tier === 1) {
+        const tier = afternoonHandoffTier(workerId, lane.id, morningCtx, false)
+        if (tier === 2) {
           warnings.push(
-            `נתיב "${lane.name}" — ממשיך מבוקר (היה שם בבוקר); לא נמצא מחליף צהריים מתאים`,
+            `נתיב "${lane.name}" — ממשיך מבוקר (היה שם בבוקר); לא נמצא אחרי־לילה או מחליף צהריים מתאים`,
           )
-        } else if (tier === 2) {
+        } else if (tier === 3) {
           warnings.push(
             `נתיב "${lane.name}" — מולא ע״י ממשיך משמרת ארוכה אחר (אין מחליף צהריים / איש הבוקר אינו זמין)`,
           )

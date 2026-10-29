@@ -4,6 +4,7 @@ import type { ShiftModel } from '../types'
 export type { ShiftModel }
 
 export function defaultShiftModels(module: AppModule): ShiftModel[] {
+  // Inspectors: 3 windows. Selectors and security (מאבטחים): 4 windows.
   if (module === 'inspectors') {
     return [
       { id: 'morning', name: 'בוקר', startMinutes: 6 * 60, endMinutes: 14 * 60 + 30, order: 0 },

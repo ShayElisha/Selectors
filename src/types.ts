@@ -9,7 +9,7 @@ export type ShiftType =
 /** Per-lane / per-shift staffing תקן (max participants). */
 export type StaffingStandard = 1 | 2 | 3 | 4 | 5
 
-export type StaffKind = 'inspector' | 'selector'
+export type StaffKind = 'inspector' | 'selector' | 'security'
 
 export interface Worker {
   id: string
@@ -64,8 +64,8 @@ export interface LaneAssignment {
   notes?: string
 }
 
-/** Inspector board (one placement for the shift) or selector rounds. */
-export type ShiftAudience = 'inspector' | 'selector'
+/** Which staff module a shift board belongs to. */
+export type ShiftAudience = 'inspector' | 'selector' | 'security'
 
 /** How a section places people: rotating rounds, or one post for the whole shift. */
 export type AssignmentMode = 'rounds' | 'single'

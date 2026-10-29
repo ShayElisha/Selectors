@@ -150,7 +150,12 @@ export function ShiftPage() {
     user,
     module,
   } = useApp()
-  const roleName = module === 'inspectors' ? 'בודקים' : 'סלקטורים'
+  const roleName =
+    module === 'inspectors'
+      ? 'בודקים'
+      : module === 'security'
+        ? 'מאבטחים'
+        : 'סלקטורים'
 
   const draftRef = useRef(draft)
   draftRef.current = draft

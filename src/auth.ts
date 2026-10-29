@@ -1,14 +1,67 @@
-import type { AppData, Worker } from './types'
+import type { AppData, ShiftAudience, StaffKind, Worker } from './types'
 
 const SESSION_KEY = 'shibutzon-session'
 const DRAFT_KEY = 'shibutzon-draft'
 const SHIFT_STEP_KEY = 'shibutzon-shift-step'
 
-export type AppModule = 'selectors' | 'inspectors'
+export type AppModule = 'selectors' | 'inspectors' | 'security'
 
 export interface OrgModules {
   selectors: boolean
   inspectors: boolean
+  security: boolean
+}
+
+export const APP_MODULES: AppModule[] = ['selectors', 'inspectors', 'security']
+
+export const MODULE_LABELS: Record<AppModule, string> = {
+  selectors: 'סלקטורים',
+  inspectors: 'בודקים',
+  security: 'מאבטחים',
+}
+
+export function emptyOrgModules(): OrgModules {
+  return { selectors: false, inspectors: false, security: false }
+}
+
+export function normalizeOrgModules(raw: unknown): OrgModules {
+  const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  return {
+    selectors: Boolean(src.selectors),
+    inspectors: Boolean(src.inspectors),
+    security: Boolean(src.security),
+  }
+}
+
+export function isAppModule(value: unknown): value is AppModule {
+  return value === 'selectors' || value === 'inspectors' || value === 'security'
+}
+
+export function audienceForModule(module: AppModule | null | undefined): ShiftAudience {
+  if (module === 'inspectors') return 'inspector'
+  if (module === 'security') return 'security'
+  return 'selector'
+}
+
+export function staffKindForModule(module: AppModule | null | undefined): StaffKind {
+  if (module === 'inspectors') return 'inspector'
+  if (module === 'security') return 'security'
+  return 'selector'
+}
+
+export function isStaffKind(value: unknown): value is StaffKind {
+  return value === 'inspector' || value === 'selector' || value === 'security'
+}
+
+export function enabledModuleCount(modules: OrgModules): number {
+  return APP_MODULES.reduce((sum, key) => sum + (modules[key] ? 1 : 0), 0)
+}
+
+export function defaultModule(modules: OrgModules): AppModule | null {
+  for (const key of APP_MODULES) {
+    if (modules[key]) return key
+  }
+  return null
 }
 
 export interface SessionUser {
@@ -22,7 +75,7 @@ export interface SessionUser {
   modules: OrgModules
   module: AppModule | null
   isOrgManager: boolean
-  staffKind?: 'inspector' | 'selector' | null
+  staffKind?: StaffKind | null
 }
 
 function cacheKey(user: Pick<SessionUser, 'orgId' | 'module'> | null): string | null {
@@ -43,14 +96,8 @@ export function loadSession(): SessionUser | null {
     ) {
       return null
     }
-    const modules = {
-      selectors: Boolean(parsed.modules?.selectors),
-      inspectors: Boolean(parsed.modules?.inspectors),
-    }
-    const module =
-      parsed.module === 'selectors' || parsed.module === 'inspectors'
-        ? parsed.module
-        : null
+    const modules = normalizeOrgModules(parsed.modules)
+    const module = isAppModule(parsed.module) ? parsed.module : null
     if (
       (parsed.role === 'org_manager' || parsed.role === 'worker') &&
       (!parsed.orgId || !module || !modules[module])
@@ -62,7 +109,7 @@ export function loadSession(): SessionUser | null {
         ? false
         : typeof parsed.isOrgManager === 'boolean'
           ? parsed.isOrgManager
-          : Boolean(modules.selectors && modules.inspectors)
+          : enabledModuleCount(modules) >= 2
     return {
       ...parsed,
       orgId: parsed.orgId || null,
@@ -70,10 +117,7 @@ export function loadSession(): SessionUser | null {
       modules,
       module,
       isOrgManager,
-      staffKind:
-        parsed.staffKind === 'inspector' || parsed.staffKind === 'selector'
-          ? parsed.staffKind
-          : null,
+      staffKind: isStaffKind(parsed.staffKind) ? parsed.staffKind : null,
     }
   } catch {
     return null
@@ -97,7 +141,7 @@ export function sessionFromWorker(w: Worker, token: string): SessionUser {
     role: 'org_manager',
     orgId: null,
     orgName: null,
-    modules: { selectors: true, inspectors: false },
+    modules: { selectors: true, inspectors: false, security: false },
     module: 'selectors',
     isOrgManager: false,
   }

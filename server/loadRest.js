@@ -87,7 +87,7 @@ function restEligibleWorkers(workers) {
  * The live עומס number still comes from history via accumulateLoadBalance;
  * this run persists the nightly check and audit trail.
  *
- * @param {{ orgId: string, module: 'inspectors' | 'selectors', date: string }} args
+ * @param {{ orgId: string, module: 'inspectors' | 'selectors' | 'security', date: string }} args
  */
 export async function applyLoadRestForScope({ orgId, module, date }) {
   const scope = { orgId, module }
@@ -97,7 +97,13 @@ export async function applyLoadRestForScope({ orgId, module, date }) {
   const rested = []
   const worked = []
 
-  const db = await getDb(module === 'inspectors' ? 'inspectors' : 'selectors')
+  const dbTarget =
+    module === 'inspectors'
+      ? 'inspectors'
+      : module === 'security'
+        ? 'security'
+        : 'selectors'
+  const db = await getDb(dbTarget)
   const col = db.collection('load_rest_credits')
 
   for (const worker of workers) {
@@ -160,6 +166,7 @@ export async function runDailyLoadRest(opts = {}) {
     const modules = []
     if (org.modules?.inspectors) modules.push('inspectors')
     if (org.modules?.selectors) modules.push('selectors')
+    if (org.modules?.security) modules.push('security')
     for (const module of modules) {
       try {
         results.push(

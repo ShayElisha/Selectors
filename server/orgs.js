@@ -60,19 +60,21 @@ function httpError(message, status) {
 }
 
 function emptyModules() {
-  return { selectors: false, inspectors: false }
+  return { selectors: false, inspectors: false, security: false }
 }
 
 function publicModules(modules) {
   return {
     selectors: Boolean(modules?.selectors),
     inspectors: Boolean(modules?.inspectors),
+    security: Boolean(modules?.security),
   }
 }
 
 function defaultModule(modules) {
   if (modules?.selectors) return 'selectors'
   if (modules?.inspectors) return 'inspectors'
+  if (modules?.security) return 'security'
   return null
 }
 
@@ -111,9 +113,12 @@ function modulesForAccount(account, org) {
   const enabled = publicModules(org.modules)
   if (account?.isOrgManager) return enabled
   if (account?.staffKind === 'inspector') {
-    return { selectors: false, inspectors: enabled.inspectors }
+    return { selectors: false, inspectors: enabled.inspectors, security: false }
   }
-  return { selectors: enabled.selectors, inspectors: false }
+  if (account?.staffKind === 'security') {
+    return { selectors: false, inspectors: false, security: enabled.security }
+  }
+  return { selectors: enabled.selectors, inspectors: false, security: false }
 }
 
 export async function refreshManagerSession(user) {
@@ -194,10 +199,11 @@ function orgGate(org, modules = publicModules(org?.modules)) {
       message: 'הארגון ממתין לאישור סופר אדמין. אחרי האישור אפשר להיכנס.',
     }
   }
-  if (!modules.selectors && !modules.inspectors) {
+  if (!modules.selectors && !modules.inspectors && !modules.security) {
     return {
       next: 'no_modules',
-      message: 'הארגון אושר, ועדיין לא נפתח מודול. סופר אדמין צריך לבחור סלקטורים או בודקים.',
+      message:
+        'הארגון אושר, ועדיין לא נפתח מודול. סופר אדמין צריך לבחור סלקטורים, בודקים או מאבטחים.',
     }
   }
   return null
@@ -415,6 +421,7 @@ export async function reviewOrganization(id, patch) {
     next.modules = {
       selectors: Boolean(patch.modules.selectors),
       inspectors: Boolean(patch.modules.inspectors),
+      security: Boolean(patch.modules.security),
     }
   }
   if (Object.keys(next).length === 0) throw httpError('אין שינוי לעדכון', 400)
@@ -431,7 +438,8 @@ export async function reviewOrganization(id, patch) {
   if (saved?.status === 'approved' && next.modules) {
     const opened =
       (next.modules.selectors && !org.modules?.selectors) ||
-      (next.modules.inspectors && !org.modules?.inspectors)
+      (next.modules.inspectors && !org.modules?.inspectors) ||
+      (next.modules.security && !org.modules?.security)
     if (opened) await notifyModulesOpened(saved)
   }
   const rows = await listOrganizations()
@@ -539,6 +547,7 @@ async function hardDeleteOrganization(id) {
 
   const targets = ['selectors']
   if (process.env.MONGODB_URI_INSPECTORS?.trim()) targets.push('inspectors')
+  if (process.env.MONGODB_URI_SECURITY?.trim()) targets.push('security')
   for (const target of targets) {
     const db = await getDb(target)
     for (const name of OPERATIONAL_COLLECTIONS) {
@@ -908,7 +917,7 @@ export async function createLegacyOrganization(workers) {
     name: 'הארגון הקיים',
     status: 'approved',
     legacy: true,
-    modules: { selectors: true, inspectors: true },
+    modules: { selectors: true, inspectors: true, security: false },
     createdAt: now,
     updatedAt: now,
   })
@@ -942,6 +951,7 @@ export function publicAssignmentModes(org) {
   return {
     selectors: raw.selectors === 'single' ? 'single' : 'rounds',
     inspectors: raw.inspectors === 'rounds' ? 'rounds' : 'single',
+    security: raw.security === 'single' ? 'single' : 'rounds',
   }
 }
 
@@ -955,7 +965,11 @@ export function publicRoundMinutes(org) {
   const raw = org?.roundMinutes || {}
   const pick = (value) =>
     ROUND_CHOICES.includes(Number(value)) ? Number(value) : 120
-  return { selectors: pick(raw.selectors), inspectors: pick(raw.inspectors) }
+  return {
+    selectors: pick(raw.selectors),
+    inspectors: pick(raw.inspectors),
+    security: pick(raw.security),
+  }
 }
 
 export function publicStaggerRounds(org) {
@@ -966,6 +980,7 @@ export function publicStaggerRounds(org) {
   return {
     selectors: raw.selectors === true,
     inspectors: raw.inspectors === true,
+    security: raw.security === true,
   }
 }
 
@@ -1039,10 +1054,16 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     }
     next.inspectors = modes.inspectors
   }
+  if (modes?.security != null) {
+    if (modes.security !== 'rounds' && modes.security !== 'single') {
+      throw httpError('אופן שיבוץ לא תקין למאבטחים', 400)
+    }
+    next.security = modes.security
+  }
   const minutes = publicRoundMinutes(org)
   const minutePatch = patch?.roundMinutes
   if (minutePatch && typeof minutePatch === 'object') {
-    for (const key of ['selectors', 'inspectors']) {
+    for (const key of ['selectors', 'inspectors', 'security']) {
       if (ROUND_CHOICES.includes(Number(minutePatch[key]))) {
         minutes[key] = Number(minutePatch[key])
       }
@@ -1051,19 +1072,24 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
   const stagger = publicStaggerRounds(org)
   const staggerPatch = patch?.staggerRounds
   if (staggerPatch && typeof staggerPatch === 'object') {
-    for (const key of ['selectors', 'inspectors']) {
+    for (const key of ['selectors', 'inspectors', 'security']) {
       if (typeof staggerPatch[key] === 'boolean') stagger[key] = staggerPatch[key]
     }
   }
   const sameModes =
-    next.selectors === current.selectors && next.inspectors === current.inspectors
+    next.selectors === current.selectors &&
+    next.inspectors === current.inspectors &&
+    next.security === current.security
+  const previousMinutes = publicRoundMinutes(org)
   const sameMinutes =
-    minutes.selectors === publicRoundMinutes(org).selectors &&
-    minutes.inspectors === publicRoundMinutes(org).inspectors
+    minutes.selectors === previousMinutes.selectors &&
+    minutes.inspectors === previousMinutes.inspectors &&
+    minutes.security === previousMinutes.security
   const previousStagger = publicStaggerRounds(org)
   const sameStagger =
     stagger.selectors === previousStagger.selectors &&
-    stagger.inspectors === previousStagger.inspectors
+    stagger.inspectors === previousStagger.inspectors &&
+    stagger.security === previousStagger.security
   if (sameModes && sameMinutes && sameStagger) {
     return {
       modules: publicModules(org.modules),
@@ -1090,6 +1116,9 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
       : '',
     next.inspectors !== current.inspectors
       ? `בודקים: ${assignmentModeLabel(next.inspectors)}`
+      : '',
+    next.security !== current.security
+      ? `מאבטחים: ${assignmentModeLabel(next.security)}`
       : '',
   ]
     .filter(Boolean)

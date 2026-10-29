@@ -108,7 +108,12 @@ function publicWorker(worker) {
     phone: worker.phone || '',
     email: worker.email || '',
     certifications: Array.isArray(worker.certifications) ? worker.certifications : [],
-    staffKind: worker.staffKind === 'inspector' ? 'inspector' : 'selector',
+    staffKind:
+      worker.staffKind === 'inspector'
+        ? 'inspector'
+        : worker.staffKind === 'security'
+          ? 'security'
+          : 'selector',
     status: worker.status || 'active',
   }
 }
@@ -460,9 +465,11 @@ export async function requireWorkerActor(req) {
     actor.module ||
     (actor.modules?.inspectors
       ? 'inspectors'
-      : actor.modules?.selectors
-        ? 'selectors'
-        : null)
+      : actor.modules?.security
+        ? 'security'
+        : actor.modules?.selectors
+          ? 'selectors'
+          : null)
   if (!module || !actor.modules?.[module]) {
     throw httpError('המודול אינו פתוח', 403)
   }

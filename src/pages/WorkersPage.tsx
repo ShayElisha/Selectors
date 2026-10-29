@@ -531,14 +531,15 @@ function WorkerForm({
             שיוך
           </p>
           <p className="mb-2 text-[11px] text-ink-soft">
-            בודק רואה רק את הבודקים. סלקטור רואה רק את הסלקטורים. מנהל ארגון
-            רואה את כל המודולים הפתוחים.
+            בודק רואה רק את הבודקים. סלקטור רואה רק את הסלקטורים. מאבטח רואה רק
+            את המאבטחים. מנהל ארגון רואה את כל המודולים הפתוחים.
           </p>
           <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="שיוך עובד">
             {(
               [
                 { id: 'inspector' as const, label: 'בודק' },
                 { id: 'selector' as const, label: 'סלקטור' },
+                { id: 'security' as const, label: 'מאבטח' },
               ] as const
             ).map((opt) => (
               <label
@@ -923,7 +924,12 @@ export function WorkersPage() {
     module,
   } = useApp()
   const canAppointOrgManager = Boolean(user?.isOrgManager)
-  const defaultKind: StaffKind = module === 'inspectors' ? 'inspector' : 'selector'
+  const defaultKind: StaffKind =
+    module === 'inspectors'
+      ? 'inspector'
+      : module === 'security'
+        ? 'security'
+        : 'selector'
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -1033,7 +1039,12 @@ export function WorkersPage() {
         status: w.status,
         isInspector: Boolean(w.isInspector) || !w.isManager,
         isManager: Boolean(w.isManager) || Boolean(w.isOrgManager),
-        staffKind: w.staffKind === 'inspector' || w.staffKind === 'selector' ? w.staffKind : defaultKind,
+        staffKind:
+          w.staffKind === 'inspector' ||
+          w.staffKind === 'selector' ||
+          w.staffKind === 'security'
+            ? w.staffKind
+            : defaultKind,
         isOrgManager: Boolean(w.isOrgManager),
         canLogin: Boolean(w.canLogin) && !w.isManager && !w.isOrgManager,
         managerNotes: w.managerNotes || '',

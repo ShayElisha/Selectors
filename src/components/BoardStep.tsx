@@ -970,26 +970,21 @@ export function BoardStep({
             draft.shiftType === 'afternoonA' ||
             draft.shiftType === 'afternoonB')
         ) {
-          const ta = afternoonHandoffTier(a.id, laneId, morningCtx)
-          const tb = afternoonHandoffTier(b.id, laneId, morningCtx)
-          if (ta !== tb) return ta - tb
           const aNight = needsAfternoonNightRecovery(
             a.id,
             data.history,
             draft.date,
             draft.shiftType,
           )
-            ? 1
-            : 0
           const bNight = needsAfternoonNightRecovery(
             b.id,
             data.history,
             draft.date,
             draft.shiftType,
           )
-            ? 1
-            : 0
-          if (aNight !== bNight) return bNight - aNight
+          const ta = afternoonHandoffTier(a.id, laneId, morningCtx, aNight)
+          const tb = afternoonHandoffTier(b.id, laneId, morningCtx, bNight)
+          if (ta !== tb) return ta - tb
         }
         return a.fullName.localeCompare(b.fullName, 'he')
       })
@@ -1018,22 +1013,21 @@ export function BoardStep({
           draft.shiftType === 'afternoonA' ||
           draft.shiftType === 'afternoonB')
       ) {
+        const afterNight = needsAfternoonNightRecovery(
+          w.id,
+          data.history,
+          draft.date,
+          draft.shiftType,
+        )
         const tier = morningCtx?.found
-          ? afternoonHandoffTier(w.id, laneId, morningCtx)
-          : null
-        if (tier === 0) details.push('צהריים בלבד')
-        else if (tier === 1) details.push('ממשיך — היה כאן בבוקר')
-        else if (tier === 2) details.push('ממשיך מבוקר')
-        if (
-          needsAfternoonNightRecovery(
-            w.id,
-            data.history,
-            draft.date,
-            draft.shiftType,
-          )
-        ) {
-          details.push('אחרי לילה')
-        }
+          ? afternoonHandoffTier(w.id, laneId, morningCtx, afterNight)
+          : afterNight
+            ? 0
+            : null
+        if (tier === 0) details.push('אחרי לילה')
+        else if (tier === 1) details.push('צהריים בלבד')
+        else if (tier === 2) details.push('ממשיך — היה כאן בבוקר')
+        else if (tier === 3) details.push('ממשיך מבוקר')
       }
       if (elsewhere && w.id !== workerId) {
         details.push(`כעת בנתיב ${elsewhere}`)
