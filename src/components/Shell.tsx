@@ -411,7 +411,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <div
                 className="mt-3 inline-flex rounded-lg border border-line/80 bg-card p-0.5"
                 role="group"
-                aria-label="בחירת מודול"
+                aria-label={
+                  user.isOrgManager
+                    ? 'מעבר בין כל מודולי הארגון'
+                    : 'בחירת מודול'
+                }
               >
                 {(
                   [

@@ -109,6 +109,17 @@ async function findAccountByPhone(phone) {
   return col.findOne({ phone: normalizePhone(phone) })
 }
 
+function normalizeStaffKind(value) {
+  if (value === 'inspector' || value === 'selector' || value === 'security') {
+    return value
+  }
+  return 'selector'
+}
+
+/**
+ * Org managers see every module opened for the organization.
+ * Other managers/workers see only their staffKind side.
+ */
 function modulesForAccount(account, org) {
   const enabled = publicModules(org.modules)
   if (account?.isOrgManager) return enabled
@@ -170,7 +181,7 @@ function sessionFromAccount(account, org) {
     modules,
     module: defaultModule(modules),
     isOrgManager: role === 'org_manager' ? Boolean(account.isOrgManager) : false,
-    staffKind: account.staffKind === 'inspector' ? 'inspector' : 'selector',
+    staffKind: normalizeStaffKind(account.staffKind),
   }
 }
 
@@ -849,7 +860,13 @@ export async function upsertManagerAccount({
     if (mustChangePassword) fields.passwordExpiresAt = tempPasswordExpiresAt()
     else fields.passwordExpiresAt = ''
   }
-  if (staffKind === 'inspector' || staffKind === 'selector') fields.staffKind = staffKind
+  if (
+    staffKind === 'inspector' ||
+    staffKind === 'selector' ||
+    staffKind === 'security'
+  ) {
+    fields.staffKind = staffKind
+  }
   if (typeof isOrgManager === 'boolean') {
     fields.isOrgManager = loginRole === 'org_manager' ? Boolean(isOrgManager) : false
   }
@@ -862,7 +879,7 @@ export async function upsertManagerAccount({
     mustChangePassword: Boolean(mustChangePassword),
     passwordHash: passwordHash || '',
     isOrgManager: loginRole === 'org_manager' ? Boolean(isOrgManager) : false,
-    staffKind: staffKind === 'inspector' ? 'inspector' : 'selector',
+    staffKind: normalizeStaffKind(staffKind),
     role: loginRole,
     ...fields,
   })

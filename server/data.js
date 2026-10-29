@@ -73,7 +73,9 @@ function normalizeWorker(w, fallbackKind = "selector") {
   let isInspector = hasInspectorFlag ? Boolean(w.isInspector) : !isManager;
   if (!isInspector && !isManager) isInspector = true;
   const staffKind =
-    w.staffKind === "inspector" || w.staffKind === "selector"
+    w.staffKind === "inspector" ||
+    w.staffKind === "selector" ||
+    w.staffKind === "security"
       ? w.staffKind
       : fallbackKind;
   const isOrgManager = Boolean(w.isOrgManager);
@@ -441,7 +443,12 @@ async function syncManagerAccess(workers, orgId) {
       fullName: worker.fullName,
       phone: worker.phone,
       email: worker.email,
-      staffKind: worker.staffKind === "inspector" ? "inspector" : "selector",
+      staffKind:
+        worker.staffKind === "inspector" ||
+        worker.staffKind === "selector" ||
+        worker.staffKind === "security"
+          ? worker.staffKind
+          : "selector",
       isOrgManager: Boolean(worker.isOrgManager),
       role,
     });
@@ -1592,7 +1599,12 @@ export async function resendManagerTempPassword(workerId, actor, options = {}) {
     email: target.email,
     passwordHash,
     mustChangePassword: true,
-    staffKind: target.staffKind === "inspector" ? "inspector" : "selector",
+    staffKind:
+      target.staffKind === "inspector" ||
+      target.staffKind === "selector" ||
+      target.staffKind === "security"
+        ? target.staffKind
+        : "selector",
     isOrgManager: Boolean(target.isOrgManager),
     role: loginRole,
   });
