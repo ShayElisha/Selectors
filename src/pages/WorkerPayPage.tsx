@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
   addManagerPayEntryRemote,
   addWorkerPayEntryRemote,
@@ -106,8 +106,8 @@ function workedMinutes(minutes: PayMinutes): number {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-surface/70 px-3 py-2">
-      <p className="text-[11px] text-ink-soft">{label}</p>
+    <div className="min-w-0 rounded-xl bg-surface/70 px-3 py-2">
+      <p className="truncate text-[11px] text-ink-soft">{label}</p>
       <p className="mt-0.5 font-semibold text-ink">
         <Ltr>{value}</Ltr>
       </p>
@@ -151,6 +151,7 @@ function PayLedger({
   const [error, setError] = useState<string | null>(null)
   const [basis, setBasis] = useState<PayBasis>('hourly')
   const [amount, setAmount] = useState('')
+  const [editingRate, setEditingRate] = useState(false)
   const [savingRate, setSavingRate] = useState(false)
   const [entryDate, setEntryDate] = useState(todayIso)
   const [entryStart, setEntryStart] = useState('08:00')
@@ -172,6 +173,7 @@ function PayLedger({
       setLoadedYear(target)
       setBasis(data.basis === 'monthly' ? 'monthly' : 'hourly')
       setAmount(data.amount > 0 ? String(data.amount) : '')
+      setEditingRate(!(data.basis && data.amount > 0))
       setError(null)
     } catch (err) {
       if (requestId.current !== id) return
@@ -231,6 +233,7 @@ function PayLedger({
       setPay(saved)
       setLoadedYear(year)
       setAmount(String(saved.amount))
+      setEditingRate(false)
       notify.success('השכר נשמר')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שמירת השכר נכשלה')
@@ -290,9 +293,11 @@ function PayLedger({
   }
 
   const monthDays = daysInMonth(month)
+  const hasRate = Boolean(pay?.basis && pay.amount > 0)
+  const showRateForm = !hasRate || editingRate
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 max-w-full space-y-4">
       <SectionCard
         title="שכר לפי חודשים"
         subtitle={`${year} · כל חודש מה־1 עד סוף החודש`}
@@ -328,7 +333,7 @@ function PayLedger({
           </div>
         }
       >
-        <p className="text-3xl font-bold text-ink">
+        <p className="text-2xl font-bold text-ink sm:text-3xl">
           <Ltr>{money(yearGross)}</Ltr>
         </p>
         <p className="mt-1 text-sm text-ink-soft">
@@ -347,53 +352,100 @@ function PayLedger({
       </SectionCard>
 
       <SectionCard title="השכר שלי" subtitle="הסכום נשמר אצלכם ומשמש לחישוב כל החודשים.">
-        <form onSubmit={(event) => void saveRate(event)} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-          <div>
-            <FieldLabel htmlFor="pay-basis">סוג שכר</FieldLabel>
-            <select
-              id="pay-basis"
-              className="ui-field"
-              value={basis}
-              onChange={(event) => setBasis(event.target.value as PayBasis)}
-              disabled={savingRate}
+        {loading && loadedYear !== year ? (
+          <PageLoader label="טוען שכר…" />
+        ) : showRateForm ? (
+          <form onSubmit={(event) => void saveRate(event)} className="grid gap-3">
+            <div>
+              <FieldLabel htmlFor="pay-basis">סוג שכר</FieldLabel>
+              <select
+                id="pay-basis"
+                className="ui-field w-full min-w-0"
+                value={basis}
+                onChange={(event) => setBasis(event.target.value as PayBasis)}
+                disabled={savingRate}
+              >
+                <option value="hourly">שכר שעתי</option>
+                <option value="monthly">שכר חודשי</option>
+              </select>
+            </div>
+            <div>
+              <FieldLabel htmlFor="pay-amount">
+                {basis === 'monthly' ? 'ברוטו לחודש (₪)' : 'ברוטו לשעה (₪)'}
+              </FieldLabel>
+              <input
+                id="pay-amount"
+                className="ui-field w-full min-w-0"
+                dir="ltr"
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder={basis === 'monthly' ? '12000' : '60'}
+                disabled={savingRate}
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2 min-[420px]:flex-row">
+              <button
+                type="submit"
+                className="ui-btn ui-btn-primary w-full disabled:opacity-40 min-[420px]:flex-1"
+                disabled={savingRate || !amount.trim()}
+              >
+                {savingRate ? 'שומר…' : 'שמירת שכר'}
+              </button>
+              {hasRate ? (
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-secondary w-full min-[420px]:w-auto"
+                  onClick={() => {
+                    setEditingRate(false)
+                    setBasis(pay?.basis === 'monthly' ? 'monthly' : 'hourly')
+                    setAmount(pay && pay.amount > 0 ? String(pay.amount) : '')
+                    setError(null)
+                  }}
+                >
+                  ביטול
+                </button>
+              ) : null}
+            </div>
+          </form>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-2xl border border-line/80 bg-surface/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-ink-soft">
+                {pay?.basis === 'monthly' ? 'שכר חודשי' : 'שכר שעתי'}
+              </p>
+              <p className="mt-1 text-2xl font-bold tracking-tight text-ink">
+                <Ltr>{money(pay?.amount ?? null)}</Ltr>
+                <span className="ms-2 text-sm font-medium text-ink-soft">
+                  {pay?.basis === 'monthly' ? 'לחודש' : 'לשעה'}
+                </span>
+              </p>
+              {pay?.basis === 'monthly' && report?.hourlyRate != null ? (
+                <p className="mt-1 text-sm text-ink-soft">
+                  שווה <Ltr>{money(report.hourlyRate)}</Ltr> לשעה
+                </p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary w-full sm:w-auto"
+              onClick={() => setEditingRate(true)}
             >
-              <option value="hourly">שכר שעתי</option>
-              <option value="monthly">שכר חודשי</option>
-            </select>
+              <Pencil className="size-4" aria-hidden />
+              עריכה
+            </button>
           </div>
-          <div>
-            <FieldLabel htmlFor="pay-amount">
-              {basis === 'monthly' ? 'ברוטו לחודש (₪)' : 'ברוטו לשעה (₪)'}
-            </FieldLabel>
-            <input
-              id="pay-amount"
-              className="ui-field"
-              dir="ltr"
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder={basis === 'monthly' ? '12000' : '60'}
-              disabled={savingRate}
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            className="ui-btn ui-btn-primary disabled:opacity-40"
-            disabled={savingRate || !amount.trim()}
-          >
-            {savingRate ? 'שומר…' : 'שמירת שכר'}
-          </button>
-        </form>
+        )}
       </SectionCard>
 
       <SectionCard title="רשומת שעות" subtitle="אם שעת הסיום מוקדמת מההתחלה, הרשומה נמשכת ליום הבא.">
-        <form onSubmit={(event) => void addEntry(event)} className="grid gap-3 sm:grid-cols-4 sm:items-end">
+        <form onSubmit={(event) => void addEntry(event)} className="grid gap-3">
           <div>
             <FieldLabel htmlFor="pay-date">תאריך</FieldLabel>
             <select
               id="pay-date"
-              className="ui-field"
+              className="ui-field w-full min-w-0"
               value={entryDate}
               onChange={(event) => setEntryDate(event.target.value)}
               disabled={savingEntry}
@@ -401,40 +453,42 @@ function PayLedger({
               {monthDays.map((date) => (
                 <option key={date} value={date}>
                   {Number(date.slice(8))} ב{MONTH_NAMES[Number(date.slice(5, 7)) - 1]} ·{' '}
-                  {DAY_NAMES[report.days.find((day) => day.date === date)?.weekday ?? 0]}
+                  {DAY_NAMES[report?.days.find((day) => day.date === date)?.weekday ?? 0]}
                 </option>
               ))}
             </select>
           </div>
-          <div>
-            <FieldLabel htmlFor="pay-start">התחלה</FieldLabel>
-            <input
-              id="pay-start"
-              className="ui-field"
-              dir="ltr"
-              type="time"
-              value={entryStart}
-              onChange={(event) => setEntryStart(event.target.value)}
-              required
-              disabled={savingEntry}
-            />
-          </div>
-          <div>
-            <FieldLabel htmlFor="pay-end">סיום</FieldLabel>
-            <input
-              id="pay-end"
-              className="ui-field"
-              dir="ltr"
-              type="time"
-              value={entryEnd}
-              onChange={(event) => setEntryEnd(event.target.value)}
-              required
-              disabled={savingEntry}
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <FieldLabel htmlFor="pay-start">התחלה</FieldLabel>
+              <input
+                id="pay-start"
+                className="ui-field w-full min-w-0 max-w-full"
+                dir="ltr"
+                type="time"
+                value={entryStart}
+                onChange={(event) => setEntryStart(event.target.value)}
+                required
+                disabled={savingEntry}
+              />
+            </div>
+            <div className="min-w-0">
+              <FieldLabel htmlFor="pay-end">סיום</FieldLabel>
+              <input
+                id="pay-end"
+                className="ui-field w-full min-w-0 max-w-full"
+                dir="ltr"
+                type="time"
+                value={entryEnd}
+                onChange={(event) => setEntryEnd(event.target.value)}
+                required
+                disabled={savingEntry}
+              />
+            </div>
           </div>
           <button
             type="submit"
-            className="ui-btn ui-btn-primary disabled:opacity-40"
+            className="ui-btn ui-btn-primary w-full disabled:opacity-40"
             disabled={savingEntry}
           >
             <Plus className="size-4" aria-hidden />
@@ -468,7 +522,7 @@ function PayLedger({
                 <li key={item.month}>
                   <button
                     type="button"
-                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-start ${
+                    className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-start ${
                       open
                         ? 'border-brand/40 bg-brand/5'
                         : 'border-line/80 bg-surface/30'
@@ -477,16 +531,14 @@ function PayLedger({
                     onClick={() => setMonth(item.month)}
                   >
                     <span className="min-w-0">
-                      <span className="font-semibold text-ink">
-                        {monthTitle(item.month)}
+                      <span className="block truncate font-semibold text-ink">
+                        {MONTH_NAMES[Number(item.month.slice(5, 7)) - 1]}
                       </span>
                       {isCurrent ? (
-                        <span className="ms-2 text-xs font-semibold text-brand">
-                          החודש
-                        </span>
+                        <span className="text-xs font-semibold text-brand">החודש</span>
                       ) : null}
                     </span>
-                    <span className="text-end">
+                    <span className="shrink-0 text-end">
                       <span className="block font-semibold text-ink">
                         <Ltr>{money(item.gross)}</Ltr>
                       </span>
@@ -507,7 +559,7 @@ function PayLedger({
           title={monthTitle(report.month)}
           subtitle="מה־1 עד סוף החודש"
         >
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="רגיל 100%" value={formatHours(report.totals.regular)} />
             <Stat label="125%" value={formatHours(report.totals.ot125)} />
             <Stat label="150%" value={formatHours(report.totals.ot150)} />
@@ -552,6 +604,23 @@ function DayRow({
     day.minutes.ot150 +
     day.minutes.shabbat +
     day.minutes.holiday
+  const quiet = worked === 0 && day.entries.length === 0
+  if (quiet) {
+    return (
+      <li
+        className={`flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm ${
+          today ? 'bg-brand/5 font-semibold text-brand' : 'text-ink-soft'
+        }`}
+      >
+        <span className="min-w-0 truncate">
+          <Ltr>{Number(day.date.slice(8))}</Ltr>
+          <span className="ms-2">יום {DAY_NAMES[day.weekday]}</span>
+          {today ? <span className="ms-2 text-xs">היום</span> : null}
+        </span>
+        <span className="shrink-0">—</span>
+      </li>
+    )
+  }
   return (
     <li
       className={`rounded-xl border px-3 py-2.5 ${
@@ -569,9 +638,9 @@ function DayRow({
               <span className="ms-2 text-xs font-semibold text-brand">היום</span>
             ) : null}
           </p>
-          {tag ? <p className="text-xs text-ink-soft">{tag}</p> : null}
+          {tag ? <p className="text-xs leading-5 text-ink-soft">{tag}</p> : null}
         </div>
-        <div className="text-end">
+        <div className="shrink-0 text-end">
           <p className="font-semibold text-ink">
             <Ltr>{money(day.gross)}</Ltr>
           </p>
@@ -581,13 +650,13 @@ function DayRow({
         </div>
       </div>
       {day.entries.length > 0 ? (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 space-y-1.5">
           {day.entries.map((entry) => (
             <li
               key={`${entry.id}-${entry.from}`}
               className="flex items-center justify-between gap-2 text-sm"
             >
-              <span className="text-ink">
+              <span className="min-w-0 text-ink">
                 <Ltr>
                   {entry.from}–{entry.to}
                 </Ltr>
@@ -598,7 +667,7 @@ function DayRow({
               {entry.originDate === day.date ? (
                 <button
                   type="button"
-                  className="ui-btn ui-btn-ghost !px-2 !py-1 text-xs text-hard"
+                  className="ui-btn ui-btn-ghost shrink-0 !px-2 !py-1 text-xs text-hard"
                   aria-label={`מחיקת רשומה ב-${day.date}`}
                   disabled={deletingId === entry.id}
                   onClick={() => onDelete(entry.id)}
@@ -610,13 +679,11 @@ function DayRow({
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="mt-1 text-xs text-ink-soft">אין רשומה</p>
-      )}
+      ) : null}
       {worked > 0 ? (
-        <p className="mt-1 text-[11px] text-ink-soft">
+        <div className="mt-2">
           <MinuteBits day={day} />
-        </p>
+        </div>
       ) : null}
     </li>
   )
@@ -630,5 +697,16 @@ function MinuteBits({ day }: { day: PayDay }) {
     day.minutes.shabbat ? `שבת ${formatHours(day.minutes.shabbat)}` : '',
     day.minutes.holiday ? `חג ${formatHours(day.minutes.holiday)}` : '',
   ].filter(Boolean)
-  return <Ltr>{parts.join(' · ')}</Ltr>
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {parts.map((part) => (
+        <span
+          key={part}
+          className="rounded-full bg-card px-2 py-0.5 text-[11px] text-ink-soft ring-1 ring-line/80"
+        >
+          <Ltr>{part}</Ltr>
+        </span>
+      ))}
+    </div>
+  )
 }
