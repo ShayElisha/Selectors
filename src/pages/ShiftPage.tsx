@@ -1690,7 +1690,7 @@ export function ShiftPage() {
                 שיבוץ {roleName}
               </h2>
               <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-soft">
-                שורות לפי שעות, עמודות לפי נתיבים. בכל תא בוחרים אדם. הסרה של נתיב משאירה את האנשים במשמרת.
+                כל סבב מוצג בכרטיסי נתיב. שעות הסבב, שעות העובדים ושעות הפעילות של הנתיב נשארות כמו שהיו.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
