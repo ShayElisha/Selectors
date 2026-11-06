@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   Phone,
   UserRound,
+  Wallet,
 } from 'lucide-react'
 import { fetchWorkerNotificationsRemote } from '../api'
 import {
@@ -62,14 +63,16 @@ export function WorkerShell({
   const portalTitle = MODULE_PORTAL_LABELS[module]
   const departmentLabel = MODULE_LABELS[module]
   const homePath = workerPortalPath(module)
-  const nav = useMemo(
-    () =>
-      NAV_ITEMS.map((item) => ({
-        ...item,
-        to: workerPortalPath(module, item.sub),
-      })),
-    [module],
-  )
+  const nav = useMemo(() => {
+    const items = [...NAV_ITEMS]
+    if (module === 'inspectors') {
+      items.splice(2, 0, { sub: 'pay', label: 'שכר', icon: Wallet })
+    }
+    return items.map((item) => ({
+      ...item,
+      to: workerPortalPath(module, item.sub),
+    }))
+  }, [module])
 
   const mobilePrimary = useMemo(() => {
     if (nav.length <= 4) return nav
@@ -174,6 +177,17 @@ export function WorkerShell({
                 role="menu"
                 className="absolute left-0 z-40 mt-1 w-48 overflow-hidden rounded-xl border border-line/80 bg-card py-1 shadow-[var(--shadow-panel-hover)]"
               >
+                {module === 'inspectors' ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
+                    onClick={() => go('pay')}
+                  >
+                    <Wallet className="size-4" aria-hidden />
+                    שכר
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -268,7 +282,7 @@ export function WorkerShell({
       )}
 
       <nav
-        className="mb-5 hidden gap-1 rounded-xl border border-line/70 bg-card/70 p-1 sm:flex no-print"
+        className="mb-5 hidden flex-wrap gap-1 rounded-xl border border-line/70 bg-card/70 p-1 sm:flex no-print"
         aria-label={`ניווט ${portalTitle}`}
       >
         {nav.map((item) => {

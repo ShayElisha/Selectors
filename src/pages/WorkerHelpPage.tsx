@@ -9,6 +9,7 @@ import {
   Shield,
   Timer,
   UserRound,
+  Wallet,
 } from 'lucide-react'
 import { SectionCard } from '../components/ui'
 import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
@@ -36,7 +37,7 @@ function Step({
 }
 
 export function WorkerHelpPage() {
-  const { portalTitle, home, path } = useWorkerPortalPaths()
+  const { module, portalTitle, home, path } = useWorkerPortalPaths()
   return (
     <div className="space-y-4">
       <SectionCard
@@ -63,6 +64,12 @@ export function WorkerHelpPage() {
             במסך התדריכים יש חומרים שהמנהלים מעדכנים. תדריכים מסומנים כחשובים
             מופיעים גם בהתראות.
           </Step>
+          {module === 'inspectors' ? (
+            <Step icon={Wallet} title="שכר">
+              במסך «שכר» מגדירים שכר שעתי או חודשי ורושמים שעות. השנה מוצגת
+              לפי חודשים, ובתוך חודש רואים כל יום מה־1 עד הסוף עם הברוטו.
+            </Step>
+          ) : null}
           <Step icon={History} title="היסטוריה">
             אפשר לראות משמרות מהחודש האחרון וסטטיסטיקה של נתיבים שכבר התחילו.
           </Step>

@@ -835,6 +835,51 @@ export function fetchWorkerIncidentsRemote(): Promise<{
   return request('/api/worker/incidents')
 }
 
+export interface WorkerPayEntry {
+  id: string
+  date: string
+  start: string
+  end: string
+}
+
+export interface WorkerPayState {
+  basis: 'hourly' | 'monthly' | null
+  amount: number
+  entries: WorkerPayEntry[]
+}
+
+export function fetchWorkerPayRemote(from: string, to: string): Promise<WorkerPayState> {
+  const params = new URLSearchParams({ from, to })
+  return request(`/api/worker/pay?${params.toString()}`)
+}
+
+export function saveWorkerPayRateRemote(body: {
+  basis: 'hourly' | 'monthly'
+  amount: number
+}): Promise<WorkerPayState> {
+  return request('/api/worker/pay/rate', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export function addWorkerPayEntryRemote(body: {
+  date: string
+  start: string
+  end: string
+}): Promise<WorkerPayEntry> {
+  return request('/api/worker/pay/entries', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteWorkerPayEntryRemote(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/worker/pay/entries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function submitWorkerFaultRemote(body: {
   title: string
   description: string

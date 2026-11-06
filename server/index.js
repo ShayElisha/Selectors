@@ -48,6 +48,12 @@ import {
   submitWorkerFault,
 } from './workerIncidents.js'
 import {
+  addWorkerPayEntry,
+  deleteWorkerPayEntry,
+  getWorkerPay,
+  saveWorkerPayRate,
+} from './workerPay.js'
+import {
   createWorkerNotice,
   listWorkerInbox,
   markAllWorkerNoticesRead,
@@ -319,6 +325,48 @@ app.get('/api/worker/contacts', async (req, res) => {
 app.get('/api/worker/incidents', async (req, res) => {
   try {
     res.json(await listWorkerIncidents(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/pay', async (req, res) => {
+  try {
+    res.json(await getWorkerPay(req, req.query || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/worker/pay/rate', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `worker-pay:${clientKey(req)}`,
+      limit: 30,
+      windowMs: 15 * 60_000,
+    })
+    res.json(await saveWorkerPayRate(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/pay/entries', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `worker-pay:${clientKey(req)}`,
+      limit: 40,
+      windowMs: 15 * 60_000,
+    })
+    res.status(201).json(await addWorkerPayEntry(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.delete('/api/worker/pay/entries/:id', async (req, res) => {
+  try {
+    res.json(await deleteWorkerPayEntry(req, req.params.id))
   } catch (err) {
     sendError(res, err)
   }

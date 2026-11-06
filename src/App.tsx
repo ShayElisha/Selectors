@@ -43,6 +43,7 @@ import { WorkerNotificationsPage } from './pages/WorkerNotificationsPage'
 import { WorkerHelpPage } from './pages/WorkerHelpPage'
 import { WorkerContactsPage } from './pages/WorkerContactsPage'
 import { WorkerFaultsPage } from './pages/WorkerFaultsPage'
+import { WorkerPayPage } from './pages/WorkerPayPage'
 import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
@@ -75,6 +76,7 @@ function ProtectedWorkerShell() {
           <Route path="history" element={<WorkerHistoryPage />} />
           <Route path="contacts" element={<WorkerContactsPage />} />
           <Route path="faults" element={<WorkerFaultsPage />} />
+          <Route path="pay" element={<WorkerPayPage />} />
           <Route path="briefings" element={<WorkerBriefingsPage />} />
           <Route path="notifications" element={<WorkerNotificationsPage />} />
           <Route path="help" element={<WorkerHelpPage />} />
