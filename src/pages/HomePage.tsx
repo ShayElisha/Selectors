@@ -799,6 +799,7 @@ export function HomePage() {
           </p>
         ) : usesRounds(currentShift) ? (
           <SelectorRoundTable
+            layout={module === 'selectors' ? 'table' : 'cards'}
             rounds={currentShift.rounds ?? []}
             lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
             workers={data.workers.filter((worker) =>
@@ -901,6 +902,7 @@ export function HomePage() {
           }
         >
           <SelectorRoundTable
+            layout="table"
             rounds={selectorShift.rounds ?? []}
             lanes={selectorLanes(data.lanes, selectorShift.activeLaneIds)}
             workers={data.workers}
