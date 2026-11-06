@@ -43,7 +43,7 @@ import { WorkerNotificationsPage } from './pages/WorkerNotificationsPage'
 import { WorkerHelpPage } from './pages/WorkerHelpPage'
 import { WorkerContactsPage } from './pages/WorkerContactsPage'
 import { WorkerFaultsPage } from './pages/WorkerFaultsPage'
-import { WorkerPayPage } from './pages/WorkerPayPage'
+import { WorkerPayPage, ManagerPayPage } from './pages/WorkerPayPage'
 import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
@@ -130,6 +130,7 @@ function ProtectedShell() {
         <Route path="shift-models" element={<ShiftModelsPage />} />
         <Route path="customs-brokers" element={<CustomsBrokersPage />} />
         <Route path="settings" element={<OrgSettingsPage />} />
+        <Route path="pay" element={<ManagerPayPage />} />
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="tracking" element={<TrackingPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />

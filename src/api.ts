@@ -880,6 +880,38 @@ export function deleteWorkerPayEntryRemote(id: string): Promise<{ ok: boolean }>
   })
 }
 
+export function fetchManagerPayRemote(from: string, to: string): Promise<WorkerPayState> {
+  const params = new URLSearchParams({ from, to })
+  return request(`/api/manager/pay?${params.toString()}`)
+}
+
+export function saveManagerPayRateRemote(body: {
+  basis: 'hourly' | 'monthly'
+  amount: number
+}): Promise<WorkerPayState> {
+  return request('/api/manager/pay/rate', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export function addManagerPayEntryRemote(body: {
+  date: string
+  start: string
+  end: string
+}): Promise<WorkerPayEntry> {
+  return request('/api/manager/pay/entries', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteManagerPayEntryRemote(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/manager/pay/entries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function submitWorkerFaultRemote(body: {
   title: string
   description: string

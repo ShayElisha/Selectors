@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
+import { scopeForRequest } from './scope.js'
 import { requireWorkerActor } from './workerPortal.js'
 
 function httpError(message, status) {
@@ -148,21 +149,34 @@ function normalizeEntry(body) {
   return { date, start, end, span }
 }
 
-export async function getWorkerPay(req, query = {}) {
+async function ownerOf(req, kind) {
+  if (kind === 'manager') {
+    const { actor, scope } = await scopeForRequest(req)
+    assertInspectors(scope)
+    return { orgId: String(scope.orgId), workerId: String(actor.id) }
+  }
   const { actor, scope } = await requireWorkerActor(req)
   assertInspectors(scope)
+  return { orgId: String(scope.orgId), workerId: String(actor.id) }
+}
+
+export async function getWorkerPay(req, query = {}, kind = 'worker') {
+  const { orgId, workerId } = await ownerOf(req, kind)
   const from = String(query.from || '')
   const to = String(query.to || '')
   if ((from && !validDate(from)) || (to && !validDate(to))) {
     throw httpError('טווח תאריכים לא תקין', 400)
   }
-  const doc = await loadDoc(String(scope.orgId), String(actor.id))
+  const doc = await loadDoc(orgId, workerId)
   return publicDoc(doc, from, to)
 }
 
-export async function saveWorkerPayRate(req, body = {}) {
-  const { actor, scope } = await requireWorkerActor(req)
-  assertInspectors(scope)
+export function getManagerPay(req, query) {
+  return getWorkerPay(req, query, 'manager')
+}
+
+export async function saveWorkerPayRate(req, body = {}, kind = 'worker') {
+  const { orgId, workerId } = await ownerOf(req, kind)
   const basis = body.basis === 'monthly' ? 'monthly' : body.basis === 'hourly' ? 'hourly' : null
   if (!basis) throw httpError('בחרו שכר שעתי או שכר חודשי', 400)
   const amount = Math.round(Number(body.amount) * 100) / 100
@@ -170,8 +184,6 @@ export async function saveWorkerPayRate(req, body = {}) {
     throw httpError('הסכום צריך להיות בין 1 ל־1,000,000', 400)
   }
   const collection = await payCollection()
-  const orgId = String(scope.orgId)
-  const workerId = String(actor.id)
   await collection.updateOne(
     { orgId, workerId },
     {
@@ -184,12 +196,13 @@ export async function saveWorkerPayRate(req, body = {}) {
   return publicDoc(doc)
 }
 
-export async function addWorkerPayEntry(req, body = {}) {
-  const { actor, scope } = await requireWorkerActor(req)
-  assertInspectors(scope)
+export function saveManagerPayRate(req, body) {
+  return saveWorkerPayRate(req, body, 'manager')
+}
+
+export async function addWorkerPayEntry(req, body = {}, kind = 'worker') {
   const next = normalizeEntry(body)
-  const orgId = String(scope.orgId)
-  const workerId = String(actor.id)
+  const { orgId, workerId } = await ownerOf(req, kind)
   const doc = await loadDoc(orgId, workerId)
   if (doc.entries.length >= 500) {
     throw httpError('אפשר לשמור עד 500 רשומות', 400)
@@ -238,16 +251,23 @@ export async function addWorkerPayEntry(req, body = {}) {
   return publicEntry(entry)
 }
 
-export async function deleteWorkerPayEntry(req, entryId) {
-  const { actor, scope } = await requireWorkerActor(req)
-  assertInspectors(scope)
+export function addManagerPayEntry(req, body) {
+  return addWorkerPayEntry(req, body, 'manager')
+}
+
+export async function deleteWorkerPayEntry(req, entryId, kind = 'worker') {
+  const { orgId, workerId } = await ownerOf(req, kind)
   const id = String(entryId || '')
   if (!id) throw httpError('הרשומה לא נמצאה', 404)
   const collection = await payCollection()
   const result = await collection.updateOne(
-    { orgId: String(scope.orgId), workerId: String(actor.id) },
+    { orgId, workerId },
     { $pull: { entries: { id } }, $set: { updatedAt: new Date().toISOString() } },
   )
   if (!result.matchedCount) throw httpError('הרשומה לא נמצאה', 404)
   return { ok: true }
+}
+
+export function deleteManagerPayEntry(req, entryId) {
+  return deleteWorkerPayEntry(req, entryId, 'manager')
 }

@@ -28,6 +28,7 @@ import {
   Box,
   Siren,
   CircleHelp,
+  Wallet,
 } from 'lucide-react'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import type { ShiftType, View } from '../types'
@@ -61,6 +62,7 @@ const OPERATIONS: NavItem[] = [
 const REPORTS: NavItem[] = [
   { id: 'analytics', label: 'סטטיסטיקות ואנליזה', icon: BarChart3 },
   { id: 'history', label: 'היסטוריה', icon: History },
+  { id: 'pay', label: 'שכר', icon: Wallet },
   { id: 'audit', label: 'יומן', icon: ScrollText },
   { id: 'customsBrokers', label: 'עמילי מכס', icon: Briefcase },
 ]
@@ -87,6 +89,7 @@ const MOBILE_MORE: View[] = [
   'shiftModels',
   'tracking',
   'analytics',
+  'pay',
   'audit',
   'customsBrokers',
   'cancellations',
@@ -301,12 +304,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
     )
     return user?.isOrgManager ? [...items, SETTINGS_NAV] : items
   }, [module, user?.isOrgManager])
-  const reportNav = REPORTS.filter(
-    (item) => item.id !== 'customsBrokers' || module === 'inspectors',
-  )
+  const reportNav = REPORTS.filter((item) => {
+    if (item.id === 'customsBrokers' || item.id === 'pay') return module === 'inspectors'
+    return true
+  })
   const moreViews = useMemo(
     () => [
-      ...MOBILE_MORE.filter((id) => id !== 'customsBrokers' || module === 'inspectors'),
+      ...MOBILE_MORE.filter(
+        (id) =>
+          (id !== 'customsBrokers' && id !== 'pay') || module === 'inspectors',
+      ),
       ...(user?.isOrgManager ? (['settings'] as View[]) : []),
     ],
     [module, user?.isOrgManager],

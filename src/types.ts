@@ -375,3 +375,4 @@ export type View =
   | 'cancellations'
   | 'handoff'
   | 'stationMap'
+  | 'pay'

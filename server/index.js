@@ -49,9 +49,13 @@ import {
 } from './workerIncidents.js'
 import {
   addWorkerPayEntry,
+  addManagerPayEntry,
   deleteWorkerPayEntry,
+  deleteManagerPayEntry,
   getWorkerPay,
+  getManagerPay,
   saveWorkerPayRate,
+  saveManagerPayRate,
 } from './workerPay.js'
 import {
   createWorkerNotice,
@@ -367,6 +371,48 @@ app.post('/api/worker/pay/entries', async (req, res) => {
 app.delete('/api/worker/pay/entries/:id', async (req, res) => {
   try {
     res.json(await deleteWorkerPayEntry(req, req.params.id))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/manager/pay', async (req, res) => {
+  try {
+    res.json(await getManagerPay(req, req.query || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/manager/pay/rate', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `manager-pay:${clientKey(req)}`,
+      limit: 30,
+      windowMs: 15 * 60_000,
+    })
+    res.json(await saveManagerPayRate(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/manager/pay/entries', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `manager-pay:${clientKey(req)}`,
+      limit: 40,
+      windowMs: 15 * 60_000,
+    })
+    res.status(201).json(await addManagerPayEntry(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.delete('/api/manager/pay/entries/:id', async (req, res) => {
+  try {
+    res.json(await deleteManagerPayEntry(req, req.params.id))
   } catch (err) {
     sendError(res, err)
   }

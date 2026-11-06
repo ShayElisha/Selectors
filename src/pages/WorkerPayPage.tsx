@@ -2,10 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Navigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import {
+  addManagerPayEntryRemote,
   addWorkerPayEntryRemote,
+  deleteManagerPayEntryRemote,
   deleteWorkerPayEntryRemote,
+  fetchManagerPayRemote,
   fetchWorkerPayRemote,
+  saveManagerPayRateRemote,
   saveWorkerPayRateRemote,
+  type WorkerPayEntry,
   type WorkerPayState,
 } from '../api'
 import { PageLoader } from '../components/PageLoader'
@@ -21,7 +26,29 @@ import {
   type PayMinutes,
 } from '../lib/grossPay'
 import { notify } from '../lib/notify'
+import { useApp } from '../context/AppContext'
 import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
+
+type PayApi = {
+  fetch: (from: string, to: string) => Promise<WorkerPayState>
+  saveRate: (body: { basis: PayBasis; amount: number }) => Promise<WorkerPayState>
+  add: (body: { date: string; start: string; end: string }) => Promise<WorkerPayEntry>
+  remove: (id: string) => Promise<{ ok: boolean }>
+}
+
+const workerPayApi: PayApi = {
+  fetch: fetchWorkerPayRemote,
+  saveRate: saveWorkerPayRateRemote,
+  add: addWorkerPayEntryRemote,
+  remove: deleteWorkerPayEntryRemote,
+}
+
+const managerPayApi: PayApi = {
+  fetch: fetchManagerPayRemote,
+  saveRate: saveManagerPayRateRemote,
+  add: addManagerPayEntryRemote,
+  remove: deleteManagerPayEntryRemote,
+}
 
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 const MONTH_NAMES = [
@@ -100,6 +127,23 @@ function dayTag(day: PayDay): string | null {
 
 export function WorkerPayPage() {
   const { module, home } = useWorkerPortalPaths()
+  return <PayLedger module={module} home={home} api={workerPayApi} />
+}
+
+export function ManagerPayPage() {
+  const { module } = useApp()
+  return <PayLedger module={module} home="/" api={managerPayApi} />
+}
+
+function PayLedger({
+  module,
+  home,
+  api,
+}: {
+  module: string
+  home: string
+  api: PayApi
+}) {
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [month, setMonth] = useState(currentMonth)
   const [pay, setPay] = useState<WorkerPayState | null>(null)
@@ -122,7 +166,7 @@ export function WorkerPayPage() {
     setLoading(true)
     try {
       const range = yearQueryRange(target)
-      const data = await fetchWorkerPayRemote(range.from, range.to)
+      const data = await api.fetch(range.from, range.to)
       if (requestId.current !== id) return
       setPay(data)
       setLoadedYear(target)
@@ -135,7 +179,7 @@ export function WorkerPayPage() {
     } finally {
       if (requestId.current === id) setLoading(false)
     }
-  }, [])
+  }, [api])
 
   useEffect(() => {
     if (module !== 'inspectors') return
@@ -182,7 +226,7 @@ export function WorkerPayPage() {
     const id = requestId.current + 1
     requestId.current = id
     try {
-      const saved = await saveWorkerPayRateRemote({ basis, amount: parsed })
+      const saved = await api.saveRate({ basis, amount: parsed })
       if (requestId.current !== id) return
       setPay(saved)
       setLoadedYear(year)
@@ -202,7 +246,7 @@ export function WorkerPayPage() {
     const id = requestId.current + 1
     requestId.current = id
     try {
-      const created = await addWorkerPayEntryRemote({
+      const created = await api.add({
         date: entryDate,
         start: entryStart.slice(0, 5),
         end: entryEnd.slice(0, 5),
@@ -227,7 +271,7 @@ export function WorkerPayPage() {
     const request = requestId.current + 1
     requestId.current = request
     try {
-      await deleteWorkerPayEntryRemote(id)
+      await api.remove(id)
       if (requestId.current !== request) return
       setPay((current) =>
         current
