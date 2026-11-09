@@ -1141,15 +1141,23 @@ export function WorkersPage() {
   }, [dirty, creating, editingId])
 
   const commitSave = (payload: Omit<Worker, 'id'>) => {
-    const normalized = {
+    const normalized: Omit<Worker, 'id'> = {
       ...payload,
       fullName: payload.fullName.trim(),
       phone: formatIsraeliMobile(payload.phone),
       email: payload.email?.trim() || '',
     }
+    if (
+      payload.trainingRole !== 'trainee' &&
+      payload.trainingRole !== 'mentor'
+    ) {
+      delete normalized.trainingRole
+    }
     try {
       if (editingWorker) {
-        updateWorker({ ...editingWorker, ...normalized })
+        const next: Worker = { ...editingWorker, ...normalized }
+        if (!normalized.trainingRole) delete next.trainingRole
+        updateWorker(next)
         showToast('הבודק עודכן')
       } else {
         addWorker(normalized)

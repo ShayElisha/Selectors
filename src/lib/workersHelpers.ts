@@ -220,6 +220,8 @@ export function formsEqual(
   if ((a.staffKind || '') !== (b.staffKind || '')) return false
   if (Boolean(a.isOrgManager) !== Boolean(b.isOrgManager)) return false
   if (Boolean(a.canLogin) !== Boolean(b.canLogin)) return false
+  if ((a.trainingRole || '') !== (b.trainingRole || '')) return false
+  if ((a.managerNotes || '').trim() !== (b.managerNotes || '').trim()) return false
   if (a.certifications.length !== b.certifications.length) return false
   const setB = new Set(b.certifications)
   return a.certifications.every((c) => setB.has(c))

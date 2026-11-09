@@ -338,6 +338,27 @@ describe('validation and history', () => {
         },
       ),
     ).toBe(true)
+    expect(
+      formsEqual(
+        {
+          fullName: 'א',
+          phone: '0501111111',
+          certifications: [],
+          status: 'active',
+          isInspector: true,
+          isManager: false,
+        },
+        {
+          fullName: 'א',
+          phone: '0501111111',
+          certifications: [],
+          status: 'active',
+          isInspector: true,
+          isManager: false,
+          trainingRole: 'mentor',
+        },
+      ),
+    ).toBe(false)
   })
 
   it('counts shift history appearances', () => {
