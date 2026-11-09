@@ -98,6 +98,17 @@ export function saveShiftRemote(
   })
 }
 
+export function signOffShiftsRemote(
+  ids: string[],
+  signature: string,
+  expectedRevision?: number,
+): Promise<{ locked: number; data: AppData }> {
+  return request<{ locked: number; data: AppData }>('/api/shifts/sign-off', {
+    method: 'POST',
+    body: JSON.stringify({ ids, signature, expectedRevision }),
+  })
+}
+
 export function fetchShiftVersionsRemote(
   shiftId: string,
 ): Promise<ShiftVersionSummary[]> {

@@ -2204,6 +2204,157 @@ export async function upsertShift(id, body, actor, options = {}) {
   return saved;
 }
 
+/**
+ * Close many open shifts in one revision bump and one DB round-trip.
+ * Signature must match the connected manager's full name (same as single close).
+ */
+export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
+  const scope = options.scope;
+  const unique = [
+    ...new Set(
+      (Array.isArray(ids) ? ids : [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const typed = compactPersonName(signature);
+  const name = compactPersonName(actor?.fullName);
+  if (!name || typed !== name) {
+    const err = new Error("החתימה צריכה להיות השם המלא של המנהל שמחובר.");
+    err.status = 400;
+    throw err;
+  }
+  const signOff = {
+    signedAt: new Date().toISOString(),
+    signerName: name,
+    signerId: String(actor?.id || ""),
+    signature: typed,
+  };
+
+  if (unique.length === 0) {
+    return { locked: 0, data: publicData(await readState(scope)) };
+  }
+
+  const state = await readState(scope);
+  let saved = null;
+  let locked = 0;
+  for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope);
+    const latest = attempt === 0 ? state : await readState(scope);
+    if (
+      options.expectedRevision != null &&
+      Number(options.expectedRevision) !== Number(latest.revision ?? 0)
+    ) {
+      throw conflictError(latest);
+    }
+
+    const toClose = [];
+    const closedById = new Map();
+    for (const id of unique) {
+      const current = (latest.history || []).find((shift) => shift.id === id);
+      if (!current || isShiftSignedOff(current)) continue;
+      const next = { ...current, signOff: { ...signOff } };
+      toClose.push({ previous: current, schedule: next });
+      closedById.set(id, next);
+    }
+    locked = toClose.length;
+    if (locked === 0) {
+      return { locked: 0, data: publicData(latest) };
+    }
+
+    const latestHistory = (latest.history || []).map(
+      (shift) => closedById.get(shift.id) || shift,
+    );
+    const nextRevision = await claimRevision(scope, latest.revision ?? 0);
+    if (nextRevision == null) continue;
+
+    const target = targetForScope(scope);
+    const db = await getDb(target);
+    const versionActor = actor
+      ? {
+          id: String(actor.id || ""),
+          fullName: String(actor.fullName || ""),
+        }
+      : null;
+
+    await withDbTransaction(async (session) => {
+      const txOpts = session ? { session } : {};
+      for (const { previous, schedule } of toClose) {
+        const stored = stampScope({ ...schedule }, scope);
+        delete stored._id;
+        const versionFilter = { ...scopeFilter(scope), shiftId: schedule.id };
+        const hasVersions = await db
+          .collection(SHIFT_VERSIONS_COLLECTION)
+          .countDocuments(versionFilter, txOpts);
+        if (hasVersions === 0 && previous) {
+          const baselineId = `baseline:${shiftDocId(scope, schedule.id)}`;
+          await db.collection(SHIFT_VERSIONS_COLLECTION).updateOne(
+            { _id: baselineId },
+            {
+              $setOnInsert: {
+                _id: baselineId,
+                shiftId: schedule.id,
+                createdAt: String(
+                  previous.updatedAt ||
+                    previous.createdAt ||
+                    new Date().toISOString(),
+                ),
+                actor: null,
+                schedule: { ...previous },
+                ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+              },
+            },
+            { upsert: true, ...txOpts },
+          );
+        }
+        const versionId = randomUUID();
+        await db.collection(SHIFT_VERSIONS_COLLECTION).updateOne(
+          { _id: versionId },
+          {
+            $setOnInsert: {
+              _id: versionId,
+              shiftId: schedule.id,
+              createdAt: schedule.updatedAt || new Date().toISOString(),
+              actor: versionActor,
+              schedule: { ...schedule },
+              ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+            },
+          },
+          { upsert: true, ...txOpts },
+        );
+        await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
+          { _id: shiftDocId(scope, schedule.id) },
+          {
+            $set: stored,
+            $setOnInsert: { listOrder: -Date.now() },
+          },
+          { upsert: true, ...txOpts },
+        );
+      }
+    }, target);
+
+    const savedState = {
+      ...latest,
+      history: latestHistory,
+      revision: nextRevision,
+    };
+    rememberState(scope, savedState);
+    saved = publicData(savedState);
+  }
+
+  if (!saved) throw conflictError(await readState(scope));
+
+  await appendAuditLog({
+    action: "shift_signoff_bulk",
+    actor,
+    details: `ננעלו ${locked} משמרות · ${name}`,
+    orgId: scope?.orgId,
+    module: scope?.module,
+  });
+
+  return { locked, data: saved };
+}
+
 export async function listShiftVersions(id, options = {}) {
   const scope = options.scope;
   const target = targetForScope(scope);

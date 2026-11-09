@@ -37,6 +37,7 @@ import {
   saveOrgSettings,
   selfHealShiftRemote,
   saveShiftRemote,
+  signOffShiftsRemote,
   seedAppDataRemote,
   reviewWorkerFaultRemote,
   updateOwnAvatarRemote,
@@ -52,11 +53,7 @@ import {
 import { earlyLeaveCutoff } from '../lib/earlyLeave'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
-import {
-  isShiftSignedOff,
-  namesMatchForSignOff,
-  normalizeSignOff,
-} from '../lib/shiftSignOff'
+import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
 import {
   clearAppDataCache,
   clearDraftStorage,
@@ -3341,44 +3338,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setError(message)
         throw new Error(message)
       }
-      const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))]
+      const unique = [
+        ...new Set(
+          ids.map((id) => String(id || '').trim()).filter(Boolean),
+        ),
+      ]
       if (unique.length === 0) return 0
 
       setSyncing(true)
       setError(null)
-      let locked = 0
       try {
-        let lastSaved: AppData | null = null
-        for (const id of unique) {
-          const source =
-            lastSaved?.history.find((shift) => shift.id === id) ??
-            dataRef.current.history.find((shift) => shift.id === id)
-          if (!source || isShiftSignedOff(source)) continue
-          const pending: ShiftSchedule = {
-            ...source,
-            signOff: {
-              signedAt: new Date().toISOString(),
-              signerName: user?.fullName?.trim() || trimmed,
-              signerId: user?.id ?? '',
-              signature: trimmed,
-            },
-          }
-          lastSaved = await runWithFreshRevision((revision) =>
-            saveShiftRemote(pending, revision),
-          )
-          locked += 1
-        }
-        if (!lastSaved) return locked
+        const result = await runWithFreshRevision((revision) =>
+          signOffShiftsRemote(unique, trimmed, revision),
+        )
+        const saved = result.data
+        const locked = result.locked
         skipNextSync.current = true
-        dataRef.current = lastSaved
-        persistedDataRef.current = lastSaved
-        setData(lastSaved)
-        saveAppDataCache(lastSaved)
+        dataRef.current = saved
+        persistedDataRef.current = saved
+        setData(saved)
+        saveAppDataCache(saved)
 
         const closedIds = new Set(unique)
         setDraft((current) => {
           if (!current || !closedIds.has(current.id)) return current
-          const stored = lastSaved!.history.find((shift) => shift.id === current.id)
+          const stored = saved.history.find((shift) => shift.id === current.id)
           const signOff = normalizeSignOff(stored?.signOff)
           if (!signOff) return current
           const closed: ShiftDraft = { ...current, signOff }
@@ -3397,7 +3381,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSyncing(false)
       }
     },
-    [runWithFreshRevision, user?.fullName, user?.id],
+    [runWithFreshRevision, user?.fullName],
   )
 
   const loadShiftFromHistory = useCallback(

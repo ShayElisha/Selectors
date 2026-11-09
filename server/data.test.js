@@ -158,7 +158,13 @@ vi.mock('./password.js', () => ({
 }))
 vi.mock('./selfHeal.js', () => ({ validateSelfHeal: vi.fn(() => null) }))
 
-import { deleteShift, readState, upsertShift, writeState } from './data.js'
+import {
+  deleteShift,
+  readState,
+  signOffShiftsBulk,
+  upsertShift,
+  writeState,
+} from './data.js'
 
 let scope
 let metaId
@@ -365,6 +371,51 @@ describe('state and shift persistence', () => {
     expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId)).toMatchObject({
       revision: 2,
       historyRevision: 2,
+    })
+  })
+
+  it('locks many open shifts in one revision bump', async () => {
+    seedState({
+      revision: 4,
+      historyRevision: 4,
+      shifts: [
+        { id: 'shift-a', date: '2026-10-12', shiftType: 'morning' },
+        { id: 'shift-b', date: '2026-10-12', shiftType: 'afternoon' },
+        {
+          id: 'shift-c',
+          date: '2026-10-11',
+          shiftType: 'night',
+          signOff: {
+            signedAt: '2026-10-11T12:00:00.000Z',
+            signerName: 'Manager',
+            signerId: 'manager-1',
+            signature: 'Manager',
+          },
+        },
+      ],
+    })
+
+    const result = await signOffShiftsBulk(
+      ['shift-a', 'shift-b', 'shift-c', 'missing'],
+      'Manager',
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope, expectedRevision: 4 },
+    )
+
+    expect(result.locked).toBe(2)
+    expect(result.data.revision).toBe(5)
+    expect(result.data.history.find((shift) => shift.id === 'shift-a')?.signOff?.signerName).toBe(
+      'Manager',
+    )
+    expect(result.data.history.find((shift) => shift.id === 'shift-b')?.signOff?.signature).toBe(
+      'Manager',
+    )
+    expect(result.data.history.find((shift) => shift.id === 'shift-c')?.signOff?.signedAt).toBe(
+      '2026-10-11T12:00:00.000Z',
+    )
+    expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId)).toMatchObject({
+      revision: 5,
+      historyRevision: 5,
     })
   })
 

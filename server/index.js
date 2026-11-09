@@ -29,6 +29,7 @@ import {
   requestPasswordReset,
   resendManagerTempPassword,
   upsertShift,
+  signOffShiftsBulk,
   writeState,
 } from './data.js'
 import { getDb } from './db.js'
@@ -960,6 +961,23 @@ app.post('/api/seed', async (req, res) => {
           req.body?.expectedRevision != null
             ? Number(req.body.expectedRevision)
             : undefined,
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shifts/sign-off', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    const body = req.body || {}
+    const expectedRevision = body.expectedRevision
+    res.json(
+      await signOffShiftsBulk(body.ids, body.signature, actor, {
+        scope,
+        expectedRevision:
+          expectedRevision === undefined ? undefined : Number(expectedRevision),
       }),
     )
   } catch (err) {
