@@ -55,11 +55,31 @@ export function CancellationsPage() {
   const [shiftType, setShiftType] = useState<'all' | ShiftType>('all')
   const [laneId, setLaneId] = useState('all')
   const [status, setStatus] = useState<'all' | 'open' | 'closed'>('all')
-  const workers = useMemo(() => new Map(data.workers.map((worker) => [worker.id, worker.fullName])), [data.workers])
+  const workers = useMemo(
+    () =>
+      new Map(
+        data.workers.map((worker) => [
+          worker.id,
+          {
+            name: worker.fullName,
+            trainingRole: worker.trainingRole,
+          },
+        ]),
+      ),
+    [data.workers],
+  )
   const allRows = useMemo(() => {
     return data.history
       .flatMap((shift) => (shift.shiftDrops || [])
-        .map((drop) => ({ shift, drop, workerName: workers.get(drop.workerId) || 'עובד לא מזוהה' })))
+        .map((drop) => {
+          const worker = workers.get(drop.workerId)
+          return {
+            shift,
+            drop,
+            workerName: worker?.name || 'עובד לא מזוהה',
+            trainingRole: worker?.trainingRole,
+          }
+        }))
       .sort((a, b) => b.shift.date.localeCompare(a.shift.date) || b.shift.updatedAt.localeCompare(a.shift.updatedAt))
   }, [data.history, workers])
   const periodRows = useMemo(() => {
@@ -173,10 +193,10 @@ export function CancellationsPage() {
           {reversedDateRange ? <p className="mt-2 text-xs text-ink-soft">טווח התאריכים סודר אוטומטית לפי תאריך מוקדם ומאוחר.</p> : null}
         </div>
         <div className="mt-4 divide-y divide-line">
-          {rows.length === 0 ? <EmptyState title="לא נמצאו אירועים" text="אירועים נרשמים בלוח המשמרת בזמן סימון ביטול, אי הגעה או יציאה מוקדמת." /> : rows.map(({ shift, drop, workerName }, index) => (
+          {rows.length === 0 ? <EmptyState title="לא נמצאו אירועים" text="אירועים נרשמים בלוח המשמרת בזמן סימון ביטול, אי הגעה או יציאה מוקדמת." /> : rows.map(({ shift, drop, workerName, trainingRole }, index) => (
             <article key={`${shift.id}:${drop.workerId}:${drop.kind}:${index}`} className="flex flex-wrap items-start justify-between gap-3 py-3">
               <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2"><PersonChip name={workerName} /><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${drop.kind === 'cancel' ? 'bg-hard-soft text-hard' : drop.kind === 'noshow' ? 'bg-warn-soft text-warn' : 'bg-surface text-ink-soft'}`}>{drop.kind === 'cancel' ? 'ביטל/ה' : drop.kind === 'noshow' ? 'לא הגיע/ה' : 'יצא/ה מוקדם'}</span></div>
+                <div className="flex flex-wrap items-center gap-2"><PersonChip name={workerName} trainingRole={trainingRole} /><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${drop.kind === 'cancel' ? 'bg-hard-soft text-hard' : drop.kind === 'noshow' ? 'bg-warn-soft text-warn' : 'bg-surface text-ink-soft'}`}>{drop.kind === 'cancel' ? 'ביטל/ה' : drop.kind === 'noshow' ? 'לא הגיע/ה' : 'יצא/ה מוקדם'}</span></div>
                 <p className="text-sm text-ink">{SHIFT_TYPE_LABELS[shift.shiftType]} · <Ltr>{formatShiftDate(shift.date)}</Ltr></p>
                 <p className="text-xs text-ink-soft">עמדות: {lanesForDrop(shift, drop).map((id) => laneNames.get(id) ?? id).join(' · ') || 'לא צוין'} · משמרת {shift.signOff?.signedAt ? 'נסגרה' : 'פתוחה'}</p>
                 <p className="text-sm text-ink-soft">{drop.reason}</p>

@@ -269,7 +269,14 @@ export function HomePage() {
         const assignment = currentShift.assignments.find((a) => a.laneId === laneId)
         const workers = (assignment?.workerIds ?? [])
           .filter(Boolean)
-          .map((id) => data.workers.find((w) => w.id === id)?.fullName ?? id)
+          .map((id) => {
+            const worker = data.workers.find((w) => w.id === id)
+            return {
+              id,
+              name: worker?.fullName ?? id,
+              trainingRole: worker?.trainingRole,
+            }
+          })
         return {
           laneId,
           laneName: lane.name,
@@ -288,7 +295,11 @@ export function HomePage() {
       intensity: Intensity
       staffingStandard: number
       assigned: number
-      workers: string[]
+      workers: {
+        id: string
+        name: string
+        trainingRole?: 'trainee' | 'mentor'
+      }[]
     }[]
     const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
     return rows.sort(
@@ -305,7 +316,14 @@ export function HomePage() {
     )
     return currentShift.presentWorkerIds
       .filter((id) => !assigned.has(id))
-      .map((id) => data.workers.find((w) => w.id === id)?.fullName ?? id)
+      .map((id) => {
+        const worker = data.workers.find((w) => w.id === id)
+        return {
+          id,
+          name: worker?.fullName ?? id,
+          trainingRole: worker?.trainingRole,
+        }
+      })
   }, [currentShift, data.workers])
 
   const resumeShift = () => {
@@ -920,8 +938,12 @@ export function HomePage() {
                                       לא משובץ
                                     </button>
                                   ) : (
-                                    row.workers.map((name) => (
-                                      <PersonChip key={name} name={name} />
+                                    row.workers.map((person) => (
+                                      <PersonChip
+                                        key={person.id}
+                                        name={person.name}
+                                        trainingRole={person.trainingRole}
+                                      />
                                     ))
                                   )}
                                   {staffingOff ? (
@@ -950,9 +972,12 @@ export function HomePage() {
                 {currentUnassigned.length > 0 && (
                   <p className="mt-3 text-[13px] text-ink-soft">
                     לא שובצו:{' '}
-                    {currentUnassigned.map((n) => (
-                      <span key={n} className="me-1.5 inline-block">
-                        <PersonChip name={n} />
+                    {currentUnassigned.map((person) => (
+                      <span key={person.id} className="me-1.5 inline-block">
+                        <PersonChip
+                          name={person.name}
+                          trainingRole={person.trainingRole}
+                        />
                       </span>
                     ))}
                   </p>

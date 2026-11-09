@@ -373,9 +373,16 @@ function SelectorRoundLegacyTable({
                             ) : (
                               <span
                                 key={`${lane.id}-${slotIndex}`}
-                                className="font-medium text-ink"
+                                className="inline-flex flex-wrap items-center gap-1 font-medium text-ink"
                               >
                                 {workerId ? nameOf(workerId) : '—'}
+                                {workerId &&
+                                byId.get(workerId)?.trainingRole ===
+                                  'trainee' ? (
+                                  <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent ring-1 ring-accent/25">
+                                    מתלמד
+                                  </span>
+                                ) : null}
                               </span>
                             ),
                           )}

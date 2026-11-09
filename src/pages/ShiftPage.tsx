@@ -49,7 +49,7 @@ import {
   managedLanes,
   selectorStaff,
 } from '../lib/gateManager'
-import { IntensityBadge, Ltr } from '../components/ui'
+import { IntensityBadge, Ltr, TraineeBadge } from '../components/ui'
 import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
@@ -1371,6 +1371,9 @@ export function ShiftPage() {
                               <span className="text-sm font-bold text-ink sm:text-[15px]">
                                 {w.fullName}
                               </span>
+                              {w.trainingRole === 'trainee' ? (
+                                <TraineeBadge />
+                              ) : null}
                               {guestIdSet.has(w.id) ? (
                                 <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent">
                                   אורח
@@ -1995,10 +1998,13 @@ export function ShiftPage() {
                   <li key={worker.id}>
                     <button
                       type="button"
-                      className="ui-btn ui-btn-secondary"
+                      className="ui-btn ui-btn-secondary gap-1.5"
                       onClick={() => setDropWorkerId(worker.id)}
                     >
                       {worker.fullName}
+                      {worker.trainingRole === 'trainee' ? (
+                        <TraineeBadge />
+                      ) : null}
                     </button>
                   </li>
                 ))}
@@ -2157,6 +2163,7 @@ export function ShiftPage() {
                           w && (
                             <option key={w.id} value={w.id}>
                               {w.fullName}
+                              {w.trainingRole === 'trainee' ? ' · מתלמד' : ''}
                               {!pickLane || isQualified(w, pickLane)
                                 ? ''
                                 : ' (ללא הסמכה מלאה)'}

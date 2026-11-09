@@ -275,10 +275,28 @@ function LoginBadge() {
   )
 }
 
+function TraineeRoleBadge() {
+  return (
+    <span className="inline-flex items-center rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-bold text-accent ring-1 ring-accent/25">
+      מתלמד
+    </span>
+  )
+}
+
+function MentorRoleBadge() {
+  return (
+    <span className="inline-flex items-center rounded-md bg-brand-soft px-1.5 py-0.5 text-[11px] font-bold text-brand-deep ring-1 ring-brand/25">
+      חונך
+    </span>
+  )
+}
+
 function RoleBadges({ worker }: { worker: Worker }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {worker.isInspector ? <InspectorBadge /> : null}
+      {worker.trainingRole === 'trainee' ? <TraineeRoleBadge /> : null}
+      {worker.trainingRole === 'mentor' ? <MentorRoleBadge /> : null}
       {worker.isOrgManager ? (
         <ManagerBadge org />
       ) : worker.isManager ? (
@@ -1628,6 +1646,9 @@ export function WorkersPage() {
                                     >
                                       {w.fullName}
                                     </Link>
+                                    {w.trainingRole === 'trainee' ? (
+                                      <TraineeRoleBadge />
+                                    ) : null}
                                     {inactive ? <InactiveBadge /> : null}
                                   </div>
                                 </div>

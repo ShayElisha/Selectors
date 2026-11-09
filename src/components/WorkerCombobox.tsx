@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { avatarColor } from '../lib/avatarColor'
+import { TraineeBadge } from './ui'
 import type { Worker } from '../types'
 
 export interface WorkerChoice {
@@ -188,6 +189,9 @@ export function WorkerCombobox({
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
           {selected?.worker.fullName ?? placeholder}
         </span>
+        {selected?.worker.trainingRole === 'trainee' ? (
+          <TraineeBadge className="shrink-0" />
+        ) : null}
         {selected?.description ? (
           <span className="hidden max-w-[35%] truncate text-xs text-ink-soft sm:block">
             {selected.description}
@@ -265,8 +269,13 @@ export function WorkerCombobox({
                       {workerInitials(worker.fullName)}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-ink">
-                        {worker.fullName}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-sm font-semibold text-ink">
+                          {worker.fullName}
+                        </span>
+                        {worker.trainingRole === 'trainee' ? (
+                          <TraineeBadge className="shrink-0" />
+                        ) : null}
                       </span>
                       {description ? (
                         <span className="block truncate text-xs text-ink-soft">

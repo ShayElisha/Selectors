@@ -48,11 +48,12 @@ function daysSinceLabel(days: number | null): string {
   return `לפני ${days} ימים`
 }
 
-function StationCard({ station, active, onClick, workerNames }: {
+function StationCard({ station, active, onClick, workerNames, workerTraining }: {
   station: Station
   active: boolean
   onClick: () => void
   workerNames: Map<string, string>
+  workerTraining: Map<string, 'trainee' | 'mentor' | undefined>
 }) {
   const hasGap = station.missing > 0
   const Icon = hasGap ? AlertTriangle : Check
@@ -76,7 +77,12 @@ function StationCard({ station, active, onClick, workerNames }: {
         </span>
         <span className="mt-3 flex flex-wrap gap-1.5">
           {station.workerIds.length ? station.workerIds.slice(0, 3).map((id) => (
-            <span key={id} className="max-w-full truncate rounded-full bg-surface px-2 py-1 text-[11px] font-medium text-ink">{workerNames.get(id) || 'עובד לא מזוהה'}</span>
+            <span key={id} className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-surface px-2 py-1 text-[11px] font-medium text-ink">
+              <span className="truncate">{workerNames.get(id) || 'עובד לא מזוהה'}</span>
+              {workerTraining.get(id) === 'trainee' ? (
+                <span className="shrink-0 rounded bg-accent-soft px-1 text-[9px] font-bold text-accent">מתלמד</span>
+              ) : null}
+            </span>
           )) : <span className="text-xs text-ink-soft">אין משובצים</span>}
           {station.workerIds.length > 3 ? <span className="rounded-full bg-surface px-2 py-1 text-[11px] text-ink-soft">+{station.workerIds.length - 3}</span> : null}
         </span>
@@ -119,6 +125,13 @@ export function StationMapPage() {
         : 'selector'
   const shift = useMemo(() => selectedShift(data, date, shiftType, audience), [data, date, shiftType, audience])
   const workerNames = useMemo(() => new Map(data.workers.map((worker) => [worker.id, worker.fullName])), [data.workers])
+  const workerTraining = useMemo(
+    () =>
+      new Map(
+        data.workers.map((worker) => [worker.id, worker.trainingRole] as const),
+      ),
+    [data.workers],
+  )
   const rounds = shift?.rounds ?? []
   const currentRoundIndex = Math.min(roundIndex, Math.max(rounds.length - 1, 0))
   const currentAssignments = useMemo(() => shift ? assignmentsForShift(shift, currentRoundIndex) : [], [shift, currentRoundIndex])
@@ -210,7 +223,7 @@ export function StationMapPage() {
             <div className="pointer-events-none absolute inset-0 opacity-40" aria-hidden style={{ backgroundImage: 'linear-gradient(to right, var(--color-line, #94a3b8) 1px, transparent 1px), linear-gradient(to bottom, var(--color-line, #94a3b8) 1px, transparent 1px)', backgroundSize: '36px 36px', maskImage: 'linear-gradient(to bottom, black, transparent)' }} />
             <div className="relative mx-auto grid max-w-5xl grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {stations.map((station) => (
-                <StationCard key={station.lane.id} station={station} active={station.lane.id === selectedLaneId} onClick={() => setSelectedLaneId((current) => current === station.lane.id ? null : station.lane.id)} workerNames={workerNames} />
+                <StationCard key={station.lane.id} station={station} active={station.lane.id === selectedLaneId} onClick={() => setSelectedLaneId((current) => current === station.lane.id ? null : station.lane.id)} workerNames={workerNames} workerTraining={workerTraining} />
               ))}
             </div>
             {stations.length === 0 ? <EmptyState title="לא הוגדרו עמדות במשמרת הזו" text="בחר תאריך או משמרת אחרים, או הוסף עמדות לשיבוץ." /> : null}
@@ -235,7 +248,10 @@ export function StationMapPage() {
                 const candidateRanking = explanation?.candidateRanking ?? []
                 return (
                   <div key={id} className="rounded-xl border border-line bg-surface/70 p-3">
-                    <PersonChip name={workerNames.get(id) || 'עובד לא מזוהה'} />
+                    <PersonChip
+                      name={workerNames.get(id) || 'עובד לא מזוהה'}
+                      trainingRole={workerTraining.get(id)}
+                    />
                     {reasons.length ? (
                       <div className="mt-2">
                         <p className="text-xs font-bold text-ink">למה שובץ כאן</p>
@@ -299,7 +315,15 @@ export function StationMapPage() {
 
       {shift && unassignedWorkerIds.length ? (
         <SectionCard title={`לא משובצים בסבב הזה (${unassignedWorkerIds.length})`} subtitle="עובדים שנכללים במצבת המשמרת אך אינם מופיעים בעמדות בסבב הנבחר.">
-          <div className="flex flex-wrap gap-2">{unassignedWorkerIds.map((id) => <PersonChip key={id} name={workerNames.get(id) || 'עובד לא מזוהה'} />)}</div>
+          <div className="flex flex-wrap gap-2">
+            {unassignedWorkerIds.map((id) => (
+              <PersonChip
+                key={id}
+                name={workerNames.get(id) || 'עובד לא מזוהה'}
+                trainingRole={workerTraining.get(id)}
+              />
+            ))}
+          </div>
         </SectionCard>
       ) : null}
     </div>

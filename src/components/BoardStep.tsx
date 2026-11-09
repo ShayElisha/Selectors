@@ -767,6 +767,9 @@ export function BoardStep({
       if (guestIds.has(w.id)) {
         details.unshift('אורח')
       }
+      if (w.trainingRole === 'trainee') {
+        details.unshift('מתלמד')
+      }
       return details.join(' · ')
     }
 
@@ -1221,7 +1224,14 @@ export function BoardStep({
                               const name = worker?.fullName ?? id
                               return (
                                 <div key={id} className="border-t border-line/70 px-2 py-2 first:border-t-0">
-                                  <p className="truncate text-xs font-semibold text-ink-soft">{name}</p>
+                                  <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-ink-soft">
+                                    <span className="truncate">{name}</span>
+                                    {worker?.trainingRole === 'trainee' ? (
+                                      <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent ring-1 ring-accent/25">
+                                        מתלמד
+                                      </span>
+                                    ) : null}
+                                  </p>
                                   <button
                                     type="button"
                                     role="menuitem"
@@ -1359,13 +1369,19 @@ export function BoardStep({
             </p>
             <ul className="flex flex-wrap gap-1.5 no-print">
               {draft.unassignedWorkerIds.map((id) => {
-                const name = data.workers.find((w) => w.id === id)?.fullName ?? id
+                const worker = data.workers.find((w) => w.id === id)
+                const name = worker?.fullName ?? id
                 return (
                   <li
                     key={id}
                     className="inline-flex items-center gap-1 rounded-full border border-line/80 bg-card px-2.5 py-1 text-xs text-ink shadow-sm"
                   >
                     <span>{name}</span>
+                    {worker?.trainingRole === 'trainee' ? (
+                      <span className="rounded-md bg-accent-soft px-1 py-0.5 text-[10px] font-bold text-accent ring-1 ring-accent/25">
+                        מתלמד
+                      </span>
+                    ) : null}
                     {!locked ? (
                       <>
                     <button

@@ -619,7 +619,8 @@ function ShiftAccordion({
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {row.workerIds.map((id) => {
-                      const name = workersById.get(id)?.fullName ?? id
+                      const worker = workersById.get(id)
+                      const name = worker?.fullName ?? id
                       const hit = search.trim()
                         ? workerMatchesSearch(name, search)
                         : false
@@ -632,7 +633,10 @@ function ShiftAccordion({
                               : undefined
                           }
                         >
-                          <PersonChip name={name} />
+                          <PersonChip
+                            name={name}
+                            trainingRole={worker?.trainingRole}
+                          />
                         </span>
                       )
                     })}

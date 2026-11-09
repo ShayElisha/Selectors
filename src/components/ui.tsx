@@ -54,7 +54,27 @@ function initials(name: string): string {
   return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`
 }
 
-export function PersonChip({ name }: { name: string }) {
+export function TraineeBadge({
+  className = '',
+}: {
+  className?: string
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent ring-1 ring-accent/25 ${className}`.trim()}
+    >
+      מתלמד
+    </span>
+  )
+}
+
+export function PersonChip({
+  name,
+  trainingRole,
+}: {
+  name: string
+  trainingRole?: 'trainee' | 'mentor' | null
+}) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line/80 bg-surface/80 py-0.5 pe-2.5 ps-0.5 text-[11px] font-medium text-ink sm:text-xs">
       <span
@@ -64,6 +84,7 @@ export function PersonChip({ name }: { name: string }) {
         {initials(name)}
       </span>
       <span className="truncate">{name}</span>
+      {trainingRole === 'trainee' ? <TraineeBadge /> : null}
     </span>
   )
 }
