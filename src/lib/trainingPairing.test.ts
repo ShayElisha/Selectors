@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   canPlaceTraineeOnLane,
   filterAutoAssignPool,
-  isMentor,
-  isTrainee,
   laneTrainingIssues,
   normalizeTrainingRole,
   pickLaneWorkersWithTraining,
