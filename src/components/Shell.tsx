@@ -29,19 +29,21 @@ import {
   Siren,
   CircleHelp,
   Wallet,
+  Camera,
 } from 'lucide-react'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
-import { toast } from '../lib/notify'
+import { notify, toast } from '../lib/notify'
 import {
   findShiftForSlot,
 } from '../constants'
 import { currentShiftModel, resolveShiftModels } from '../lib/shiftModels'
 import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
-import { avatarColor } from '../lib/avatarColor'
 import { ThemeToggle } from './ThemeToggle'
+import { UserAvatar } from './UserAvatar'
+import { readAvatarFile } from '../lib/avatarImage'
 
 type NavItem = { id: View; label: string; icon: typeof Home }
 
@@ -98,13 +100,6 @@ const MOBILE_MORE: View[] = [
 ]
 
 const ALL_NAV = [...DAILY, ...OPERATIONS, ...REPORTS, ...MANAGE]
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0]!.slice(0, 2)
-  return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`
-}
 
 function syncLabel(
   loading: boolean,
@@ -235,12 +230,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
     refreshFromServer,
     user,
     logout,
+    updateOwnAvatar,
     module,
     setModule,
     orgProfile,
   } = useApp()
   const [moreOpen, setMoreOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const [profileMenuPos, setProfileMenuPos] = useState<{
     top: number
     left: number
@@ -333,13 +331,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
     const place = () => {
       const r = profileBtnRef.current!.getBoundingClientRect()
       const margin = 12
-      const width = Math.min(224, window.innerWidth - margin * 2)
+      const width = Math.min(280, window.innerWidth - margin * 2)
       let left = r.right - width
       if (left < margin) left = margin
       if (left + width > window.innerWidth - margin) {
         left = Math.max(margin, window.innerWidth - margin - width)
       }
-      const menuHeight = 140
+      const menuHeight = 280
       let top = r.bottom + 6
       if (top + menuHeight > window.innerHeight - margin) {
         top = Math.max(margin, r.top - menuHeight - 6)
@@ -483,9 +481,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 aria-label="תפריט משתמש"
                 className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-transparent bg-transparent py-0 pe-2 ps-0.5 transition hover:border-line/80 hover:bg-surface/80"
               >
-                <span className={`flex size-7 items-center justify-center rounded-full text-[10px] font-bold tracking-wide ${avatarColor(user.fullName)}`}>
-                  {initials(user.fullName)}
-                </span>
+                <UserAvatar
+                  name={user.fullName}
+                  avatarUrl={user.avatarUrl}
+                  size="sm"
+                />
                 <span className="max-w-[7.5rem] truncate text-xs font-semibold text-ink sm:max-w-[9rem]">
                   {user.fullName}
                 </span>
@@ -511,13 +511,91 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     }}
                   >
                     <div className="border-b border-line/70 px-3.5 py-3">
-                      <p className="truncate text-sm font-semibold text-ink">
-                        {user.fullName}
-                      </p>
-                      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-soft">
-                        {user.orgName || 'מנהל'} ·{' '}
-                        {MODULE_LABELS[module]}
-                      </p>
+                      <div className="flex items-center gap-3">
+                        <UserAvatar
+                          name={user.fullName}
+                          avatarUrl={user.avatarUrl}
+                          size="md"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-ink">
+                            {user.fullName}
+                          </p>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-soft">
+                            {user.orgName || 'מנהל'} ·{' '}
+                            {MODULE_LABELS[module]}
+                          </p>
+                        </div>
+                      </div>
+                      {user.role !== 'super_admin' ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <input
+                            ref={avatarInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="sr-only"
+                            aria-label="בחירת תמונת פרופיל"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              e.target.value = ''
+                              if (!file) return
+                              setAvatarBusy(true)
+                              void readAvatarFile(file)
+                                .then((dataUrl) => updateOwnAvatar(dataUrl))
+                                .then(() =>
+                                  notify.success('תמונת הפרופיל עודכנה'),
+                                )
+                                .catch((err) =>
+                                  notify.error(
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'עדכון התמונה נכשל',
+                                  ),
+                                )
+                                .finally(() => setAvatarBusy(false))
+                            }}
+                          />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={avatarBusy}
+                            onClick={() => avatarInputRef.current?.click()}
+                            className="ui-btn ui-btn-secondary !py-1.5 text-xs disabled:opacity-50"
+                          >
+                            <Camera className="size-3.5" aria-hidden />
+                            {avatarBusy
+                              ? 'מעדכן…'
+                              : user.avatarUrl
+                                ? 'החלפת תמונה'
+                                : 'הוספת תמונה'}
+                          </button>
+                          {user.avatarUrl ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={avatarBusy}
+                              onClick={() => {
+                                setAvatarBusy(true)
+                                void updateOwnAvatar(null)
+                                  .then(() =>
+                                    notify.success('תמונת הפרופיל הוסרה'),
+                                  )
+                                  .catch((err) =>
+                                    notify.error(
+                                      err instanceof Error
+                                        ? err.message
+                                        : 'הסרת התמונה נכשלה',
+                                    ),
+                                  )
+                                  .finally(() => setAvatarBusy(false))
+                              }}
+                              className="ui-btn ui-btn-ghost !py-1.5 text-xs disabled:opacity-50"
+                            >
+                              הסרה
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     <button
                       type="button"

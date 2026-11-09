@@ -140,6 +140,8 @@ export interface SessionUser {
   module: AppModule | null
   isOrgManager: boolean
   staffKind?: StaffKind | null
+  /** Own profile photo as a data URL; absent/null → show initials. */
+  avatarUrl?: string | null
 }
 
 function cacheKey(user: Pick<SessionUser, 'orgId' | 'module'> | null): string | null {
@@ -174,6 +176,10 @@ export function loadSession(): SessionUser | null {
         : typeof parsed.isOrgManager === 'boolean'
           ? parsed.isOrgManager
           : enabledModuleCount(modules) >= 2
+    const avatarUrl =
+      typeof parsed.avatarUrl === 'string' && parsed.avatarUrl
+        ? parsed.avatarUrl
+        : null
     return {
       ...parsed,
       orgId: parsed.orgId || null,
@@ -182,6 +188,7 @@ export function loadSession(): SessionUser | null {
       module,
       isOrgManager,
       staffKind: isStaffKind(parsed.staffKind) ? parsed.staffKind : null,
+      avatarUrl,
     }
   } catch {
     return null

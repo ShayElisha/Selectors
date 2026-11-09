@@ -28,6 +28,7 @@ import { notifyNewWorkerInbox } from '../lib/workerNotify'
 import { AppFooter } from './AppFooter'
 import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
+import { UserAvatar } from './UserAvatar'
 
 const NAV_ITEMS: {
   sub: string
@@ -137,11 +138,20 @@ export function WorkerShell({
             <p className="truncate font-display text-base font-bold text-ink">
               שיבוצון · {portalTitle}
             </p>
-            <p className="truncate text-xs text-ink-soft">
-              {user?.fullName}
-              {user?.orgName ? ` · ${user.orgName}` : ''}
-              {` · מחלקת ${departmentLabel}`}
-            </p>
+            <div className="mt-0.5 flex min-w-0 items-center gap-2">
+              {user ? (
+                <UserAvatar
+                  name={user.fullName}
+                  avatarUrl={user.avatarUrl}
+                  size="sm"
+                />
+              ) : null}
+              <p className="truncate text-xs text-ink-soft">
+                {user?.fullName}
+                {user?.orgName ? ` · ${user.orgName}` : ''}
+                {` · מחלקת ${departmentLabel}`}
+              </p>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">

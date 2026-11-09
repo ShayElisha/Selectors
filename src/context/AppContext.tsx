@@ -39,6 +39,7 @@ import {
   saveShiftRemote,
   seedAppDataRemote,
   reviewWorkerFaultRemote,
+  updateOwnAvatarRemote,
   verifyLoginCodeRemote,
   type LoginNextStep,
 } from '../api'
@@ -419,6 +420,8 @@ interface AppContextValue {
   ) => Promise<{ next: LoginNextStep; message?: string }>
   requestPasswordReset: (phone: string) => Promise<string>
   resendManagerTempPassword: (workerId: string) => Promise<void>
+  /** Update or clear the signed-in user's own profile photo. */
+  updateOwnAvatar: (avatarUrl: string | null) => Promise<void>
   logout: () => void
   view: View
   setView: (v: View) => void
@@ -1216,6 +1219,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await resendManagerTempPasswordRemote(workerId)
   }, [])
 
+  const updateOwnAvatar = useCallback(async (avatarUrl: string | null) => {
+    const result = await updateOwnAvatarRemote(avatarUrl)
+    setUser((current) => {
+      if (!current) return current
+      const next = { ...current, avatarUrl: result.avatarUrl }
+      saveSession(next)
+      return next
+    })
+  }, [])
+
   const logout = useCallback(() => {
     clearAppDataCache()
     clearSession()
@@ -1382,7 +1395,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           Boolean(prev?.modules.selectors) !== Boolean(next.modules?.selectors) ||
           Boolean(prev?.modules.inspectors) !== Boolean(next.modules?.inspectors) ||
           Boolean(prev?.modules.security) !== Boolean(next.modules?.security) ||
-          prev?.module !== next.module
+          prev?.module !== next.module ||
+          (prev?.avatarUrl || null) !== (next.avatarUrl || null)
         saveSession(next)
         if (changed) setUser(next)
       } catch (e) {
@@ -3974,6 +3988,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkLogin,
       requestPasswordReset,
       resendManagerTempPassword,
+      updateOwnAvatar,
       logout,
       view,
       setView,
@@ -4075,6 +4090,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkLogin,
       requestPasswordReset,
       resendManagerTempPassword,
+      updateOwnAvatar,
       logout,
       view,
       setView,

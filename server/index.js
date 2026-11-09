@@ -34,7 +34,7 @@ import {
 import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
 import { isSmtpConfigured, sendTestEmail } from './mail.js'
-import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, loginEmailForIdentity, purgeOrganization, readOrgAssignmentSettings, recordSuccessfulLogin, refreshLoginIdentity, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile } from './orgs.js'
+import { changeOwnPassword, deleteOrganization, ensureOrgIndexes, extendOrganizationRestore, listOrganizations, loginEmailForIdentity, purgeOrganization, readOrgAssignmentSettings, recordSuccessfulLogin, refreshLoginIdentity, refreshManagerSession, registerOrganization, restoreOrganization, reviewOrganization, updateOrgAssignmentSettings, updateOrgProfile, updateOwnAvatar } from './orgs.js'
 import {
   getWorkerContacts,
   getWorkerHome,
@@ -297,6 +297,20 @@ app.post('/api/password', async (req, res) => {
       windowMs: 15 * 60_000,
     })
     res.json(await changeOwnPassword(user, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/profile/avatar', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    await assertRateLimit({
+      key: `avatar:${user.id}`,
+      limit: 20,
+      windowMs: 15 * 60_000,
+    })
+    res.json(await updateOwnAvatar(user, req.body || {}))
   } catch (err) {
     sendError(res, err)
   }

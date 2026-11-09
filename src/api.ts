@@ -342,6 +342,15 @@ export function changePasswordRemote(body: {
   })
 }
 
+export function updateOwnAvatarRemote(avatarUrl: string | null): Promise<{
+  avatarUrl: string | null
+}> {
+  return request('/api/profile/avatar', {
+    method: 'PUT',
+    body: JSON.stringify({ avatarUrl: avatarUrl ?? '' }),
+  })
+}
+
 export function submitBugReportRemote(body: {
   title: string
   details: string

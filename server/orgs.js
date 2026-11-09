@@ -245,9 +245,25 @@ function accountLoginRole(account) {
   return 'org_manager'
 }
 
+function normalizeAvatarUrl(raw) {
+  if (raw == null || raw === '') return ''
+  const value = String(raw)
+  if (!/^data:image\/(jpeg|png|webp);base64,/i.test(value)) {
+    throw httpError('תמונת הפרופיל חייבת להיות PNG, JPG או WEBP', 400)
+  }
+  if (value.length > 180_000) {
+    throw httpError('תמונת הפרופיל גדולה מדי', 400)
+  }
+  return value
+}
+
 function sessionFromAccount(account, org) {
   const modules = modulesForAccount(account, org)
   const role = accountLoginRole(account)
+  const avatarUrl =
+    typeof account.avatarUrl === 'string' && account.avatarUrl
+      ? account.avatarUrl
+      : null
   return {
     id: String(account._id),
     fullName: account.fullName || '',
@@ -259,6 +275,7 @@ function sessionFromAccount(account, org) {
     module: defaultModule(modules),
     isOrgManager: role === 'org_manager' ? Boolean(account.isOrgManager) : false,
     staffKind: normalizeStaffKind(account.staffKind),
+    avatarUrl,
   }
 }
 
@@ -1388,6 +1405,43 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     staggerRounds: stagger,
     organization: publicOrgProfile(org),
   }
+}
+
+/** Update the signed-in user's own profile photo (data URL) or clear it. */
+export async function updateOwnAvatar(user, body) {
+  if (
+    (user?.role !== 'org_manager' && user?.role !== 'worker') ||
+    !user.orgId
+  ) {
+    throw httpError('רק משתמשי ארגון יכולים לעדכן תמונת פרופיל', 400)
+  }
+  const clear = body?.avatarUrl == null || body?.avatarUrl === ''
+  const avatarUrl = clear ? '' : normalizeAvatarUrl(body.avatarUrl)
+  const col = await accounts()
+  const account = await col.findOne({
+    _id: String(user.id),
+    orgId: String(user.orgId),
+  })
+  if (!account) throw httpError('לא נמצא חשבון לעדכון תמונה', 404)
+  if (clear) {
+    await col.updateOne(
+      { _id: account._id },
+      { $unset: { avatarUrl: '' }, $set: { updatedAt: new Date().toISOString() } },
+    )
+  } else {
+    await col.updateOne(
+      { _id: account._id },
+      { $set: { avatarUrl, updatedAt: new Date().toISOString() } },
+    )
+  }
+  await appendAuditLog({
+    action: clear ? 'avatar_clear' : 'avatar_update',
+    actor: user,
+    orgId: user.orgId,
+    module: user.module,
+    details: clear ? 'הסרת תמונת פרופיל' : 'עדכון תמונת פרופיל',
+  })
+  return { avatarUrl: avatarUrl || null }
 }
 
 export async function changeOwnPassword(user, body) {
