@@ -29,6 +29,47 @@ export function compareLaneNames(
   return a.name.localeCompare(b.name, 'he')
 }
 
+/** Catalog index map — the order managers set on the lanes page. */
+export function laneCatalogOrder(
+  catalog: Array<Pick<Lane, 'id'>>,
+): Map<string, number> {
+  return new Map(catalog.map((lane, index) => [lane.id, index]))
+}
+
+/** Stable compare by catalog order, then Hebrew name. */
+export function compareByCatalogOrder(
+  aId: string,
+  bId: string,
+  order: Map<string, number>,
+  aName = '',
+  bName = '',
+): number {
+  const byIndex = (order.get(aId) ?? Number.MAX_SAFE_INTEGER) -
+    (order.get(bId) ?? Number.MAX_SAFE_INTEGER)
+  if (byIndex !== 0) return byIndex
+  return aName.localeCompare(bName, 'he')
+}
+
+/** Keep lane ids in the manager-defined catalog order. */
+export function sortIdsByCatalogOrder(
+  ids: string[],
+  catalog: Array<Pick<Lane, 'id'>>,
+): string[] {
+  const order = laneCatalogOrder(catalog)
+  return [...ids].sort((a, b) => compareByCatalogOrder(a, b, order))
+}
+
+/** Keep lane objects in the manager-defined catalog order. */
+export function sortLanesByCatalogOrder<T extends Pick<Lane, 'id' | 'name'>>(
+  lanes: T[],
+  catalog: Array<Pick<Lane, 'id'>>,
+): T[] {
+  const order = laneCatalogOrder(catalog)
+  return [...lanes].sort(
+    (a, b) => compareByCatalogOrder(a.id, b.id, order, a.name, b.name),
+  )
+}
+
 export function normalizeCertName(name: string): string {
   return normalizeHeSearch(name.trim())
 }

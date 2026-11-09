@@ -72,6 +72,7 @@ import {
 import { exportBlockedReason } from '../lib/exportGate'
 import { postAuditEvent, reportShiftPresence } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
+import { sortIdsByCatalogOrder } from '../lib/lanesCertHelpers'
 import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
 import {
   attendanceStepSummary,
@@ -238,26 +239,28 @@ export function ShiftPage() {
 
   const exportLines = useMemo(() => {
     if (!draft) return []
-    return draft.activeLaneIds.flatMap((laneId) => {
-      const lane = data.lanes.find((l) => l.id === laneId)
-      if (!lane) return []
-      const assignment = draft.assignments.find((a) => a.laneId === laneId)
-      const workers = (assignment?.workerIds ?? [])
-        .filter(Boolean)
-        .map((id) => data.workers.find((w) => w.id === id)?.fullName ?? id)
-      return [
-        {
-          laneName: lane.name,
-          intensity: lane.intensity,
-          workers,
-          staffingStandard: effectiveStaffingStandard(
-            lane,
-            draft.staffingOverrides,
-          ),
-          notes: assignment?.notes?.trim() || undefined,
-        },
-      ]
-    }).sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
+    return sortIdsByCatalogOrder(draft.activeLaneIds, data.lanes).flatMap(
+      (laneId) => {
+        const lane = data.lanes.find((l) => l.id === laneId)
+        if (!lane) return []
+        const assignment = draft.assignments.find((a) => a.laneId === laneId)
+        const workers = (assignment?.workerIds ?? [])
+          .filter(Boolean)
+          .map((id) => data.workers.find((w) => w.id === id)?.fullName ?? id)
+        return [
+          {
+            laneName: lane.name,
+            intensity: lane.intensity,
+            workers,
+            staffingStandard: effectiveStaffingStandard(
+              lane,
+              draft.staffingOverrides,
+            ),
+            notes: assignment?.notes?.trim() || undefined,
+          },
+        ]
+      },
+    )
   }, [draft, data.lanes, data.workers])
 
   const unassignedNames = useMemo(() => {
@@ -1974,7 +1977,10 @@ export function ShiftPage() {
                         setPickWorkerId('')
                       }}
                     >
-                      {draft.activeLaneIds.map((id) => {
+                      {sortIdsByCatalogOrder(
+                        draft.activeLaneIds,
+                        data.lanes,
+                      ).map((id) => {
                         const lane = data.lanes.find((l) => l.id === id)
                         return (
                           <option key={id} value={id}>

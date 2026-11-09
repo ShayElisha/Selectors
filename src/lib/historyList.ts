@@ -223,7 +223,7 @@ export function laneRowsForShift(
   staffingStandard: number | null
   workerIds: string[]
 }[] {
-  return shift.assignments
+  const rows = shift.assignments
     .map((a) => {
       const lane = lanesById.get(a.laneId)
       return {
@@ -237,6 +237,15 @@ export function laneRowsForShift(
       }
     })
     .filter((r) => r.workerIds.length > 0 || shift.activeLaneIds.includes(r.laneId))
+  // Prefer the manager catalog order when the map was built from data.lanes.
+  const order = [...lanesById.keys()]
+  const index = new Map(order.map((id, i) => [id, i]))
+  return rows.sort(
+    (a, b) =>
+      (index.get(a.laneId) ?? Number.MAX_SAFE_INTEGER) -
+        (index.get(b.laneId) ?? Number.MAX_SAFE_INTEGER) ||
+      a.name.localeCompare(b.name, 'he'),
+  )
 }
 
 export function buildHistoryBackupJson(data: {

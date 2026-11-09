@@ -615,7 +615,13 @@ function padAssignments(
   activeLaneIds: string[],
   overrides?: StaffingOverrides | null,
 ): LaneAssignment[] {
-  return activeLaneIds.map((laneId) => {
+  const order = new Map(lanes.map((lane, index) => [lane.id, index]))
+  const orderedIds = [...activeLaneIds].sort(
+    (a, b) =>
+      (order.get(a) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(b) ?? Number.MAX_SAFE_INTEGER),
+  )
+  return orderedIds.map((laneId) => {
     const lane = lanes.find((l) => l.id === laneId)
     const std = effectiveStaffingStandard(lane, overrides)
     const existing = assignments.find((a) => a.laneId === laneId)

@@ -7,6 +7,8 @@ import {
   certStatusKind,
   certUsage,
   compareLanes,
+  sortIdsByCatalogOrder,
+  sortLanesByCatalogOrder,
   coverageTone,
   isDuplicateCertName,
   isDuplicateLaneName,
@@ -132,6 +134,15 @@ describe('lane helpers', () => {
     expect(orderedLaneCerts(['כללי', 'מכס', 'טסלה'], ['טסלה', 'כללי'])).toEqual([
       'כללי',
       'טסלה',
+    ])
+  })
+
+  it('keeps manager catalog order for ids and lanes', () => {
+    const catalog = [lanes[0]!, lanes[1]!]
+    expect(sortIdsByCatalogOrder(['b', 'a'], catalog)).toEqual(['a', 'b'])
+    expect(sortLanesByCatalogOrder([lanes[1]!, lanes[0]!], catalog).map((l) => l.id)).toEqual([
+      'a',
+      'b',
     ])
   })
 

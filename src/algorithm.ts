@@ -1880,33 +1880,16 @@ function requiredSlots(lanes: Lane[]): number {
   return lanes.reduce((n, l) => n + l.staffingStandard, 0)
 }
 
+/**
+ * Fill lanes in the manager-defined catalog order (callers already filter
+ * `data.lanes`, so this keeps that sequence instead of re-sorting by intensity).
+ */
 function orderLanesForAssignment(
   lanes: Lane[],
-  workers: Worker[],
-  shiftType: ShiftType,
+  _workers: Worker[],
+  _shiftType: ShiftType,
 ): Lane[] {
-  const intensityOrder: Record<Intensity, number> = {
-    hard: 0,
-    medium: 1,
-    easy: 2,
-  }
-  return [...lanes].sort((a, b) => {
-    if (isAfternoonShift(shiftType)) {
-      const aHandoff = a.afternoonHandoff ? 0 : 1
-      const bHandoff = b.afternoonHandoff ? 0 : 1
-      if (aHandoff !== bHandoff) return aHandoff - bHandoff
-    }
-    const aOpen = a.requiredCertifications.length === 0 ? 1 : 0
-    const bOpen = b.requiredCertifications.length === 0 ? 1 : 0
-    if (aOpen !== bOpen) return aOpen - bOpen
-    const qualifiedA = workers.filter((worker) => isQualified(worker, a)).length
-    const qualifiedB = workers.filter((worker) => isQualified(worker, b)).length
-    if (qualifiedA !== qualifiedB) return qualifiedA - qualifiedB
-    if (intensityOrder[a.intensity] !== intensityOrder[b.intensity]) {
-      return intensityOrder[a.intensity] - intensityOrder[b.intensity]
-    }
-    return b.staffingStandard - a.staffingStandard
-  })
+  return [...lanes]
 }
 
 function understaffedSlotCount(
