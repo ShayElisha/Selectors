@@ -1,4 +1,4 @@
-import type { AppData, ShiftHandoffNote, ShiftSchedule, ShiftVersionSummary } from './types'
+import type { AppData, ShiftHandoffNote, ShiftSchedule, ShiftVersionSummary, Worker } from './types'
 import { clearSession, loadAppDataCache, loadSession, type SessionUser } from './auth'
 
 export class ApiError extends Error {
@@ -75,6 +75,26 @@ export function saveAppDataRemote(data: AppData): Promise<AppData> {
   return request<AppData>('/api/data', {
     method: 'PUT',
     body: JSON.stringify({ ...rest, expectedRevision: revision ?? 0 }),
+  })
+}
+
+export function upsertWorkerRemote(worker: Worker): Promise<AppData> {
+  const hasId = Boolean(String(worker.id || '').trim())
+  if (!hasId) {
+    return request<AppData>('/api/workers', {
+      method: 'POST',
+      body: JSON.stringify(worker),
+    })
+  }
+  return request<AppData>(`/api/workers/${encodeURIComponent(worker.id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(worker),
+  })
+}
+
+export function deleteWorkerRemote(id: string): Promise<AppData> {
+  return request<AppData>(`/api/workers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   })
 }
 

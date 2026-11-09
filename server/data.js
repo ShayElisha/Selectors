@@ -1724,6 +1724,101 @@ export async function writeState(data, options = {}) {
   return publicData(result);
 }
 
+/**
+ * Create/update one worker against the newest server state.
+ * Avoids full-client PUT conflicts when only a worker card changed.
+ */
+export async function upsertWorkerRecord(body, actor, options = {}) {
+  const scope = options.scope;
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  const fallbackKind =
+    scope.module === "inspectors"
+      ? "inspector"
+      : scope.module === "security"
+        ? "security"
+        : "selector";
+  const incomingId = String(body?.id || "").trim() || randomUUID();
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope);
+    const latest = await readState(scope);
+    const normalized = normalizeWorker(
+      { ...(body || {}), id: incomingId },
+      fallbackKind,
+    );
+    const idx = (latest.workers || []).findIndex(
+      (worker) => worker.id === normalized.id,
+    );
+    // Replace the worker document wholesale so cleared fields (e.g. trainingRole)
+    // are not left behind; writeState restores password secrets from prev.
+    const workers =
+      idx === -1
+        ? [...(latest.workers || []), normalized]
+        : (latest.workers || []).map((worker, index) =>
+            index === idx ? normalized : worker,
+          );
+    try {
+      return await writeState(
+        { ...latest, workers },
+        {
+          actor,
+          scope,
+          expectedRevision: latest.revision ?? 0,
+        },
+      );
+    } catch (err) {
+      if (err?.status === 409) continue;
+      throw err;
+    }
+  }
+  throw conflictError(await readState(scope));
+}
+
+/** Delete one worker against the newest server state. */
+export async function deleteWorkerRecord(id, actor, options = {}) {
+  const scope = options.scope;
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  const workerId = String(id || "").trim();
+  if (!workerId) {
+    const err = new Error("חסר מזהה עובד");
+    err.status = 400;
+    throw err;
+  }
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope);
+    const latest = await readState(scope);
+    if (!(latest.workers || []).some((worker) => worker.id === workerId)) {
+      return publicData(latest);
+    }
+    const workers = (latest.workers || []).filter(
+      (worker) => worker.id !== workerId,
+    );
+    try {
+      return await writeState(
+        { ...latest, workers },
+        {
+          actor,
+          scope,
+          expectedRevision: latest.revision ?? 0,
+        },
+      );
+    } catch (err) {
+      if (err?.status === 409) continue;
+      throw err;
+    }
+  }
+  throw conflictError(await readState(scope));
+}
+
 /** Bump only the operational revision (leave historyRevision alone). */
 async function claimOperationalRevision(scope, current) {
   const target = targetForScope(scope);

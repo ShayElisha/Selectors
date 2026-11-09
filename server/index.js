@@ -31,6 +31,8 @@ import {
   resendManagerTempPassword,
   upsertShift,
   signOffShiftsBulk,
+  upsertWorkerRecord,
+  deleteWorkerRecord,
   writeState,
 } from './data.js'
 import { getDb } from './db.js'
@@ -939,6 +941,39 @@ app.put('/api/data', async (req, res) => {
             : Number(expectedRevision),
       }),
     )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/workers', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.status(201).json(await upsertWorkerRecord(req.body || {}, actor, { scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/workers/:id', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.json(
+      await upsertWorkerRecord(
+        { ...(req.body || {}), id: req.params.id },
+        actor,
+        { scope },
+      ),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.delete('/api/workers/:id', async (req, res) => {
+  try {
+    const { actor, scope } = await scopeForRequest(req)
+    res.json(await deleteWorkerRecord(req.params.id, actor, { scope }))
   } catch (err) {
     sendError(res, err)
   }

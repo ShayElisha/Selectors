@@ -38,6 +38,8 @@ import {
   selfHealShiftRemote,
   saveShiftRemote,
   signOffShiftsRemote,
+  upsertWorkerRemote,
+  deleteWorkerRemote,
   seedAppDataRemote,
   reviewWorkerFaultRemote,
   updateOwnAvatarRemote,
@@ -1023,7 +1025,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             pendingSaveRef.current = rebased
             setError(null)
-            toast.info('הנתונים השתנו במקביל; מיזגתי את השינויים ומנסה לשמור שוב.')
+            // Silent auto-merge retry — avoid alarming toasts on routine races.
             continue
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
@@ -3546,48 +3548,104 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addWorker = useCallback(
     (w: Omit<Worker, 'id'>) => {
-      patchData((prev) => {
-        const module = activeModule(userRef.current)
-        const created = normalizeWorkerRoles(
-          {
-            ...w,
-            id: uuid(),
-            isManager: Boolean(w.isManager),
-            isInspector: Boolean(w.isInspector) || !w.isManager,
-          },
-          staffKindForModule(module),
-        )
-        return {
-          ...prev,
-          workers: [...prev.workers, created],
+      const module = activeModule(userRef.current)
+      const created = normalizeWorkerRoles(
+        {
+          ...w,
+          id: uuid(),
+          isManager: Boolean(w.isManager),
+          isInspector: Boolean(w.isInspector) || !w.isManager,
+        },
+        staffKindForModule(module),
+      )
+      const previous = dataRef.current
+      const optimistic: AppData = {
+        ...previous,
+        workers: [...previous.workers, created],
+      }
+      dataRef.current = optimistic
+      setData(optimistic)
+      void (async () => {
+        try {
+          await flushPersist()
+          const saved = await upsertWorkerRemote(created)
+          applyRemoteData(saved)
+          setError(null)
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) return
+          dataRef.current = previous
+          setData(previous)
+          const message =
+            e instanceof Error ? e.message : 'שמירת העובד נכשלה'
+          setError(message)
+          notify.error(message)
+          void refreshFromServer()
         }
-      })
+      })()
     },
-    [patchData],
+    [applyRemoteData, flushPersist, refreshFromServer],
   )
 
   const updateWorker = useCallback(
     (w: Worker) => {
-      patchData((prev) => {
-        const module = activeModule(userRef.current)
-        const next = normalizeWorkerRoles(w, staffKindForModule(module))
-        return {
-          ...prev,
-          workers: prev.workers.map((x) => (x.id === next.id ? next : x)),
+      const module = activeModule(userRef.current)
+      const next = normalizeWorkerRoles(w, staffKindForModule(module))
+      const previous = dataRef.current
+      const optimistic: AppData = {
+        ...previous,
+        workers: previous.workers.map((x) => (x.id === next.id ? next : x)),
+      }
+      dataRef.current = optimistic
+      setData(optimistic)
+      void (async () => {
+        try {
+          await flushPersist()
+          const saved = await upsertWorkerRemote(next)
+          applyRemoteData(saved)
+          setError(null)
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) return
+          dataRef.current = previous
+          setData(previous)
+          const message =
+            e instanceof Error ? e.message : 'שמירת העובד נכשלה'
+          setError(message)
+          notify.error(message)
+          void refreshFromServer()
         }
-      })
+      })()
     },
-    [patchData],
+    [applyRemoteData, flushPersist, refreshFromServer],
   )
 
   const deleteWorker = useCallback(
     (id: string) => {
-      patchData((prev) => ({
-        ...prev,
-        workers: prev.workers.filter((w) => w.id !== id),
-      }))
+      const previous = dataRef.current
+      const optimistic: AppData = {
+        ...previous,
+        workers: previous.workers.filter((w) => w.id !== id),
+      }
+      dataRef.current = optimistic
+      setData(optimistic)
+      void (async () => {
+        try {
+          await flushPersist()
+          const saved = await deleteWorkerRemote(id)
+          applyRemoteData(saved)
+          setError(null)
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) return
+          dataRef.current = previous
+          setData(previous)
+          const message =
+            e instanceof Error ? e.message : 'מחיקת העובד נכשלה'
+          setError(message)
+          notify.error(message)
+          void refreshFromServer()
+        }
+      })()
     },
-    [patchData],
+    [applyRemoteData, flushPersist, refreshFromServer],
   )
 
   const addLane = useCallback(
