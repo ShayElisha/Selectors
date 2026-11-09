@@ -2,31 +2,47 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Copy, Info, X } from 'lucide-react'
 import { SHIFT_TYPE_LABELS } from '../constants'
+import { buildLaneSummaries } from '../lib/laneExplain'
 import { notify } from '../lib/notify'
-import type { ShiftType } from '../types'
+import type { Lane, ShiftType, Worker } from '../types'
 
 export type ExplainGroup = {
   laneId: string
   laneName: string
+  laneSummary?: string
   placements: { workerId: string; workerName: string; reasons: string[] }[]
 }
 
 export function groupExplanations(
-  explanations: { laneId: string; workerId: string; reasons: string[] }[],
+  explanations: {
+    laneId: string
+    workerId: string
+    reasons: string[]
+    laneSummary?: string
+  }[],
   lanes: { id: string; name: string }[],
   workers: { id: string; fullName: string }[],
 ): ExplainGroup[] {
   const laneName = new Map(lanes.map((lane) => [lane.id, lane.name]))
   const workerName = new Map(workers.map((worker) => [worker.id, worker.fullName]))
+  const summaries = buildLaneSummaries(
+    explanations,
+    lanes as Lane[],
+    workers as Worker[],
+  )
   const order: string[] = []
   const byLane = new Map<string, ExplainGroup>()
   for (const item of explanations) {
     if (!item.reasons.length) continue
     let group = byLane.get(item.laneId)
     if (!group) {
+      const storedSummary = explanations.find(
+        (row) => row.laneId === item.laneId && row.laneSummary,
+      )?.laneSummary
       group = {
         laneId: item.laneId,
         laneName: laneName.get(item.laneId) ?? 'נתיב',
+        laneSummary: storedSummary ?? summaries.get(item.laneId),
         placements: [],
       }
       byLane.set(item.laneId, group)
@@ -75,7 +91,10 @@ export function AssignmentExplainDialog({
           return bullets ? `${placement.workerName}\n${bullets}` : placement.workerName
         })
         .join('\n')
-      return `${group.laneName}\n${people}`
+      const header = group.laneSummary
+        ? `${group.laneName}\n${group.laneSummary}`
+        : group.laneName
+      return `${header}\n${people}`
     })
     return [header, ...blocks].join('\n\n')
   }, [date, groups, hideTechnical, shiftType])
@@ -152,6 +171,11 @@ export function AssignmentExplainDialog({
                 className="mb-3 rounded-xl border border-line bg-surface/70 px-3 py-2.5 last:mb-0"
               >
                 <h4 className="mb-1 text-sm font-bold text-brand">{group.laneName}</h4>
+                {group.laneSummary ? (
+                  <p className="mb-1 text-[11px] leading-relaxed text-ink-soft sm:text-xs">
+                    {group.laneSummary}
+                  </p>
+                ) : null}
                 <div className="mt-1.5 space-y-2.5">
                   {group.placements.map((placement) => (
                     <div key={`${group.laneId}-${placement.workerId}`}>

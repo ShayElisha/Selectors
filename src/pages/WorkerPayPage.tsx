@@ -18,6 +18,8 @@ import {
   saveManagerPayRateRemote,
   saveWorkerPayRateRemote,
   type WorkerPayEntry,
+  type WorkerPayEntryKind,
+  type WorkerPayRate,
   type WorkerPayState,
 } from '../api'
 import { PageLoader } from '../components/PageLoader'
@@ -39,9 +41,32 @@ import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 
 type PayApi = {
   fetch: (from: string, to: string) => Promise<WorkerPayState>
-  saveRate: (body: { basis: PayBasis; amount: number }) => Promise<WorkerPayState>
-  add: (body: { date: string; start: string; end: string }) => Promise<WorkerPayEntry>
+  saveRate: (body: Parameters<typeof saveWorkerPayRateRemote>[0]) => Promise<WorkerPayState>
+  add: (body: Parameters<typeof addWorkerPayEntryRemote>[0]) => Promise<WorkerPayEntry>
   remove: (id: string) => Promise<{ ok: boolean }>
+}
+
+const ENTRY_KIND_LABELS: Record<WorkerPayEntryKind, string> = {
+  work: 'עבודה',
+  vacation: 'חופשה',
+  sick: 'מחלה',
+}
+
+function freshRateRow(basis: PayBasis = 'hourly'): WorkerPayRate {
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    basis,
+    amount: 0,
+  }
+}
+
+function ratesFromPay(data: WorkerPayState): WorkerPayRate[] {
+  if (data.rates.length > 0) return data.rates
+  if (data.basis && data.amount > 0) {
+    return [{ id: 'default', name: 'רגיל', basis: data.basis, amount: data.amount }]
+  }
+  return [{ ...freshRateRow('hourly'), name: 'רגיל' }]
 }
 
 const workerPayApi: PayApi = {
@@ -168,6 +193,8 @@ function PayLedger({
   const [savingEntry, setSavingEntry] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loadedYear, setLoadedYear] = useState<number | null>(null)
+  const [rateRows, setRateRows] = useState<WorkerPayRate[]>([])
+  const [entryRateId, setEntryRateId] = useState('')
   const requestId = useRef(0)
 
   const load = useCallback(async (target: number) => {
@@ -182,6 +209,9 @@ function PayLedger({
       setLoadedYear(target)
       setBasis(data.basis === 'monthly' ? 'monthly' : 'hourly')
       setAmount(data.amount > 0 ? String(data.amount) : '')
+      const rows = ratesFromPay(data)
+      setRateRows(rows)
+      setEntryRateId(rows[0]?.id ?? '')
       setEditingRate(!(data.basis && data.amount > 0))
       setError(null)
     } catch (err) {
@@ -237,11 +267,32 @@ function PayLedger({
     const id = requestId.current + 1
     requestId.current = id
     try {
-      const saved = await api.saveRate({ basis, amount: parsed })
+      const primaryId = rateRows[0]?.id ?? crypto.randomUUID()
+      const primary: WorkerPayRate = {
+        id: primaryId,
+        name: 'רגיל',
+        basis,
+        amount: parsed,
+      }
+      const extra = rateRows.slice(1).map((row) => ({
+        ...row,
+        name: row.name.trim() || `תעריף ${row.basis === 'monthly' ? 'חודשי' : 'שעתי'}`,
+        amount: Math.round(Number(row.amount) * 100) / 100,
+      }))
+      for (const row of extra) {
+        if (!Number.isFinite(row.amount) || row.amount < 1) {
+          setError('הזינו סכום תקין לכל התעריפים')
+          return
+        }
+      }
+      const saved = await api.saveRate({ rates: [primary, ...extra] })
       if (requestId.current !== id) return
       setPay(saved)
       setLoadedYear(year)
       setAmount(String(saved.amount))
+      const rows = ratesFromPay(saved)
+      setRateRows(rows)
+      setEntryRateId(rows[0]?.id ?? '')
       setEditingRate(false)
       notify.success('השכר נשמר')
     } catch (err) {
@@ -262,14 +313,41 @@ function PayLedger({
         date: entryDate,
         start: entryStart.slice(0, 5),
         end: entryEnd.slice(0, 5),
+        kind: 'work',
+        ...(entryRateId ? { rateId: entryRateId } : {}),
       })
       if (requestId.current !== id) return
       setPay((current) =>
         current
           ? { ...current, entries: [...current.entries, created] }
-          : { basis: null, amount: 0, entries: [created] },
+          : { basis: null, amount: 0, rates: [], entries: [created] },
       )
       notify.success('הרשומה נוספה')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'שמירת הרשומה נכשלה')
+    } finally {
+      setSavingEntry(false)
+    }
+  }
+
+  const addLeave = async (kind: 'vacation' | 'sick') => {
+    setSavingEntry(true)
+    setError(null)
+    const id = requestId.current + 1
+    requestId.current = id
+    try {
+      const created = await api.add({
+        date: entryDate,
+        kind,
+        ...(entryRateId ? { rateId: entryRateId } : {}),
+      })
+      if (requestId.current !== id) return
+      setPay((current) =>
+        current
+          ? { ...current, entries: [...current.entries, created] }
+          : { basis: null, amount: 0, rates: [], entries: [created] },
+      )
+      notify.success(kind === 'vacation' ? 'יום חופשה נוסף' : 'יום מחלה נוסף')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שמירת הרשומה נכשלה')
     } finally {
@@ -394,6 +472,96 @@ function PayLedger({
                 required
               />
             </div>
+            <div className="space-y-2 rounded-xl border border-line/70 bg-surface/40 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-ink">תעריפים נוספים</p>
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-ghost !py-1 text-xs"
+                  disabled={savingRate || rateRows.length >= 8}
+                  onClick={() =>
+                    setRateRows((rows) => [...rows, freshRateRow(basis)])
+                  }
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  הוספה
+                </button>
+              </div>
+              {rateRows.length <= 1 ? (
+                <p className="text-xs text-ink-soft">
+                  אפשר להגדיר עד 8 תעריפים בשם (למשל א׳ / ב׳).
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {rateRows.slice(1).map((row, index) => (
+                    <li
+                      key={row.id}
+                      className="grid gap-2 rounded-lg border border-line/60 bg-card/80 p-2.5 sm:grid-cols-[1fr_120px_1fr_auto]"
+                    >
+                      <input
+                        className="ui-field w-full min-w-0"
+                        value={row.name}
+                        placeholder="שם תעריף"
+                        disabled={savingRate}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setRateRows((rows) =>
+                            rows.map((item, i) =>
+                              i === index + 1 ? { ...item, name: value } : item,
+                            ),
+                          )
+                        }}
+                      />
+                      <select
+                        className="ui-field w-full min-w-0"
+                        value={row.basis}
+                        disabled={savingRate}
+                        onChange={(event) => {
+                          const value = event.target.value as PayBasis
+                          setRateRows((rows) =>
+                            rows.map((item, i) =>
+                              i === index + 1 ? { ...item, basis: value } : item,
+                            ),
+                          )
+                        }}
+                      >
+                        <option value="hourly">שעתי</option>
+                        <option value="monthly">חודשי</option>
+                      </select>
+                      <input
+                        className="ui-field w-full min-w-0"
+                        dir="ltr"
+                        inputMode="decimal"
+                        value={row.amount > 0 ? String(row.amount) : ''}
+                        disabled={savingRate}
+                        placeholder={row.basis === 'monthly' ? '12000' : '60'}
+                        onChange={(event) => {
+                          const parsed = Math.round(Number(event.target.value) * 100) / 100
+                          setRateRows((rows) =>
+                            rows.map((item, i) =>
+                              i === index + 1
+                                ? { ...item, amount: Number.isFinite(parsed) ? parsed : 0 }
+                                : item,
+                            ),
+                          )
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-ghost !px-2 text-hard"
+                        aria-label="מחיקת תעריף"
+                        disabled={savingRate}
+                        onClick={() =>
+                          setRateRows((rows) => rows.filter((_, i) => i !== index + 1))
+                        }
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <div className="flex flex-col gap-2 min-[420px]:flex-row">
               <button
                 type="submit"
@@ -435,11 +603,26 @@ function PayLedger({
                   שווה <Ltr>{money(report.hourlyRate)}</Ltr> לשעה
                 </p>
               ) : null}
+              {pay && pay.rates.length > 1 ? (
+                <ul className="mt-3 space-y-1 text-sm text-ink-soft">
+                  {pay.rates.map((row) => (
+                    <li key={row.id}>
+                      <span className="font-medium text-ink">{row.name}</span>
+                      {' · '}
+                      {row.basis === 'monthly' ? 'חודשי' : 'שעתי'}{' '}
+                      <Ltr>{money(row.amount)}</Ltr>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
             <button
               type="button"
               className="ui-btn ui-btn-secondary w-full sm:w-auto"
-              onClick={() => setEditingRate(true)}
+              onClick={() => {
+                if (pay) setRateRows(ratesFromPay(pay))
+                setEditingRate(true)
+              }}
             >
               <Pencil className="size-4" aria-hidden />
               עריכה
@@ -448,8 +631,30 @@ function PayLedger({
         )}
       </SectionCard>
 
-      <SectionCard title="רשומת שעות" subtitle="אם שעת הסיום מוקדמת מההתחלה, הרשומה נמשכת ליום הבא.">
+      <SectionCard
+        title="רשומת שעות"
+        subtitle="אם שעת הסיום מוקדמת מההתחלה, הרשומה נמשכת ליום הבא. חופשה ומחלה נרשמות כיום מלא 08:00–16:00."
+      >
         <form onSubmit={(event) => void addEntry(event)} className="grid gap-3">
+          {pay && pay.rates.length > 1 ? (
+            <div>
+              <FieldLabel htmlFor="pay-rate">תעריף</FieldLabel>
+              <select
+                id="pay-rate"
+                className="ui-field w-full min-w-0"
+                value={entryRateId}
+                onChange={(event) => setEntryRateId(event.target.value)}
+                disabled={savingEntry}
+              >
+                {pay.rates.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name} · {row.basis === 'monthly' ? 'חודשי' : 'שעתי'}{' '}
+                    {money(row.amount)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div>
             <FieldLabel htmlFor="pay-date">תאריך</FieldLabel>
             <select
@@ -495,14 +700,32 @@ function PayLedger({
               />
             </div>
           </div>
-          <button
-            type="submit"
-            className="ui-btn ui-btn-primary w-full disabled:opacity-40"
-            disabled={savingEntry}
-          >
-            <Plus className="size-4" aria-hidden />
-            {savingEntry ? 'שומר…' : 'הוספה'}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="submit"
+              className="ui-btn ui-btn-primary w-full disabled:opacity-40 sm:flex-1"
+              disabled={savingEntry}
+            >
+              <Plus className="size-4" aria-hidden />
+              {savingEntry ? 'שומר…' : 'הוספת עבודה'}
+            </button>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary w-full sm:flex-1"
+              disabled={savingEntry}
+              onClick={() => void addLeave('vacation')}
+            >
+              יום חופשה
+            </button>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary w-full sm:flex-1"
+              disabled={savingEntry}
+              onClick={() => void addLeave('sick')}
+            >
+              יום מחלה
+            </button>
+          </div>
         </form>
         {error ? (
           <p className="mt-3 text-sm font-medium text-hard" role="alert">
@@ -611,6 +834,7 @@ function PayLedger({
                 day={day}
                 today={day.date === todayIso()}
                 deletingId={deletingId}
+                rawEntries={pay?.entries ?? []}
                 onDelete={(id) => void removeEntry(id)}
               />
             ))}
@@ -625,11 +849,13 @@ function DayRow({
   day,
   today,
   deletingId,
+  rawEntries,
   onDelete,
 }: {
   day: PayDay
   today: boolean
   deletingId: string | null
+  rawEntries: WorkerPayEntry[]
   onDelete: (id: string) => void
 }) {
   const tag = dayTag(day)
@@ -686,12 +912,21 @@ function DayRow({
       </div>
       {day.entries.length > 0 ? (
         <ul className="mt-2 space-y-1.5">
-          {day.entries.map((entry) => (
+          {day.entries.map((entry) => {
+            const kind = rawEntries.find((row) => row.id === entry.id)?.kind
+            const kindLabel =
+              kind && kind !== 'work' ? ENTRY_KIND_LABELS[kind] : null
+            return (
             <li
               key={`${entry.id}-${entry.from}`}
               className="flex items-center justify-between gap-2 text-sm"
             >
               <span className="min-w-0 text-ink">
+                {kindLabel ? (
+                  <span className="me-2 rounded-full bg-card px-2 py-0.5 text-[11px] text-ink-soft ring-1 ring-line/80">
+                    {kindLabel}
+                  </span>
+                ) : null}
                 <Ltr>
                   {entry.from}–{entry.to}
                 </Ltr>
@@ -712,7 +947,7 @@ function DayRow({
                 </button>
               ) : null}
             </li>
-          ))}
+          )})}
         </ul>
       ) : null}
       {worked > 0 ? (

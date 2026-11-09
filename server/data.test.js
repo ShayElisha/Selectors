@@ -366,11 +366,30 @@ describe('state and shift persistence', () => {
     )
 
     expect(saved.history).toHaveLength(1)
-    expect(saved.history[0]).toMatchObject({ id: 'shift-1', date: '2026-10-12' })
+    expect(saved.history[0]).toMatchObject({
+      id: 'shift-1',
+      date: '2026-10-12',
+      editCount: 0,
+    })
+
+    const updated = await upsertShift(
+      'shift-1',
+      {
+        date: '2026-10-12',
+        shiftType: 'morning',
+        assignmentMode: 'single',
+        activeLaneIds: [],
+        presentWorkerIds: ['w1'],
+        assignments: [],
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope },
+    )
+    expect(updated.history[0]?.editCount).toBe(1)
     expect(buckets.get('selectors:shifts')[0]._id).toBe(`${metaId}:shift-1`)
     expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId)).toMatchObject({
-      revision: 2,
-      historyRevision: 2,
+      revision: 3,
+      historyRevision: 3,
     })
   })
 

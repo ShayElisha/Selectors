@@ -371,6 +371,9 @@ export function IncidentsPage() {
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-soft">
                     {item.description}
                   </p>
+                  {item.photoDataUrl ? (
+                    <IncidentFaultPhoto src={item.photoDataUrl} />
+                  ) : null}
                   <p className="mt-2 text-[12px] text-ink-soft">
                     דווח על ידי {item.reportedByName || item.createdBy} ·{' '}
                     {formatDate(item.createdAt)}
@@ -764,6 +767,9 @@ export function IncidentsPage() {
                           <p className="mt-0.5 line-clamp-2 text-[12px] text-ink-soft">
                             {item.description}
                           </p>
+                          {item.photoDataUrl ? (
+                            <IncidentFaultPhoto src={item.photoDataUrl} compact />
+                          ) : null}
                         </td>
                         <td className="px-3 py-2.5 align-middle">
                           <span
@@ -937,6 +943,9 @@ function IncidentList({
                 <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-soft">
                   {item.description}
                 </p>
+                {item.photoDataUrl ? (
+                  <IncidentFaultPhoto src={item.photoDataUrl} />
+                ) : null}
                 {item.reportedByName ? (
                   <p className="mt-1 text-xs text-ink-soft">
                     דווח מפורטל עובדים על ידי {item.reportedByName}
@@ -1037,5 +1046,32 @@ function Field({
       <FieldLabel>{label}</FieldLabel>
       {children}
     </div>
+  )
+}
+
+function IncidentFaultPhoto({
+  src,
+  compact = false,
+}: {
+  src: string
+  compact?: boolean
+}) {
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-2 inline-block"
+    >
+      <img
+        src={src}
+        alt="תמונה מצורפת לדיווח תקלה"
+        className={
+          compact
+            ? 'mt-1 max-h-16 max-w-[6rem] rounded-md border border-line/80 object-cover'
+            : 'max-h-40 max-w-full rounded-lg border border-line/80 object-cover'
+        }
+      />
+    </a>
   )
 }

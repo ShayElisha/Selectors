@@ -78,6 +78,7 @@ import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
 import type { AppData, LaneAssignment, ShiftType, Worker } from '../types'
+import { mergeShiftRoster } from '../lib/guestWorkers'
 import { WorkerCombobox } from './WorkerCombobox'
 
 export interface BoardStepProps {
@@ -102,6 +103,8 @@ export interface BoardStepProps {
   onOpenExtraPick: (laneId?: string, workerId?: string) => void
   onBackToAttendance: () => void
   onExplainModalOpenChange?: (open: boolean) => void
+  /** Workers from other modules (guest attendance). */
+  extraWorkers?: Worker[]
 }
 
 function placeFloatingMenu(anchor: HTMLElement, width: number, height = 88) {
@@ -153,7 +156,16 @@ export function BoardStep({
   onOpenExtraPick,
   onBackToAttendance,
   onExplainModalOpenChange,
+  extraWorkers = [],
 }: BoardStepProps) {
+  const guestIds = useMemo(
+    () => new Set(draft.guestWorkerIds ?? []),
+    [draft.guestWorkerIds],
+  )
+  const rosterWorkers = useMemo(
+    () => mergeShiftRoster(data.workers, extraWorkers),
+    [data.workers, extraWorkers],
+  )
   const {
     updateAssignment,
     swapAssignments,
@@ -667,7 +679,7 @@ export function BoardStep({
     workerId: string,
     std: number,
   ) => {
-    const present = data.workers.filter(
+    const present = rosterWorkers.filter(
       (w) => draft.presentWorkerIds.includes(w.id) && w.isInspector,
     )
     const workers = present
@@ -701,7 +713,7 @@ export function BoardStep({
         return a.fullName.localeCompare(b.fullName, 'he')
       })
     const selectedWorker = workerId
-      ? data.workers.find((w) => w.id === workerId)
+      ? rosterWorkers.find((w) => w.id === workerId)
       : null
     if (selectedWorker && !workers.some((worker) => worker.id === selectedWorker.id)) {
       workers.push(selectedWorker)
@@ -751,6 +763,9 @@ export function BoardStep({
             ? `ללא הסמכה · חסר: ${missing.join(' · ')}`
             : 'ללא הסמכה',
         )
+      }
+      if (guestIds.has(w.id)) {
+        details.unshift('אורח')
       }
       return details.join(' · ')
     }

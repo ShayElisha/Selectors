@@ -26,8 +26,12 @@ import {
   buildSameDayMorningContext,
   needsAfternoonNightRecovery,
 } from '../algorithm'
-import { peopleLabelsForModule } from '../auth'
+import { MODULE_LABELS, peopleLabelsForModule } from '../auth'
 import { useApp } from '../context/AppContext'
+import {
+  assessBoardQualityAlert,
+  collectRecentQualityScores,
+} from '../lib/boardQualityAlert'
 import { notify } from '../lib/notify'
 import { ShiftDropDialog, ShiftDropSummary } from '../components/ShiftDropDialog'
 import { ShiftClosedBanner, ShiftSignOffDialog } from '../components/ShiftSignOffDialog'
@@ -70,7 +74,13 @@ import {
   type ExportRoundCell,
 } from '../lib/export'
 import { exportBlockedReason } from '../lib/exportGate'
-import { postAuditEvent, reportShiftPresence } from '../api'
+import {
+  fetchGuestWorkersRemote,
+  postAuditEvent,
+  reportShiftPresence,
+  type GuestWorker,
+} from '../api'
+import { guestWorkerAsWorker, mergeShiftRoster } from '../lib/guestWorkers'
 import { pluralizeHe } from '../lib/hebrew'
 import { sortIdsByCatalogOrder } from '../lib/lanesCertHelpers'
 import {
@@ -122,6 +132,7 @@ export function ShiftPage() {
     applyLaneSelection,
     applyPresentSelection,
     toggleWorker,
+    addGuestWorkers,
     setGateManager,
     setAllActiveLanes,
     setAllActiveWorkers,
@@ -183,6 +194,14 @@ export function ShiftPage() {
       draftDirty,
     })
   }, [draft, data.history, draftDirty])
+
+  const qualityVsHistory = useMemo(() => {
+    if (!draft?.quality?.score || draft.quality.legal === false) return null
+    const historyScores = collectRecentQualityScores(data.history, {
+      beforeDate: draft.date,
+    })
+    return assessBoardQualityAlert(draft.quality.score, historyScores)
+  }, [data.history, draft?.date, draft?.quality])
 
   const [extraFlow, setExtraFlow] = useState<ExtraFlow>('closed')
   const [extraAskedOnce, setExtraAskedOnce] = useState(false)
@@ -363,6 +382,42 @@ export function ShiftPage() {
     [data.workers],
   )
 
+  const [guestCatalog, setGuestCatalog] = useState<GuestWorker[]>([])
+  const [guestPickerOpen, setGuestPickerOpen] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
+  const [guestPickIds, setGuestPickIds] = useState<string[]>([])
+
+  const loadGuestCatalog = useCallback(async () => {
+    setGuestLoading(true)
+    try {
+      setGuestCatalog(await fetchGuestWorkersRemote())
+    } catch {
+      notify.error('לא ניתן לטעון עובדים ממחלקות אחרות')
+      setGuestCatalog([])
+    } finally {
+      setGuestLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!draft?.guestWorkerIds?.length) return
+    if (guestCatalog.length > 0) return
+    void loadGuestCatalog()
+  }, [draft?.guestWorkerIds, guestCatalog.length, loadGuestCatalog])
+
+  const guestWorkerModels = useMemo(
+    () => guestCatalog.map(guestWorkerAsWorker),
+    [guestCatalog],
+  )
+  const shiftRoster = useMemo(
+    () => mergeShiftRoster(data.workers, guestWorkerModels),
+    [data.workers, guestWorkerModels],
+  )
+  const guestIdSet = useMemo(
+    () => new Set(draft?.guestWorkerIds ?? []),
+    [draft?.guestWorkerIds],
+  )
+
   const feasibility = useMemo(() => {
     if (!draft) {
       return computeFeasibilityPreview([], [], [], [], {})
@@ -425,9 +480,15 @@ export function ShiftPage() {
   }, [draft, data.history])
 
   const filteredAttendance = useMemo(() => {
-    const q = attendanceWorkers.filter((w) =>
-      workerMatchesNameQuery(w, attendanceQuery),
+    const localIds = new Set(attendanceWorkers.map((w) => w.id))
+    const guestPresent = guestWorkerModels.filter(
+      (w) =>
+        (draft?.guestWorkerIds?.includes(w.id) ||
+          draft?.presentWorkerIds.includes(w.id)) &&
+        !localIds.has(w.id),
     )
+    const base = [...attendanceWorkers, ...guestPresent]
+    const q = base.filter((w) => workerMatchesNameQuery(w, attendanceQuery))
     if (!draft || !morningShift) return q
     const morningIds = new Set(morningShift.presentWorkerIds)
     return [...q].sort((a, b) => {
@@ -442,7 +503,13 @@ export function ShiftPage() {
       if (aStay !== bStay) return aStay - bStay
       return 0
     })
-  }, [attendanceWorkers, attendanceQuery, draft, morningShift])
+  }, [
+    attendanceWorkers,
+    guestWorkerModels,
+    attendanceQuery,
+    draft,
+    morningShift,
+  ])
 
   useEffect(() => {
     if (!draft) return
@@ -1204,6 +1271,17 @@ export function ShiftPage() {
                   >
                     ניקוי
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGuestPickIds([])
+                      setGuestPickerOpen(true)
+                      void loadGuestCatalog()
+                    }}
+                    className="ui-btn ui-btn-secondary min-h-10 !py-1.5 text-xs"
+                  >
+                    הוסף מאורח ממחלקה אחרת
+                  </button>
                 </div>
               </div>
               <div className="relative mb-4">
@@ -1293,6 +1371,11 @@ export function ShiftPage() {
                               <span className="text-sm font-bold text-ink sm:text-[15px]">
                                 {w.fullName}
                               </span>
+                              {guestIdSet.has(w.id) ? (
+                                <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent">
+                                  אורח
+                                </span>
+                              ) : null}
                               {w.isManager ? (
                                 <span className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-bold text-ink-soft ring-1 ring-line">
                                   מנהל
@@ -1834,6 +1917,18 @@ export function ShiftPage() {
           ) : null}
           {draft.quality ? (
             <section className="rounded-xl border border-brand/20 bg-brand/5 px-4 py-3" aria-label="מדדי איכות השיבוץ">
+              {qualityVsHistory && qualityVsHistory.level !== 'ok' ? (
+                <div
+                  className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                    qualityVsHistory.level === 'bad'
+                      ? 'border-hard/30 bg-hard-soft text-hard'
+                      : 'border-warn/30 bg-warn-soft text-warn'
+                  }`}
+                  role="status"
+                >
+                  {qualityVsHistory.message}
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-sm font-bold text-ink">מדדי איכות לשיבוץ האוטומטי</h3>
                 <span className="font-display text-xl font-bold tabular-nums text-brand">{Math.round(draft.quality.score)}/100</span>
@@ -1853,7 +1948,7 @@ export function ShiftPage() {
             rounds={draft.rounds ?? []}
             lanes={selectorLanes(data.lanes, draft.activeLaneIds)}
             workers={selectorStaff(
-              data.workers,
+              shiftRoster,
               draft.presentWorkerIds,
               draft.gateManagerWorkerId,
             )}
@@ -1924,6 +2019,7 @@ export function ShiftPage() {
         <BoardStep
           draft={draft}
           data={data}
+          extraWorkers={guestWorkerModels}
           people={people}
           morningCtx={morningCtx}
           exportLines={exportLines}
@@ -2228,6 +2324,111 @@ export function ShiftPage() {
             )
           })()
         : null}
+      {guestPickerOpen && draft ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="flex max-h-[min(32rem,85vh)] w-full max-w-lg flex-col rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3
+                  id="guest-picker-title"
+                  className="font-display text-base font-bold text-ink"
+                >
+                  הוספת מאורח ממחלקה אחרת
+                </h3>
+                <p className="mt-1 text-[13px] text-ink-soft">
+                  מאורחים נספרים בנוכחות וניתן לשבצם ידנית בלבד.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGuestPickerOpen(false)}
+                className="rounded-lg p-1.5 text-ink-soft hover:bg-surface"
+                aria-label="סגור"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            {guestLoading ? (
+              <p className="py-8 text-center text-[13px] text-ink-soft">טוען...</p>
+            ) : guestCatalog.length === 0 ? (
+              <p className="py-8 text-center text-[13px] text-ink-soft">
+                אין עובדים פעילים במחלקות האחרות של הארגון.
+              </p>
+            ) : (
+              <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto pe-1">
+                {guestCatalog
+                  .filter((g) => !draft.presentWorkerIds.includes(g.id))
+                  .map((g) => {
+                    const picked = guestPickIds.includes(g.id)
+                    return (
+                      <li key={g.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setGuestPickIds((ids) =>
+                              picked
+                                ? ids.filter((id) => id !== g.id)
+                                : [...ids, g.id],
+                            )
+                          }
+                          className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-start transition ${
+                            picked
+                              ? 'border-brand/40 bg-brand/[0.06]'
+                              : 'border-line bg-surface hover:border-brand/25'
+                          }`}
+                        >
+                          <span
+                            className={`flex size-5 shrink-0 items-center justify-center rounded border ${
+                              picked
+                                ? 'border-brand bg-brand text-white'
+                                : 'border-line bg-card'
+                            }`}
+                          >
+                            {picked ? <Check className="size-3" /> : null}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-ink">
+                              {g.fullName}
+                            </span>
+                            <span className="block text-[12px] text-ink-soft">
+                              {MODULE_LABELS[g.sourceModule]} ·{' '}
+                              <Ltr>{g.phone}</Ltr>
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+              </ul>
+            )}
+            <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-line/70 pt-3">
+              <button
+                type="button"
+                className="ui-btn ui-btn-ghost"
+                onClick={() => setGuestPickerOpen(false)}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="ui-btn ui-btn-primary"
+                disabled={guestPickIds.length === 0}
+                onClick={() => {
+                  addGuestWorkers(guestPickIds)
+                  setGuestPickerOpen(false)
+                  setGuestPickIds([])
+                }}
+              >
+                הוסף נבחרים
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {compareOptions && draft ? (
         <BoardCompareDialog
           loadFair={compareOptions.loadFair}

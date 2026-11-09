@@ -4,7 +4,14 @@ import {
   SHIFT_TYPE_LABELS,
 } from './constants'
 import { formatShiftDate } from './lib/hebrew'
+import { buildLaneSummaryText } from './lib/laneExplain'
 import { shiftPlacements } from './lib/shiftPlacements'
+import {
+  assignmentsTrainingLegal,
+  filterAutoAssignPool,
+  pickLaneWorkersWithTraining,
+  placementAllowedForTraining,
+} from './lib/trainingPairing'
 import type {
   Intensity,
   Lane,
@@ -33,6 +40,8 @@ export interface PlacementExplanation {
   workerId: string
   /** Hebrew bullet reasons grounded in the ranking math */
   reasons: string[]
+  /** One-line lane decision summary (first placement on the lane). */
+  laneSummary?: string
   /** Why this worker won in the full board build, when that was recorded. */
   decision?: string
   /** Ordered preferences for this lane; this is not a single weighted score. */
@@ -1981,6 +1990,16 @@ export function evaluateBoard(
     }
   }
 
+  if (
+    !assignmentsTrainingLegal(
+      assignments,
+      [...ctx.workersById.values()],
+      ctx.lanes,
+    )
+  ) {
+    return illegalBoardEval(ctx.objective)
+  }
+
   const placements: { lane: Lane; workerId: string; profile: WorkerHistoryProfile }[] =
     []
   for (const a of assignments) {
@@ -2585,6 +2604,17 @@ export function runMultiPassOptimization(
         const ubId = unassigned[u]!
         const ub = input.workersById.get(ubId)
         if (!ub || !isQualified(ub, laneA)) continue
+        if (
+          !placementAllowedForTraining(
+            ubId,
+            a.laneId,
+            assignments,
+            input.workersById,
+            laneById,
+          )
+        ) {
+          continue
+        }
 
         const next = cloneAssignments(assignments)
         const ids = next[i]!.workerIds.filter(Boolean)
@@ -2632,6 +2662,18 @@ export function runMultiPassOptimization(
           const ubId = unassigned[u]!
           const ub = input.workersById.get(ubId)
           if (!ub || !isQualified(ub, laneA)) continue
+          if (
+            !placementAllowedForTraining(
+              ubId,
+              a.laneId,
+              assignments,
+              input.workersById,
+              laneById,
+              waId,
+            )
+          ) {
+            continue
+          }
 
           const next = cloneAssignments(assignments)
           next[i]!.workerIds[ai] = ubId
@@ -3089,6 +3131,8 @@ function buildFinalBoardExplanations(
       currentShiftType,
     )
     const greedySet = greedyByLane.get(lane.id) ?? new Set<string>()
+    const seatedOnLane = assignment.workerIds.filter(Boolean).length
+    let laneSummaryAttached = false
 
     for (const workerId of assignment.workerIds) {
       if (!workerId) continue
@@ -3138,10 +3182,16 @@ function buildFinalBoardExplanations(
             ? 'העובד דורג ראשון בסדר ההעדפה המקומי לעמדה הזו.'
             : 'סדר מילוי הנתיבים והזמינות בפועל הכריעו: העובד שובץ כשהגיע תור העמדה; מועמדים שדורגו לפניו כבר שובצו או לא היו פנויים.'
         : undefined
+      const laneSummary =
+        !laneSummaryAttached && reasons.length > 0
+          ? buildLaneSummaryText(lane, seatedOnLane, reasons, decision)
+          : undefined
+      if (laneSummary) laneSummaryAttached = true
       explanations.push({
         laneId: lane.id,
         workerId,
         reasons,
+        ...(laneSummary ? { laneSummary } : {}),
         decision,
         candidateRanking,
       })
@@ -3358,9 +3408,17 @@ function greedyAssignPass(
       lastSeatings,
     }
 
+    pool = filterAutoAssignPool(pool, lane, [], workerById)
+
     const ranked = sortCandidatesForLane(pool, sortOpts)
     const needed = lane.staffingStandard
-    const pickedWorkers = ranked.slice(0, needed)
+    const pickedWorkers = pickLaneWorkersWithTraining(
+      ranked,
+      needed,
+      [],
+      lane,
+      workerById,
+    )
     const picked = pickedWorkers.map((w) => w.id)
 
     for (const id of picked) available.delete(id)
@@ -3369,25 +3427,33 @@ function greedyAssignPass(
     poolSizes.set(lane.id, qualified.length)
     rankedByLane.set(lane.id, ranked)
 
+    let laneSummaryAttached = false
     pickedWorkers.forEach((worker, rank) => {
+      const reasons = buildPlacementReasons(
+        worker,
+        lane,
+        ranked,
+        rank,
+        profiles,
+        otherOpen,
+        currentShiftType,
+        morningCtx,
+        qualified.length,
+        lanePriorityNote,
+        recoveringIds,
+        lastSeatings,
+        roster,
+      )
+      const laneSummary =
+        !laneSummaryAttached
+          ? buildLaneSummaryText(lane, pickedWorkers.length, reasons)
+          : undefined
+      if (laneSummary) laneSummaryAttached = true
       explanations.push({
         laneId: lane.id,
         workerId: worker.id,
-        reasons: buildPlacementReasons(
-          worker,
-          lane,
-          ranked,
-          rank,
-          profiles,
-          otherOpen,
-          currentShiftType,
-          morningCtx,
-          qualified.length,
-          lanePriorityNote,
-          recoveringIds,
-          lastSeatings,
-          roster,
-        ),
+        reasons,
+        ...(laneSummary ? { laneSummary } : {}),
       })
     })
 

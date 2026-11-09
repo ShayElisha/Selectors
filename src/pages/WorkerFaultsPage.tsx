@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlertTriangle, RefreshCw, Send } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { AlertTriangle, ImagePlus, RefreshCw, Send, X } from 'lucide-react'
 import {
   fetchWorkerIncidentsRemote,
   submitWorkerFaultRemote,
@@ -7,6 +7,7 @@ import {
 } from '../api'
 import { PageLoader } from '../components/PageLoader'
 import { FieldLabel, SectionCard } from '../components/ui'
+import { readFaultPhoto } from '../lib/avatarImage'
 import { notify } from '../lib/notify'
 import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 
@@ -45,6 +46,9 @@ export function WorkerFaultsPage() {
   const [severity, setSeverity] =
     useState<WorkerIncidentItem['severity']>('medium')
   const [laneId, setLaneId] = useState('')
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true)
@@ -77,12 +81,14 @@ export function WorkerFaultsPage() {
         description,
         severity,
         ...(laneId ? { laneId } : {}),
+        ...(photoDataUrl ? { photoDataUrl } : {}),
       })
       setIncidents((prev) => [created, ...prev])
       setTitle('')
       setDescription('')
       setSeverity('medium')
       setLaneId('')
+      setPhotoDataUrl(null)
       notify.success('הדיווח נשלח וממתין לאישור מנהל משמרת')
     } catch (err) {
       const message =
@@ -181,6 +187,73 @@ export function WorkerFaultsPage() {
               </select>
             </div>
           </div>
+          <div>
+            <FieldLabel htmlFor="fault-photo">תמונה (אופציונלי)</FieldLabel>
+            <input
+              ref={photoInputRef}
+              id="fault-photo"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              disabled={submitting || photoBusy}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (!file) return
+                setPhotoBusy(true)
+                void readFaultPhoto(file)
+                  .then((data) => {
+                    setPhotoDataUrl(data)
+                    setError(null)
+                  })
+                  .catch((err) => {
+                    const message =
+                      err instanceof Error ? err.message : 'טעינת התמונה נכשלה'
+                    setError(message)
+                    notify.error(message)
+                  })
+                  .finally(() => setPhotoBusy(false))
+              }}
+            />
+            {photoDataUrl ? (
+              <div className="flex items-start gap-3">
+                <a
+                  href={photoDataUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0"
+                >
+                  <img
+                    src={photoDataUrl}
+                    alt="תצוגה מקדימה של תמונת התקלה"
+                    className="size-24 rounded-xl border border-line/80 object-cover"
+                  />
+                </a>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-sm text-ink-soft">התמונה תצורף לדיווח</p>
+                  <button
+                    type="button"
+                    className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+                    disabled={submitting}
+                    onClick={() => setPhotoDataUrl(null)}
+                  >
+                    <X className="size-3.5" aria-hidden />
+                    הסרת תמונה
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="ui-btn ui-btn-secondary w-full sm:w-auto"
+                disabled={submitting || photoBusy}
+                onClick={() => photoInputRef.current?.click()}
+              >
+                <ImagePlus className="size-4" aria-hidden />
+                {photoBusy ? 'מעבד תמונה…' : 'צירוף תמונה'}
+              </button>
+            )}
+          </div>
           {error ? (
             <p className="text-sm font-medium text-hard" role="alert">
               {error}
@@ -240,6 +313,20 @@ export function WorkerFaultsPage() {
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-soft">
                     {item.description}
                   </p>
+                  {item.photoDataUrl ? (
+                    <a
+                      href={item.photoDataUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-block"
+                    >
+                      <img
+                        src={item.photoDataUrl}
+                        alt="תמונה מצורפת"
+                        className="max-h-36 rounded-lg border border-line/80 object-cover"
+                      />
+                    </a>
+                  ) : null}
                   {item.status === 'rejected' && item.rejectionReason ? (
                     <p className="mt-2 text-sm text-hard">
                       סיבת הדחייה: {item.rejectionReason}

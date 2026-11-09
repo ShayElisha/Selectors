@@ -10,6 +10,11 @@ function httpError(message, status) {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const ENTRY_KINDS = new Set(['work', 'vacation', 'sick'])
+const LEAVE_KINDS = new Set(['vacation', 'sick'])
+const MAX_RATES = 8
+const LEAVE_START = '08:00'
+const LEAVE_END = '16:00'
 
 function validDate(iso) {
   if (!DATE_RE.test(iso)) return false
@@ -56,8 +61,73 @@ function emptyDoc(orgId, workerId) {
     workerId,
     basis: null,
     amount: 0,
+    rates: [],
     entries: [],
   }
+}
+
+function normalizeStoredRate(item) {
+  if (!item || typeof item !== 'object') return null
+  const basis =
+    item.basis === 'monthly' ? 'monthly' : item.basis === 'hourly' ? 'hourly' : null
+  if (!basis) return null
+  const amount = Math.round(Number(item.amount) * 100) / 100
+  if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) return null
+  const name = String(item.name || '').trim().slice(0, 40)
+  if (name.length < 1) return null
+  const id = String(item.id || '').trim() || randomUUID()
+  return { id, name, basis, amount }
+}
+
+function effectiveRates(doc) {
+  const stored = Array.isArray(doc.rates)
+    ? doc.rates.map(normalizeStoredRate).filter(Boolean)
+    : []
+  if (stored.length > 0) return stored
+  if (
+    (doc.basis === 'hourly' || doc.basis === 'monthly') &&
+    Number(doc.amount) > 0
+  ) {
+    return [
+      {
+        id: 'default',
+        name: 'רגיל',
+        basis: doc.basis,
+        amount: Number(doc.amount),
+      },
+    ]
+  }
+  return []
+}
+
+function normalizeRatesInput(list) {
+  if (!Array.isArray(list)) {
+    throw httpError('רשימת תעריפים לא תקינה', 400)
+  }
+  if (list.length < 1) {
+    throw httpError('נדרש לפחות תעריף אחד', 400)
+  }
+  if (list.length > MAX_RATES) {
+    throw httpError(`אפשר עד ${MAX_RATES} תעריפים`, 400)
+  }
+  const rates = list.map((item) => normalizeStoredRate(item)).filter(Boolean)
+  if (rates.length !== list.length) {
+    throw httpError('פרטי תעריף לא תקינים', 400)
+  }
+  const names = new Set()
+  for (const rate of rates) {
+    if (names.has(rate.name)) {
+      throw httpError('שם תעריף חייב להיות ייחודי', 400)
+    }
+    names.add(rate.name)
+  }
+  return rates
+}
+
+function primaryRate(rates) {
+  if (!rates.length) return { basis: null, amount: 0 }
+  const regular = rates.find((item) => item.name === 'רגיל') ?? rates[0]
+  return { basis: regular.basis, amount: regular.amount }
 }
 
 async function loadDoc(orgId, workerId) {
@@ -69,27 +139,36 @@ async function loadDoc(orgId, workerId) {
     workerId,
     basis: found.basis === 'hourly' || found.basis === 'monthly' ? found.basis : null,
     amount: Number(found.amount) || 0,
+    rates: Array.isArray(found.rates)
+      ? found.rates.map(normalizeStoredRate).filter(Boolean)
+      : [],
     entries: Array.isArray(found.entries) ? found.entries : [],
   }
 }
 
 function publicEntry(entry) {
+  const kind = ENTRY_KINDS.has(entry.kind) ? entry.kind : 'work'
   return {
     id: String(entry.id),
     date: String(entry.date),
     start: String(entry.start),
     end: String(entry.end),
+    ...(kind !== 'work' ? { kind } : {}),
+    ...(entry.rateId ? { rateId: String(entry.rateId) } : {}),
   }
 }
 
 function publicDoc(doc, from, to) {
+  const rates = effectiveRates(doc)
   const entries = doc.entries
     .filter((entry) => entryOverlaps(entry, from, to))
     .map(publicEntry)
     .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start))
+  const primary = primaryRate(rates)
   return {
-    basis: doc.basis,
-    amount: doc.amount,
+    basis: primary.basis ?? doc.basis,
+    amount: primary.basis ? primary.amount : doc.amount,
+    rates,
     entries,
   }
 }
@@ -130,7 +209,31 @@ function overlaps(a, b) {
   return a.start < b.end && b.start < a.end
 }
 
-function normalizeEntry(body) {
+function normalizeRateId(rateId, doc) {
+  const id = String(rateId || '').trim()
+  if (!id) return undefined
+  const rates = effectiveRates(doc)
+  if (!rates.some((rate) => rate.id === id)) {
+    throw httpError('תעריף לא תקין', 400)
+  }
+  return id
+}
+
+function normalizeEntry(body, doc) {
+  const kind = ENTRY_KINDS.has(body.kind) ? body.kind : 'work'
+  const rateId = normalizeRateId(body.rateId, doc)
+
+  if (LEAVE_KINDS.has(kind)) {
+    const date = String(body.date || '')
+    if (!validDate(date)) {
+      throw httpError('תאריך לא תקין', 400)
+    }
+    const start = LEAVE_START
+    const end = LEAVE_END
+    const span = intervalOf({ date, start, end })
+    return { date, start, end, span, kind, rateId }
+  }
+
   const date = String(body.date || '')
   const start = normalizeClock(body.start)
   const end = normalizeClock(body.end)
@@ -146,7 +249,7 @@ function normalizeEntry(body) {
   if (duration < 15 || duration > 16 * 60) {
     throw httpError('אפשר לרשום בין רבע שעה ל־16 שעות', 400)
   }
-  return { date, start, end, span }
+  return { date, start, end, span, kind: 'work', rateId }
 }
 
 async function ownerOf(req, kind) {
@@ -177,17 +280,59 @@ export function getManagerPay(req, query) {
 
 export async function saveWorkerPayRate(req, body = {}, kind = 'worker') {
   const { orgId, workerId } = await ownerOf(req, kind)
-  const basis = body.basis === 'monthly' ? 'monthly' : body.basis === 'hourly' ? 'hourly' : null
-  if (!basis) throw httpError('בחרו שכר שעתי או שכר חודשי', 400)
-  const amount = Math.round(Number(body.amount) * 100) / 100
-  if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) {
-    throw httpError('הסכום צריך להיות בין 1 ל־1,000,000', 400)
-  }
   const collection = await payCollection()
+  const existing = await loadDoc(orgId, workerId)
+
+  let rates
+  let basis
+  let amount
+
+  if (Array.isArray(body.rates)) {
+    rates = normalizeRatesInput(body.rates)
+    const primary = primaryRate(rates)
+    basis = primary.basis
+    amount = primary.amount
+  } else {
+    const nextBasis =
+      body.basis === 'monthly' ? 'monthly' : body.basis === 'hourly' ? 'hourly' : null
+    if (!nextBasis) throw httpError('בחרו שכר שעתי או שכר חודשי', 400)
+    const nextAmount = Math.round(Number(body.amount) * 100) / 100
+    if (!Number.isFinite(nextAmount) || nextAmount < 1 || nextAmount > 1_000_000) {
+      throw httpError('הסכום צריך להיות בין 1 ל־1,000,000', 400)
+    }
+    const prior = effectiveRates(existing)
+    const regularId =
+      prior.find((item) => item.name === 'רגיל')?.id ??
+      prior[0]?.id ??
+      randomUUID()
+    if (prior.length > 1) {
+      rates = prior.map((item) =>
+        item.name === 'רגיל' || item.id === regularId
+          ? { ...item, id: regularId, name: 'רגיל', basis: nextBasis, amount: nextAmount }
+          : item,
+      )
+      if (!rates.some((item) => item.name === 'רגיל')) {
+        rates = [
+          { id: regularId, name: 'רגיל', basis: nextBasis, amount: nextAmount },
+          ...rates,
+        ].slice(0, MAX_RATES)
+      }
+    } else {
+      rates = [{ id: regularId, name: 'רגיל', basis: nextBasis, amount: nextAmount }]
+    }
+    basis = nextBasis
+    amount = nextAmount
+  }
+
   await collection.updateOne(
     { orgId, workerId },
     {
-      $set: { basis, amount, updatedAt: new Date().toISOString() },
+      $set: {
+        basis,
+        amount,
+        rates,
+        updatedAt: new Date().toISOString(),
+      },
       $setOnInsert: { orgId, workerId, entries: [] },
     },
     { upsert: true },
@@ -201,9 +346,9 @@ export function saveManagerPayRate(req, body) {
 }
 
 export async function addWorkerPayEntry(req, body = {}, kind = 'worker') {
-  const next = normalizeEntry(body)
   const { orgId, workerId } = await ownerOf(req, kind)
   const doc = await loadDoc(orgId, workerId)
+  const next = normalizeEntry(body, doc)
   if (doc.entries.length >= 500) {
     throw httpError('אפשר לשמור עד 500 רשומות', 400)
   }
@@ -223,9 +368,13 @@ export async function addWorkerPayEntry(req, body = {}, kind = 'worker') {
     date: next.date,
     start: next.start,
     end: next.end,
+    kind: next.kind,
+    ...(next.rateId ? { rateId: next.rateId } : {}),
     createdAt: new Date().toISOString(),
   }
   const collection = await payCollection()
+  const rates = effectiveRates(doc)
+  const primary = primaryRate(rates)
   const update = {
     $push: { entries: entry },
     $set: { updatedAt: new Date().toISOString() },
@@ -238,8 +387,9 @@ export async function addWorkerPayEntry(req, body = {}, kind = 'worker') {
         $setOnInsert: {
           orgId,
           workerId,
-          basis: doc.basis,
-          amount: doc.amount,
+          basis: doc.basis ?? primary.basis,
+          amount: doc.amount || primary.amount,
+          rates: doc.rates.length ? doc.rates : rates,
         },
       },
       { upsert: true },

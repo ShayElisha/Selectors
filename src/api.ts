@@ -509,6 +509,19 @@ export function fetchAuditLogs(limit = 150): Promise<AuditLogEntry[]> {
   return request<AuditLogEntry[]>(`/api/audit?limit=${limit}`)
 }
 
+export interface GuestWorker {
+  id: string
+  fullName: string
+  phone: string
+  staffKind?: 'inspector' | 'selector' | 'security'
+  sourceModule: 'selectors' | 'inspectors' | 'security'
+  certifications: string[]
+}
+
+export function fetchGuestWorkersRemote(): Promise<GuestWorker[]> {
+  return request<GuestWorker[]>('/api/guest-workers')
+}
+
 export interface SystemErrorEntry {
   id: string
   at: string
@@ -841,6 +854,7 @@ export interface WorkerIncidentItem {
   rejectedBy?: string
   rejectedAt?: string
   rejectionReason?: string
+  photoDataUrl?: string
   createdAt: string
   createdBy: string
   updatedAt: string
@@ -917,16 +931,28 @@ export function updateManagerEquipmentRequestRemote(
   })
 }
 
+export type WorkerPayEntryKind = 'work' | 'vacation' | 'sick'
+
+export interface WorkerPayRate {
+  id: string
+  name: string
+  basis: 'hourly' | 'monthly'
+  amount: number
+}
+
 export interface WorkerPayEntry {
   id: string
   date: string
   start: string
   end: string
+  kind?: WorkerPayEntryKind
+  rateId?: string
 }
 
 export interface WorkerPayState {
   basis: 'hourly' | 'monthly' | null
   amount: number
+  rates: WorkerPayRate[]
   entries: WorkerPayEntry[]
 }
 
@@ -936,8 +962,9 @@ export function fetchWorkerPayRemote(from: string, to: string): Promise<WorkerPa
 }
 
 export function saveWorkerPayRateRemote(body: {
-  basis: 'hourly' | 'monthly'
-  amount: number
+  basis?: 'hourly' | 'monthly'
+  amount?: number
+  rates?: { id?: string; name: string; basis: 'hourly' | 'monthly'; amount: number }[]
 }): Promise<WorkerPayState> {
   return request('/api/worker/pay/rate', {
     method: 'PUT',
@@ -947,8 +974,10 @@ export function saveWorkerPayRateRemote(body: {
 
 export function addWorkerPayEntryRemote(body: {
   date: string
-  start: string
-  end: string
+  start?: string
+  end?: string
+  kind?: WorkerPayEntryKind
+  rateId?: string
 }): Promise<WorkerPayEntry> {
   return request('/api/worker/pay/entries', {
     method: 'POST',
@@ -968,8 +997,9 @@ export function fetchManagerPayRemote(from: string, to: string): Promise<WorkerP
 }
 
 export function saveManagerPayRateRemote(body: {
-  basis: 'hourly' | 'monthly'
-  amount: number
+  basis?: 'hourly' | 'monthly'
+  amount?: number
+  rates?: { id?: string; name: string; basis: 'hourly' | 'monthly'; amount: number }[]
 }): Promise<WorkerPayState> {
   return request('/api/manager/pay/rate', {
     method: 'PUT',
@@ -979,8 +1009,10 @@ export function saveManagerPayRateRemote(body: {
 
 export function addManagerPayEntryRemote(body: {
   date: string
-  start: string
-  end: string
+  start?: string
+  end?: string
+  kind?: WorkerPayEntryKind
+  rateId?: string
 }): Promise<WorkerPayEntry> {
   return request('/api/manager/pay/entries', {
     method: 'POST',
@@ -999,6 +1031,7 @@ export function submitWorkerFaultRemote(body: {
   description: string
   severity?: 'low' | 'medium' | 'high' | 'critical'
   laneId?: string
+  photoDataUrl?: string
 }): Promise<WorkerIncidentItem> {
   return request('/api/worker/incidents', {
     method: 'POST',

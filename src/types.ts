@@ -34,6 +34,8 @@ export interface Worker {
   canLogin?: boolean
   /** Private-to-managers professional notes for the worker profile. */
   managerNotes?: string
+  /** Training pairing: trainee must sit with certified mentor on same lane. */
+  trainingRole?: 'trainee' | 'mentor'
 }
 
 export interface Lane {
@@ -158,6 +160,10 @@ export interface ShiftSchedule {
   activeLaneIds: string[]
   presentWorkerIds: string[]
   /**
+   * Workers borrowed from other org modules — manual board placement only.
+   */
+  guestWorkerIds?: string[]
+  /**
    * Optional designated gate manager for this shift (מנהל שער).
    * Must be a present manager; auto-assigned to the מנהל שער station.
    */
@@ -192,11 +198,14 @@ export interface ShiftSchedule {
    * Why each person was placed, saved with the shift.
    * Older shifts may omit this; the history screen can rebuild it.
    */
+  /** Snapshot of auto-assign score when the shift was saved. */
+  assignmentQuality?: { score: number; at: string }
   explanations?: {
     laneId: string
     workerId: string
     reasons: string[]
     decision?: string
+    laneSummary?: string
     candidateRanking?: {
       workerId: string
       rank: number
@@ -229,6 +238,8 @@ export interface ShiftSchedule {
   earlyLeaveAt?: Record<string, number>
   /** Early leaves and cancellations, with the reason the manager wrote. */
   shiftDrops?: ShiftDrop[]
+  /** Times the board was saved after the first version (set on server). */
+  editCount?: number
   createdAt: string
   updatedAt: string
 }
@@ -329,6 +340,8 @@ export interface IncidentRecord {
   rejectedBy?: string
   rejectedAt?: string
   rejectionReason?: string
+  /** Optional photo attached to a worker fault report (JPEG/PNG/WEBP data URL). */
+  photoDataUrl?: string
   createdAt: string
   createdBy: string
   updatedAt: string

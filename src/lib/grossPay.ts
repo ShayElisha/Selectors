@@ -9,11 +9,15 @@ const WEEKLY_CAP = 42 * 60
 
 export type PayBasis = 'hourly' | 'monthly'
 
+export type WorkEntryKind = 'work' | 'vacation' | 'sick'
+
 export interface WorkEntry {
   id: string
   date: string
   start: string
   end: string
+  kind?: WorkEntryKind
+  rateId?: string
 }
 
 export interface PayMinutes {

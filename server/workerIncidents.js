@@ -12,6 +12,20 @@ function httpError(message, status) {
 }
 
 const SEVERITIES = new Set(['low', 'medium', 'high', 'critical'])
+const MAX_PHOTO_DATA_URL_LENGTH = 180_000
+const PHOTO_DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,/i
+
+function normalizePhotoDataUrl(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return undefined
+  if (!PHOTO_DATA_URL_RE.test(raw)) {
+    throw httpError('התמונה צריכה להיות PNG, JPG או WEBP', 400)
+  }
+  if (raw.length > MAX_PHOTO_DATA_URL_LENGTH) {
+    throw httpError('התמונה גדולה מדי. בחרו תמונה קטנה יותר', 400)
+  }
+  return raw
+}
 
 function publicWorkerIncident(item) {
   if (!item) return null
@@ -37,6 +51,7 @@ function publicWorkerIncident(item) {
     rejectionReason: item.rejectionReason
       ? String(item.rejectionReason)
       : undefined,
+    photoDataUrl: item.photoDataUrl ? String(item.photoDataUrl) : undefined,
     createdAt: String(item.createdAt || ''),
     createdBy: String(item.createdBy || ''),
     updatedAt: String(item.updatedAt || ''),
@@ -96,6 +111,8 @@ export async function submitWorkerFault(req, body = {}) {
     }
   }
 
+  const photoDataUrl = normalizePhotoDataUrl(body.photoDataUrl)
+
   const now = new Date().toISOString()
   const incident = {
     id: randomUUID(),
@@ -105,6 +122,7 @@ export async function submitWorkerFault(req, body = {}) {
     severity,
     status: 'pending_approval',
     ...(laneId ? { laneId } : {}),
+    ...(photoDataUrl ? { photoDataUrl } : {}),
     reportedByWorkerId: String(actor.id),
     reportedByName: String(actor.fullName || 'עובד'),
     createdAt: now,

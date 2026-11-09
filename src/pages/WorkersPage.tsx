@@ -545,6 +545,55 @@ function WorkerForm({
           ]}
         />
 
+        <div className="sm:col-span-2">
+          <p className="mb-1.5 text-xs font-medium text-ink-soft sm:text-sm">
+            תפקיד הכשרה
+          </p>
+          <p className="mb-2 text-[11px] text-ink-soft">
+            מתלמד חייב לשבת באותה עמדה עם חונך מוסמך. ברירת מחדל — ללא תווית מיוחדת.
+          </p>
+          <div
+            className="flex flex-wrap gap-2"
+            role="radiogroup"
+            aria-label="תפקיד הכשרה"
+          >
+            {(
+              [
+                { id: 'none' as const, label: 'ללא' },
+                { id: 'trainee' as const, label: 'מתלמד' },
+                { id: 'mentor' as const, label: 'חונך מוסמך' },
+              ] as const
+            ).map((opt) => {
+              const current = form.trainingRole ?? 'none'
+              return (
+                <label
+                  key={opt.id}
+                  className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold ring-1 transition ${
+                    current === opt.id
+                      ? 'bg-brand-soft text-brand-deep ring-brand/30'
+                      : 'bg-card text-ink-soft ring-line hover:bg-surface'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="training-role"
+                    className="size-4 accent-[var(--color-brand)]"
+                    checked={current === opt.id}
+                    onChange={() =>
+                      setForm((f) => ({
+                        ...f,
+                        trainingRole:
+                          opt.id === 'none' ? undefined : opt.id,
+                      }))
+                    }
+                  />
+                  {opt.label}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+
         <div>
           <p className="mb-1.5 text-xs font-medium text-ink-soft sm:text-sm">
             שיוך
@@ -1071,6 +1120,7 @@ export function WorkersPage() {
         isOrgManager: Boolean(w.isOrgManager),
         canLogin: Boolean(w.canLogin) && !w.isManager && !w.isOrgManager,
         managerNotes: w.managerNotes || '',
+        ...(w.trainingRole ? { trainingRole: w.trainingRole } : {}),
       }
       setForm(next)
       setBaseline(next)

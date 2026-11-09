@@ -10,6 +10,8 @@ import {
   monthlyLoadTrend,
   overrideReport,
 } from '../lib/orgHealth'
+import { boardStabilitySummary } from '../lib/boardStability'
+import { managerMetrics } from '../lib/managerMetrics'
 import type { Lane, ShiftSchedule } from '../types'
 import { Ltr, SectionCard } from './ui'
 
@@ -153,6 +155,14 @@ export function OrgHealthPanel({
   )
   const months = useMemo(() => monthlyLoadTrend(history, lanes).slice(-8), [history, lanes])
   const overrides = overrideReport(logs, fromDate, toDate)
+  const managers = useMemo(
+    () => managerMetrics(logs, fromDate, toDate),
+    [logs, fromDate, toDate],
+  )
+  const stability = useMemo(
+    () => boardStabilitySummary(history, fromDate, toDate),
+    [history, fromDate, toDate],
+  )
   const maxHard = Math.max(...weekdays.map((row) => row.hard), 1)
   const maxLane = Math.max(...lanesUsed.map((row) => row.rate), 0.01)
   const maxMonth = Math.max(...months.map((row) => Math.abs(row.load)), 1)
@@ -163,6 +173,76 @@ export function OrgHealthPanel({
       subtitle="ניצולת הנתיבים, העומס לפי יום, ומגמת החודשים. לפי הטווח שבחרתם."
     >
       <AssignmentHealthPie logs={logs} fromDate={fromDate} toDate={toDate} />
+      {managers.length > 0 ? (
+        <div className="mt-4 overflow-x-auto rounded-xl bg-surface/70 p-3 ring-1 ring-line/70">
+          <h3 className="text-sm font-bold text-ink">השוואת מנהלים</h3>
+          <p className="mt-1 text-[12px] text-ink-soft">
+            שיבוצים אוטומטיים מול שינויים ידניים ביומן, לפי מנהל שביצע.
+          </p>
+          <table className="mt-3 w-full min-w-[32rem] border-collapse text-[12px]">
+            <thead>
+              <tr className="border-b border-line text-ink-soft">
+                <th className="py-1.5 text-start font-semibold">מנהל</th>
+                <th className="py-1.5 text-end font-semibold">שיבוצים אוטומטיים</th>
+                <th className="py-1.5 text-end font-semibold">שינויים ידניים</th>
+                <th className="py-1.5 text-end font-semibold">% דריסות</th>
+                <th className="py-1.5 text-end font-semibold">זמן ממוצע לשיבוץ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {managers.map((row) => (
+                <tr key={row.managerId} className="border-b border-line/60">
+                  <td className="py-1.5 text-ink">{row.managerName}</td>
+                  <td className="py-1.5 text-end tabular-nums text-ink">
+                    <Ltr>{String(row.autoCount)}</Ltr>
+                  </td>
+                  <td className="py-1.5 text-end tabular-nums text-ink">
+                    <Ltr>{String(row.manualCount)}</Ltr>
+                  </td>
+                  <td className="py-1.5 text-end tabular-nums text-ink">
+                    <Ltr>
+                      {row.overrideRate == null
+                        ? '—'
+                        : `${Math.round(row.overrideRate * 100)}%`}
+                    </Ltr>
+                  </td>
+                  <td className="py-1.5 text-end tabular-nums text-ink">
+                    <Ltr>
+                      {row.avgAutoDurationMs == null
+                        ? '—'
+                        : `${(row.avgAutoDurationMs / 1000).toFixed(1)}ש׳`}
+                    </Ltr>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {stability.shifts > 0 ? (
+        <div className="mt-4 rounded-xl bg-surface/70 p-3 ring-1 ring-line/70">
+          <h3 className="text-sm font-bold text-ink">יציבות לוח</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
+            ממוצע עריכות לאחר שמירה:{' '}
+            <Ltr className="font-semibold text-ink">{String(stability.avgEditCount)}</Ltr>
+            .{' '}
+            <Ltr className="font-semibold text-ink">{stability.highStabilityShare}%</Ltr>{' '}
+            מהמשמרות עם יציבות גבוהה (עד עריכה אחת).
+          </p>
+          {stability.distribution.length > 0 ? (
+            <ul className="mt-2 flex flex-wrap gap-2 text-[12px] text-ink-soft">
+              {stability.distribution.map((row) => (
+                <li
+                  key={row.label}
+                  className="rounded-md bg-card px-2 py-1 ring-1 ring-line/70"
+                >
+                  {row.label}: <Ltr className="text-ink">{String(row.count)}</Ltr>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl bg-surface px-3 py-2.5 ring-1 ring-line/70">
           <p className="text-[12px] text-ink-soft">משמרות שבוצעו</p>

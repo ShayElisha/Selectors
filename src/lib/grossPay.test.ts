@@ -7,8 +7,14 @@ import {
   type WorkEntry,
 } from './grossPay'
 
-function entry(date: string, start: string, end: string, id = `${date}-${start}`): WorkEntry {
-  return { id, date, start, end }
+function entry(
+  date: string,
+  start: string,
+  end: string,
+  id = `${date}-${start}`,
+  kind?: WorkEntry['kind'],
+): WorkEntry {
+  return { id, date, start, end, ...(kind ? { kind } : {}) }
 }
 
 function dayOf(month: string, date: string, entries: WorkEntry[], amount = 60) {
@@ -173,5 +179,13 @@ describe('buildMonthPay', () => {
     const day = result.days.find((item) => item.date === '2026-11-01')
     expect(result.hourlyRate).toBe(100)
     expect(day?.gross).toBe(100)
+  })
+
+  it('counts vacation hours like regular work time', () => {
+    const { day } = dayOf('2026-11', '2026-11-02', [
+      entry('2026-11-02', '08:00', '16:00', 'leave-1', 'vacation'),
+    ])
+    expect(day.minutes.regular).toBe(480)
+    expect(day.gross).toBe(480)
   })
 })

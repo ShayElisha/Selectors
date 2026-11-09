@@ -4,6 +4,7 @@ import {
   isQualified,
   needsAfternoonNightRecovery,
 } from '../algorithm'
+import { laneTrainingIssues } from './trainingPairing'
 import { effectiveStaffingStandard, type StaffingOverrides } from './shiftStaffing'
 import type {
   Lane,
@@ -26,6 +27,7 @@ export type BoardIssue = {
     | 'short_return'
     | 'recovering_hard'
     | 'understaffed'
+    | 'solo_trainee'
   message: string
   laneId?: string
   workerId?: string
@@ -256,6 +258,15 @@ export function validateBoard(opts: {
         }
       }
     }
+  }
+
+  for (const item of laneTrainingIssues(assignments, workers, lanes)) {
+    issues.push({
+      severity: 'error',
+      code: 'solo_trainee',
+      laneId: item.laneId,
+      message: item.message,
+    })
   }
 
   return issues

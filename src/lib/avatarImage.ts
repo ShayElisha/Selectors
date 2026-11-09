@@ -6,6 +6,11 @@ const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 /**
  * Read a local image file, crop to a centered square, and return a JPEG data URL.
  */
+/** Same compression as profile photos — suitable for fault report attachments. */
+export async function readFaultPhoto(file: File): Promise<string> {
+  return readAvatarFile(file)
+}
+
 export async function readAvatarFile(file: File): Promise<string> {
   if (!ALLOWED_TYPES.includes(file.type as (typeof ALLOWED_TYPES)[number])) {
     throw new Error('התמונה צריכה להיות PNG, JPG או WEBP')

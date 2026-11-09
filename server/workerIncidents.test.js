@@ -167,6 +167,24 @@ describe('worker fault reports', () => {
     )
   })
 
+  it('accepts an optional fault photo as a data URL', async () => {
+    const tiny =
+      'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCwAA//2Q=='
+    const created = await submitWorkerFault(
+      {},
+      {
+        title: 'נזק',
+        description: 'שבר בציוד',
+        photoDataUrl: tiny,
+      },
+    )
+    expect(created.photoDataUrl).toBe(tiny)
+    expect(appendIncident).toHaveBeenCalledWith(
+      expect.objectContaining({ photoDataUrl: tiny }),
+      expect.any(Object),
+    )
+  })
+
   it('lists only the signed-in worker fault reports', async () => {
     readState.mockResolvedValue({
       revision: 1,

@@ -72,6 +72,7 @@ import { buildHistoryMatrix } from '../lib/historyMatrix'
 import { downloadHistoryExcel } from '../lib/historyExport'
 import { notify } from '../lib/notify'
 import { workerMatchesSearch } from '../lib/trackingHeatmap'
+import { shiftBoardStability } from '../lib/boardStability'
 import type { ShiftSchedule, ShiftType, ShiftVersionSummary } from '../types'
 
 type Mode = 'matrix' | 'list'
@@ -447,6 +448,7 @@ function ShiftAccordion({
       : formatShiftWindow(shift.shiftType)
 
   const deleteLabel = `מחיקת משמרת ${shiftName} ${formatShiftDate(shift.date)}`
+  const stability = shiftBoardStability(shift)
 
   return (
     <div className="min-w-0 max-w-full rounded-xl border border-line bg-surface/80">
@@ -473,6 +475,12 @@ function ShiftAccordion({
                   נסגרה
                 </span>
               ) : null}
+              <span
+                className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink-soft ring-1 ring-line/70"
+                title={`${stability.changes} עריכות לאחר שמירה ראשונה`}
+              >
+                יציבות · {stability.label}
+              </span>
               <Ltr className="text-[13px] text-ink-soft">
                 {windowLabel}
               </Ltr>

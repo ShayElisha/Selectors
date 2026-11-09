@@ -18,6 +18,7 @@ import {
   publicData,
   listHistoryPage,
   listShiftVersions,
+  listGuestWorkers,
   listShiftHandoffs,
   createShiftHandoff,
   updateShiftHandoff,
@@ -1102,6 +1103,15 @@ app.get('/api/audit', async (req, res) => {
   try {
     const { scope } = await scopeForRequest(req)
     res.json(await listAuditLogs({ limit: req.query.limit, ...scope }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/guest-workers', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(await listGuestWorkers(scope))
   } catch (err) {
     sendError(res, err)
   }

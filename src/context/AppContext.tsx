@@ -46,11 +46,16 @@ import {
 } from '../api'
 import { notify } from '../lib/notify'
 import {
+  assessBoardQualityAlert,
+  collectRecentQualityScores,
+} from '../lib/boardQualityAlert'
+import {
   assignmentFixKind,
   assignmentFixTag,
   primaryAssignmentFix,
 } from '../lib/orgHealth'
 import { earlyLeaveCutoff } from '../lib/earlyLeave'
+import { laneTrainingIssues, normalizeTrainingRole } from '../lib/trainingPairing'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
@@ -290,6 +295,7 @@ function normalizeWorkerRoles(w: Worker, fallbackKind: StaffKind): Worker {
   if (!isInspector && !isManager) isInspector = true
   const staffKind = isStaffKind(w.staffKind) ? w.staffKind : fallbackKind
   const isOrgManager = Boolean(w.isOrgManager)
+  const trainingRole = normalizeTrainingRole(w.trainingRole)
   return {
     ...w,
     certifications: uniqueLabels(w.certifications),
@@ -297,6 +303,7 @@ function normalizeWorkerRoles(w: Worker, fallbackKind: StaffKind): Worker {
     isInspector,
     staffKind,
     isOrgManager,
+    ...(trainingRole ? { trainingRole } : {}),
   }
 }
 
@@ -341,6 +348,8 @@ export interface ShiftDraft {
   assignmentMode: AssignmentMode
   activeLaneIds: string[]
   presentWorkerIds: string[]
+  /** Present workers from other modules — not in auto-assign pool. */
+  guestWorkerIds?: string[]
   /** Designated מנהל שער — present, no lane required */
   gateManagerWorkerId?: string
   assignments: LaneAssignment[]
@@ -456,6 +465,8 @@ interface AppContextValue {
   /** Set תקן for a lane in the current shift only (does not change the lane catalog). */
   setLaneStaffingStandard: (laneId: string, standard: StaffingStandard) => void
   toggleWorker: (workerId: string) => void
+  /** Mark workers from other modules as present guests (manual board only). */
+  addGuestWorkers: (workerIds: string[]) => void
   setWorkerWindow: (workerId: string, windowId: string | null) => void
   setWindowAdjustment: (
     workerId: string,
@@ -737,6 +748,7 @@ function snapshotDraft(d: ShiftDraft): string {
     staggerRounds: Boolean(d.staggerRounds),
     activeLaneIds: d.activeLaneIds,
     presentWorkerIds: d.presentWorkerIds,
+    guestWorkerIds: d.guestWorkerIds ?? [],
     gateManagerWorkerId: d.gateManagerWorkerId ?? '',
     assignments: d.assignments.map((a) => ({
       laneId: a.laneId,
@@ -1494,6 +1506,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           assignmentMode: assignmentModeOf(item),
           activeLaneIds: item.activeLaneIds,
           presentWorkerIds: item.presentWorkerIds,
+          guestWorkerIds: item.guestWorkerIds,
           gateManagerWorkerId,
           assignments: padAssignments(
             item.assignments,
@@ -1547,6 +1560,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       shiftType: d.shiftType,
       activeLaneIds: d.activeLaneIds,
       presentWorkerIds: d.presentWorkerIds,
+      ...(d.guestWorkerIds?.length ? { guestWorkerIds: d.guestWorkerIds } : {}),
       ...(gateManagerWorkerId ? { gateManagerWorkerId } : {}),
       assignmentMode: usesRounds(d) ? 'rounds' : 'single',
       assignments: usesRounds(d) ? [] : stripEmpty(d.assignments),
@@ -1583,6 +1597,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           reasons: item.reasons,
           ...(item.decision ? { decision: item.decision } : {}),
           ...(item.candidateRanking ? { candidateRanking: item.candidateRanking } : {}),
+          ...(item.laneSummary ? { laneSummary: item.laneSummary } : {}),
         })),
       ...(d.earlyLeaveAt && Object.keys(d.earlyLeaveAt).length > 0
         ? { earlyLeaveAt: d.earlyLeaveAt }
@@ -1595,6 +1610,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : {}),
       ...(d.frozenLaneIds?.length ? { frozenLaneIds: d.frozenLaneIds } : {}),
       ...(d.shiftEvents?.length ? { shiftEvents: d.shiftEvents } : {}),
+      ...(d.quality?.score != null && d.quality.legal
+        ? {
+            assignmentQuality: {
+              score: d.quality.score,
+              at: now,
+            },
+          }
+        : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -1761,7 +1784,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             .filter((w) => w.status === 'active' && w.isInspector)
             .map((w) => w.id),
         )
-        let presentWorkerIds = workerIds.filter((id) => known.has(id))
+        const guestKeep = new Set(d.guestWorkerIds ?? [])
+        let presentWorkerIds = workerIds.filter(
+          (id) => known.has(id) || guestKeep.has(id),
+        )
+        const guestWorkerIds = (d.guestWorkerIds ?? []).filter((id) =>
+          presentWorkerIds.includes(id),
+        )
         const gateManagerWorkerId = normalizeGateManagerId(
           opts?.gateManagerWorkerId !== undefined
             ? opts.gateManagerWorkerId
@@ -1800,6 +1829,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             presentWorkerIds,
+            guestWorkerIds: guestWorkerIds.length ? guestWorkerIds : undefined,
             gateManagerWorkerId,
             assignments,
             ...(opts?.workerWindows ? { workerWindows: opts.workerWindows } : {}),
@@ -1872,6 +1902,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       const presentWorkerIds = d.presentWorkerIds.filter((id) => id !== workerId)
+      const guestWorkerIds = (d.guestWorkerIds ?? []).filter(
+        (id) => id !== workerId,
+      )
       const gateManagerWorkerId =
         d.gateManagerWorkerId === workerId ? undefined : d.gateManagerWorkerId
       const overrides = d.staffingOverrides
@@ -1893,6 +1926,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         {
           ...d,
           presentWorkerIds,
+          guestWorkerIds: guestWorkerIds.length ? guestWorkerIds : undefined,
           gateManagerWorkerId,
           assignments,
           rounds: usesRounds(d)
@@ -1903,6 +1937,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
     })
   }, [data.lanes, draft])
+
+  const addGuestWorkers = useCallback(
+    (workerIds: string[]) => {
+      const ids = [...new Set(workerIds.map((id) => id.trim()).filter(Boolean))]
+      if (ids.length === 0) return
+      setDraft((d) => {
+        if (!d || d.signOff?.signedAt) return d
+        const guestWorkerIds = [
+          ...new Set([...(d.guestWorkerIds ?? []), ...ids]),
+        ]
+        const presentWorkerIds = [
+          ...new Set([...d.presentWorkerIds, ...ids]),
+        ]
+        if (usesRounds(d)) {
+          return withGateManagerSync(
+            { ...d, presentWorkerIds, guestWorkerIds },
+            data.lanes,
+          )
+        }
+        return {
+          ...d,
+          presentWorkerIds,
+          guestWorkerIds,
+          unassignedWorkerIds: computeUnassignedWorkerIds(
+            presentWorkerIds,
+            d.assignments,
+            d.gateManagerWorkerId,
+          ),
+        }
+      })
+    },
+    [data.lanes],
+  )
 
   const setGateManager = useCallback(
     (workerId: string | null) => {
@@ -2041,9 +2108,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const commitSelectorBoard = useCallback(() => {
     setDraft((d) => {
       if (!d || !usesRounds(d) || (d.rounds?.length ?? 0) > 0) return d
+      const guestIds = new Set(d.guestWorkerIds ?? [])
       const present = selectorStaff(
         data.workers,
-        d.presentWorkerIds,
+        d.presentWorkerIds.filter((id) => !guestIds.has(id)),
         d.gateManagerWorkerId,
       )
       const result = assignSelectorRounds({
@@ -2307,6 +2375,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const startedAt = Date.now()
     const compute = async (): Promise<ShiftDraft | undefined> => {
       const d = d0
+      const guestIds = new Set(d.guestWorkerIds ?? [])
       if (!usesRounds(d)) {
         const activeLanes = data.lanes
           .filter(
@@ -2321,7 +2390,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (worker) =>
             d.presentWorkerIds.includes(worker.id) &&
             worker.id !== d.gateManagerWorkerId &&
-            worker.status === 'active',
+            worker.status === 'active' &&
+            !guestIds.has(worker.id),
         )
         // Multi-start search with real progress: thousands of board checks,
         // painted through the assigning loader instead of an instant result.
@@ -2343,11 +2413,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (count, row) => count + row.workerIds.filter(Boolean).length,
           0,
         )
+        const durationMs = Date.now() - startedAt
         void postAuditEvent(
           'auto_assign',
           `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · שיבוץ אחד למשמרת · ${filled} שיבוצים${
             placed.warnings[0] ? ` · ${placed.warnings[0]}` : ''
-          }`,
+          } · durationMs=${durationMs}`,
         )
         return withGateManagerSync(
           {
@@ -2369,7 +2440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const present = selectorStaff(
         data.workers,
-        d.presentWorkerIds,
+        d.presentWorkerIds.filter((id) => !guestIds.has(id)),
         d.gateManagerWorkerId,
       )
       const result = assignSelectorRounds({
@@ -2402,11 +2473,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ),
         0,
       )
+      const durationMs = Date.now() - startedAt
       void postAuditEvent(
         'auto_assign',
         `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${result.rounds.length} סבבים · ${filled} שיבוצים${
           result.warnings[0] ? ` · ${result.warnings[0]}` : ''
-        }`,
+        } · durationMs=${durationMs}`,
       )
       return withGateManagerSync(
         {
@@ -2433,6 +2505,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? applied
             : prev,
         )
+        const score = applied.quality?.score
+        if (score != null && applied.quality?.legal) {
+          const historyScores = collectRecentQualityScores(dataRef.current.history, {
+            beforeDate: applied.date,
+          })
+          const alert = assessBoardQualityAlert(score, historyScores)
+          if (alert?.level === 'bad') {
+            notify.error('איכות שיבוץ חריגה', alert.message)
+          } else if (alert?.level === 'warn') {
+            notify.warning('איכות שיבוץ נמוכה', alert.message)
+          }
+        }
       }
       setShiftStep('board')
     } catch (err) {
@@ -2479,11 +2563,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...lane,
         staffingStandard: effectiveStaffingStandard(lane, draft.staffingOverrides),
       }))
+    const guestIds = new Set(draft.guestWorkerIds ?? [])
     const presentWorkers = data.workers.filter(
       (worker) =>
         draft.presentWorkerIds.includes(worker.id) &&
         worker.id !== draft.gateManagerWorkerId &&
-        worker.status === 'active',
+        worker.status === 'active' &&
+        !guestIds.has(worker.id),
     )
     if (activeLanes.length === 0 || presentWorkers.length === 0) return null
     const shared = {
@@ -3242,6 +3328,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setError(message)
       throw new Error(message)
     }
+  const trainingIssues = laneTrainingIssues(
+      synced.assignments,
+      dataRef.current.workers,
+      dataRef.current.lanes,
+    )
+    if (!usesRounds(synced) && trainingIssues.length > 0) {
+      const message = trainingIssues[0]!.message
+      setError(message)
+      throw new Error(message)
+    }
     const schedule = toSchedule(synced)
     setSyncing(true)
     setError(null)
@@ -3285,6 +3381,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (!usesRounds(synced) && synced.unassignedWorkerIds.length > 0) {
         const message = `לא ניתן לסגור — נשארו ${synced.unassignedWorkerIds.length} אנשים שלא שובצו לעמדה`
+        setError(message)
+        throw new Error(message)
+      }
+      const signTraining = laneTrainingIssues(
+        synced.assignments,
+        dataRef.current.workers,
+        dataRef.current.lanes,
+      )
+      if (!usesRounds(synced) && signTraining.length > 0) {
+        const message = signTraining[0]!.message
         setError(message)
         throw new Error(message)
       }
@@ -4062,6 +4168,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyPresentSelection,
       setLaneStaffingStandard,
       toggleWorker,
+      addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
       setEarlyLeave,
@@ -4165,6 +4272,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyPresentSelection,
       setLaneStaffingStandard,
       toggleWorker,
+      addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
       setEarlyLeave,

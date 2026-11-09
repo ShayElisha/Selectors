@@ -20,9 +20,18 @@ import {
   authenticateManager,
   createLegacyOrganization,
   disableWorkerAccount,
+  getOrganization,
   requestAccountPasswordReset,
   upsertManagerAccount,
 } from "./orgs.js";
+
+function publicModules(modules) {
+  return {
+    selectors: Boolean(modules?.selectors),
+    inspectors: Boolean(modules?.inspectors),
+    security: Boolean(modules?.security),
+  };
+}
 
 export function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -96,6 +105,9 @@ function normalizeWorker(w, fallbackKind = "selector") {
     canLogin,
     managerNotes: String(w.managerNotes || "").trim().slice(0, 2000),
   };
+  if (w.trainingRole === "trainee" || w.trainingRole === "mentor") {
+    worker.trainingRole = w.trainingRole;
+  }
   if (typeof w.passwordHash === "string" && w.passwordHash) {
     worker.passwordHash = w.passwordHash;
   }
@@ -2058,6 +2070,13 @@ export async function upsertShift(id, body, actor, options = {}) {
   const previous = isNew ? null : state.history[idx];
   if (isShiftSignedOff(previous)) signedShiftError("לערוך");
   const closing = attachSignOff(schedule, actor);
+  if (isNew) {
+    schedule.editCount = 0;
+  } else if (previous && !closing) {
+    schedule.editCount = Number(previous.editCount ?? 0) + 1;
+  } else if (previous) {
+    schedule.editCount = Number(previous.editCount ?? 0);
+  }
   const history = isNew
     ? [schedule, ...state.history]
     : state.history.map((h, i) =>
@@ -2202,6 +2221,58 @@ export async function upsertShift(id, body, actor, options = {}) {
   }
 
   return saved;
+}
+
+const GUEST_MODULE_ORDER = ["selectors", "inspectors", "security"];
+
+/**
+ * Active workers from other enabled modules in the same org (no secrets).
+ * @param {{ orgId: string, module: string }} scope
+ */
+export async function listGuestWorkers(scope) {
+  const org = await getOrganization(scope.orgId);
+  if (!org) {
+    const err = new Error("הארגון לא נמצא");
+    err.status = 404;
+    throw err;
+  }
+  const enabled = publicModules(org.modules);
+  const current = scope.module;
+  const out = [];
+  const seen = new Set();
+  for (const mod of GUEST_MODULE_ORDER) {
+    if (mod === current || !enabled[mod]) continue;
+    const state = await readState({ orgId: String(org._id), module: mod });
+    for (const worker of state.workers || []) {
+      if (worker.status !== "active") continue;
+      const id = String(worker.id || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        fullName: String(worker.fullName || "").trim(),
+        phone: String(worker.phone || "").trim(),
+        staffKind:
+          worker.staffKind === "inspector" ||
+          worker.staffKind === "selector" ||
+          worker.staffKind === "security"
+            ? worker.staffKind
+            : mod === "inspectors"
+              ? "inspector"
+              : mod === "security"
+                ? "security"
+                : "selector",
+        sourceModule: mod,
+        certifications: Array.isArray(worker.certifications)
+          ? worker.certifications.filter(Boolean)
+          : [],
+      });
+    }
+  }
+  out.sort((a, b) =>
+    String(a.fullName || "").localeCompare(String(b.fullName || ""), "he"),
+  );
+  return out;
 }
 
 /**
