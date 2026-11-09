@@ -7,9 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { Maximize2, Minimize2 } from 'lucide-react'
+import { Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { Ltr } from './ui'
-import { notify } from '../lib/notify'
 
 export type BoardKioskHandle = {
   enter: () => Promise<void>
@@ -35,9 +34,7 @@ async function requestElementFullscreen(el: HTMLElement) {
   }
   if (typeof anyEl.webkitRequestFullscreen === 'function') {
     await anyEl.webkitRequestFullscreen()
-    return
   }
-  throw new Error('fullscreen unsupported')
 }
 
 async function exitDocumentFullscreen() {
@@ -54,11 +51,10 @@ async function exitDocumentFullscreen() {
   }
 }
 
-function fullscreenElement(): Element | null {
-  const doc = document as Document & {
-    webkitFullscreenElement?: Element | null
-  }
-  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null
+function isPortraitPhone(): boolean {
+  if (typeof window === 'undefined') return false
+  const narrow = Math.min(window.innerWidth, window.innerHeight) < 720
+  return narrow && window.matchMedia('(orientation: portrait)').matches
 }
 
 export const BoardKiosk = forwardRef<
@@ -66,27 +62,47 @@ export const BoardKiosk = forwardRef<
   {
     title: string
     subtitle?: ReactNode
+    /** Normal page content (table / cards). Hidden while kiosk is active if `canvas` is set. */
     children: ReactNode
+    /** Kiosk-only gate board. When set, replaces children in immersive mode. */
+    canvas?: ReactNode
     className?: string
   }
->(function BoardKiosk({ title, subtitle, children, className = '' }, ref) {
+>(function BoardKiosk(
+  { title, subtitle, children, canvas, className = '' },
+  ref,
+) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(false)
+  const [needsRotate, setNeedsRotate] = useState(false)
   const [clock, setClock] = useState(() => formatKioskClock(new Date()))
 
-  const syncActive = useCallback(() => {
-    const root = rootRef.current
-    setActive(Boolean(root && fullscreenElement() === root))
+  const refreshOrientationHint = useCallback(() => {
+    setNeedsRotate(isPortraitPhone())
   }, [])
 
-  useEffect(() => {
-    document.addEventListener('fullscreenchange', syncActive)
-    document.addEventListener('webkitfullscreenchange', syncActive)
-    return () => {
-      document.removeEventListener('fullscreenchange', syncActive)
-      document.removeEventListener('webkitfullscreenchange', syncActive)
+  const enter = useCallback(async () => {
+    setActive(true)
+    refreshOrientationHint()
+    const root = rootRef.current
+    if (!root) return
+    try {
+      // Best-effort: many phones block Fullscreen API; immersive CSS still works.
+      await requestElementFullscreen(root)
+    } catch {
+      /* overlay mode is enough on mobile */
     }
-  }, [syncActive])
+  }, [refreshOrientationHint])
+
+  const exit = useCallback(async () => {
+    setActive(false)
+    setNeedsRotate(false)
+    try {
+      await exitDocumentFullscreen()
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   useEffect(() => {
     if (!active) return
@@ -96,25 +112,27 @@ export const BoardKiosk = forwardRef<
     return () => window.clearInterval(id)
   }, [active])
 
-  const enter = useCallback(async () => {
-    const root = rootRef.current
-    if (!root) return
-    try {
-      await requestElementFullscreen(root)
-      syncActive()
-    } catch {
-      notify.error('לא ניתן לפתוח מסך מלא בדפדפן זה')
+  useEffect(() => {
+    if (!active) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.classList.add('kiosk-immersive')
+    refreshOrientationHint()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') void exit()
     }
-  }, [syncActive])
-
-  const exit = useCallback(async () => {
-    try {
-      await exitDocumentFullscreen()
-      syncActive()
-    } catch {
-      /* ignore */
+    const onOrient = () => refreshOrientationHint()
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('orientationchange', onOrient)
+    window.addEventListener('resize', onOrient)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.documentElement.classList.remove('kiosk-immersive')
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('orientationchange', onOrient)
+      window.removeEventListener('resize', onOrient)
     }
-  }, [syncActive])
+  }, [active, exit, refreshOrientationHint])
 
   useImperativeHandle(
     ref,
@@ -129,10 +147,16 @@ export const BoardKiosk = forwardRef<
   return (
     <div
       ref={rootRef}
-      className={`board-kiosk ${active ? 'board-kiosk--active' : ''} ${className}`.trim()}
+      className={`board-kiosk ${active ? 'board-kiosk--active' : ''} ${
+        canvas ? 'board-kiosk--has-canvas' : ''
+      } ${className}`.trim()}
+      aria-modal={active || undefined}
+      role={active ? 'dialog' : undefined}
+      aria-label={active ? 'מסך קיוסק' : undefined}
     >
       <div className="board-kiosk__chrome">
         <div className="min-w-0">
+          <p className="board-kiosk__eyebrow">לוח שער חי</p>
           <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
             {title}
           </h2>
@@ -140,7 +164,7 @@ export const BoardKiosk = forwardRef<
             <div className="mt-1 text-base text-ink-soft sm:text-lg">{subtitle}</div>
           ) : null}
         </div>
-        <p className="font-display text-3xl font-bold tabular-nums text-brand sm:text-4xl">
+        <p className="board-kiosk__clock font-display text-3xl font-bold tabular-nums text-brand sm:text-4xl">
           <Ltr>{clock}</Ltr>
         </p>
         <button
@@ -149,10 +173,30 @@ export const BoardKiosk = forwardRef<
           className="board-kiosk__exit ui-btn ui-btn-secondary gap-2"
         >
           <Minimize2 className="size-4" aria-hidden />
-          יציאה ממסך מלא
+          יציאה
         </button>
       </div>
-      <div className="board-kiosk__body">{children}</div>
+
+      {active && needsRotate ? (
+        <div className="board-kiosk__rotate" role="status">
+          <RotateCw className="board-kiosk__rotate-icon" aria-hidden />
+          <p className="board-kiosk__rotate-title">סובבו את המכשיר לרוחב</p>
+          <p className="board-kiosk__rotate-text">
+            מסך הקיוסק מותאם לצפייה אופקית בטלפון או בטלוויזיה
+          </p>
+          <button
+            type="button"
+            onClick={() => void exit()}
+            className="board-kiosk__exit ui-btn ui-btn-secondary gap-2 mt-2"
+          >
+            <Minimize2 className="size-4" aria-hidden />
+            יציאה
+          </button>
+        </div>
+      ) : null}
+
+      <div className="board-kiosk__body board-kiosk__desktop">{children}</div>
+      {canvas ? <div className="board-kiosk__canvas">{canvas}</div> : null}
     </div>
   )
 })
@@ -170,7 +214,7 @@ export function BoardKioskEnterButton({
       onClick={onClick}
       disabled={disabled}
       className="ui-btn ui-btn-secondary gap-2 no-print disabled:opacity-40"
-      title="הצגת הלוח במסך מלא לקיוסק או טלוויזיה"
+      title="הצגת הלוח במסך מלא לקיוסק, טלוויזיה או טלפון ברוחב"
     >
       <Maximize2 className="size-4" aria-hidden />
       מסך קיוסק

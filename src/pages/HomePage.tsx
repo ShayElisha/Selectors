@@ -23,6 +23,7 @@ import {
   BoardKioskEnterButton,
   type BoardKioskHandle,
 } from '../components/BoardKiosk'
+import { GateMapKiosk } from '../components/GateMapKiosk'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import { useApp } from '../context/AppContext'
 import {
@@ -888,6 +889,13 @@ export function HomePage() {
                 />
               </>
             }
+            canvas={
+              <GateMapKiosk
+                shift={currentShift}
+                lanes={data.lanes}
+                workers={data.workers}
+              />
+            }
           >
             {usesRounds(currentShift) ? (
               <SelectorRoundTable
@@ -1070,6 +1078,13 @@ export function HomePage() {
               <>
                 סבבים של שעתיים · <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
               </>
+            }
+            canvas={
+              <GateMapKiosk
+                shift={selectorShift}
+                lanes={data.lanes}
+                workers={data.workers}
+              />
             }
           >
             <SelectorRoundTable
