@@ -29,6 +29,27 @@ function dayOf(month: string, date: string, entries: WorkEntry[], amount = 60) {
   return { result, day }
 }
 
+function workedMinutes(
+  minutes:
+    | {
+        regular: number
+        ot125: number
+        ot150: number
+        shabbat: number
+        holiday: number
+      }
+    | undefined,
+): number {
+  if (!minutes) return 0
+  return (
+    minutes.regular +
+    minutes.ot125 +
+    minutes.ot150 +
+    minutes.shabbat +
+    minutes.holiday
+  )
+}
+
 describe('yearQueryRange', () => {
   it('covers the whole year and the weeks that touch it', () => {
     const range = yearQueryRange(2026)
@@ -144,7 +165,7 @@ describe('buildMonthPay', () => {
     expect(result.totals.regular).toBe(2520)
   })
 
-  it('keeps a night shift that crosses into Shabbat on the right days', () => {
+  it('keeps an overnight shift on the start pay day, with Shabbat premium by clock', () => {
     const result = buildMonthPay({
       month: '2026-11',
       basis: 'hourly',
@@ -153,20 +174,41 @@ describe('buildMonthPay', () => {
     })
     const friday = result.days.find((day) => day.date === '2026-11-06')
     const saturday = result.days.find((day) => day.date === '2026-11-07')
-    expect(friday?.minutes.shabbat).toBe(120)
-    expect(saturday?.minutes.shabbat).toBe(360)
-    expect(friday?.entries[0]).toEqual({
-      id: '2026-11-06-22:00',
-      originDate: '2026-11-06',
-      from: '22:00',
-      to: '00:00',
+    // Whole shift stays on Friday; hours after 16:00 Fri and Sat morning stay 150%.
+    expect(friday?.minutes.shabbat).toBe(480)
+    expect(friday?.entries).toEqual([
+      {
+        id: '2026-11-06-22:00',
+        originDate: '2026-11-06',
+        from: '22:00',
+        to: '06:00',
+      },
+    ])
+    expect(saturday?.entries).toEqual([])
+    expect(saturday?.minutes.shabbat).toBe(0)
+  })
+
+  it('attributes a weekday overnight shift to the day it started', () => {
+    const result = buildMonthPay({
+      month: '2026-11',
+      basis: 'hourly',
+      amount: 60,
+      entries: [entry('2026-11-02', '21:00', '06:30')],
     })
-    expect(saturday?.entries[0]).toEqual({
-      id: '2026-11-06-22:00',
-      originDate: '2026-11-06',
-      from: '00:00',
-      to: '06:00',
-    })
+    const monday = result.days.find((day) => day.date === '2026-11-02')
+    const tuesday = result.days.find((day) => day.date === '2026-11-03')
+    expect(monday?.entries).toEqual([
+      {
+        id: '2026-11-02-21:00',
+        originDate: '2026-11-02',
+        from: '21:00',
+        to: '06:30',
+      },
+    ])
+    expect(monday?.minutes.regular).toBe(504)
+    expect(monday?.minutes.ot125).toBe(66)
+    expect(tuesday?.entries).toEqual([])
+    expect(workedMinutes(tuesday?.minutes)).toBe(0)
   })
 
   it('converts a monthly salary with 182 hours', () => {

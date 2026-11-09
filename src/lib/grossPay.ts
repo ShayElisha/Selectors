@@ -331,22 +331,31 @@ export function buildMonthPay(input: {
     return day
   }
   const weekdayPool = new Map<string, number>()
+  // Premium buckets follow the clock, but the whole shift is attributed to the
+  // start date so overnight work (e.g. 21:00–06:30) stays on that day.
   for (const piece of pieces) {
-    const day = ensure(piece.date)
-    day.spans.push({
-      id: piece.id,
-      originDate: piece.originDate,
-      startMin: piece.startMin,
-      endMin: piece.endMin,
-    })
+    const day = ensure(piece.originDate)
     if (piece.bucket === 'shabbat') day.shabbat += piece.endMin - piece.startMin
     else if (piece.bucket === 'holiday') day.holiday += piece.endMin - piece.startMin
     else {
       weekdayPool.set(
-        piece.date,
-        (weekdayPool.get(piece.date) ?? 0) + (piece.endMin - piece.startMin),
+        piece.originDate,
+        (weekdayPool.get(piece.originDate) ?? 0) +
+          (piece.endMin - piece.startMin),
       )
     }
+  }
+  for (const entry of input.entries) {
+    const start = parseClock(entry.start)
+    const endRaw = parseClock(entry.end)
+    if (start == null || endRaw == null || endRaw === start) continue
+    const day = ensure(entry.date)
+    day.spans.push({
+      id: entry.id,
+      originDate: entry.date,
+      startMin: start,
+      endMin: endRaw < start ? endRaw + DAY : endRaw,
+    })
   }
   for (const [date, minutes] of weekdayPool) {
     const tiers = applyDaily(date, minutes)
@@ -424,4 +433,4 @@ export function formatHours(minutes: number): string {
 }
 
 export const PAY_RULES =
-  'אומדן ברוטו לפי חוק שעות עבודה ומנוחה, לא תלוש שכר. ביום רגיל 8:24 הראשונות ב־100%, שעתיים שאחריהן ב־125%, והיתר ב־150%. ביום שישי עד 16:00 נספרות 7 שעות רגילות, ומ־16:00 עד סוף שבת השעות ב־150%. חג מלא וערב חג מ־16:00 גם ב־150%. מעל 42 שעות רגילות בשבוע (מראשון) העודף עובר לשעות נוספות. שכר חודשי מתורגם לשעתי לפי 182 שעות. החגים: שני ימי ראש השנה, יום כיפור, סוכות, שמיני עצרת, פסח, שביעי של פסח ושבועות.'
+  'אומדן ברוטו לפי חוק שעות עבודה ומנוחה, לא תלוש שכר. משמרת שחוצה חצות משויכת ליום שבו התחילה; תוספות שבת/חג עדיין לפי השעון בפועל. ביום רגיל 8:24 הראשונות ב־100%, שעתיים שאחריהן ב־125%, והיתר ב־150%. ביום שישי עד 16:00 נספרות 7 שעות רגילות, ומ־16:00 עד סוף שבת השעות ב־150%. חג מלא וערב חג מ־16:00 גם ב־150%. מעל 42 שעות רגילות בשבוע (מראשון) העודף עובר לשעות נוספות. שכר חודשי מתורגם לשעתי לפי 182 שעות. החגים: שני ימי ראש השנה, יום כיפור, סוכות, שמיני עצרת, פסח, שביעי של פסח ושבועות.'
