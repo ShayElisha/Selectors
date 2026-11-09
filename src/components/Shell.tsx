@@ -26,10 +26,12 @@ import {
   CalendarX2,
   ClipboardPenLine,
   Box,
+  Lock,
   Siren,
   CircleHelp,
   Wallet,
   Camera,
+  Package,
 } from 'lucide-react'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import type { ShiftType, View } from '../types'
@@ -58,7 +60,9 @@ const OPERATIONS: NavItem[] = [
   { id: 'briefings', label: 'תדריכים', icon: BookOpen },
   { id: 'tracking', label: 'מעקב נתיבים', icon: Table2 },
   { id: 'cancellations', label: 'ביטולים וחוסרים', icon: CalendarX2 },
+  { id: 'equipment', label: 'בקשות ציוד', icon: Package },
   { id: 'handoff', label: 'מסירת משמרת', icon: ClipboardPenLine },
+  { id: 'openShifts', label: 'נעילת משמרות', icon: Lock },
 ]
 
 const REPORTS: NavItem[] = [
@@ -95,7 +99,9 @@ const MOBILE_MORE: View[] = [
   'audit',
   'customsBrokers',
   'cancellations',
+  'equipment',
   'handoff',
+  'openShifts',
   'stationMap',
 ]
 

@@ -56,12 +56,19 @@ export function buildIncidentsCsv(rows: IncidentRecord[], lanes: Lane[]): string
   return `\uFEFF${[header, ...body].map((line) => line.map(csvCell).join(',')).join('\r\n')}`
 }
 
-export function downloadIncidentsCsv(rows: IncidentRecord[], lanes: Lane[]): void {
-  const blob = new Blob([buildIncidentsCsv(rows, lanes)], { type: 'text/csv;charset=utf-8' })
+export function downloadIncidentsCsv(
+  rows: IncidentRecord[],
+  lanes: Lane[],
+  opts?: { filenamePrefix?: string },
+): void {
+  const blob = new Blob([buildIncidentsCsv(rows, lanes)], {
+    type: 'text/csv;charset=utf-8',
+  })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `incident-log-${new Date().toISOString().slice(0, 10)}.csv`
+  const prefix = opts?.filenamePrefix?.trim() || 'incident-log'
+  link.download = `${prefix}-${new Date().toISOString().slice(0, 10)}.csv`
   link.rel = 'noopener'
   document.body.appendChild(link)
   link.click()

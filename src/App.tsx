@@ -43,7 +43,10 @@ import { WorkerNotificationsPage } from './pages/WorkerNotificationsPage'
 import { WorkerHelpPage } from './pages/WorkerHelpPage'
 import { WorkerContactsPage } from './pages/WorkerContactsPage'
 import { WorkerFaultsPage } from './pages/WorkerFaultsPage'
+import { WorkerEquipmentPage } from './pages/WorkerEquipmentPage'
 import { WorkerPayPage, ManagerPayPage } from './pages/WorkerPayPage'
+import { EquipmentRequestsPage } from './pages/EquipmentRequestsPage'
+import { OpenShiftsPage } from './pages/OpenShiftsPage'
 import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { AlgorithmPage } from './pages/AlgorithmPage'
@@ -76,6 +79,7 @@ function ProtectedWorkerShell() {
           <Route path="history" element={<WorkerHistoryPage />} />
           <Route path="contacts" element={<WorkerContactsPage />} />
           <Route path="faults" element={<WorkerFaultsPage />} />
+          <Route path="equipment" element={<WorkerEquipmentPage />} />
           <Route path="pay" element={<WorkerPayPage />} />
           <Route path="briefings" element={<WorkerBriefingsPage />} />
           <Route path="notifications" element={<WorkerNotificationsPage />} />
@@ -138,7 +142,9 @@ function ProtectedShell() {
         <Route path="history" element={<HistoryPage />} />
         <Route path="history/:shiftId" element={<HistoryPage />} />
         <Route path="cancellations" element={<CancellationsPage />} />
+        <Route path="equipment" element={<EquipmentRequestsPage />} />
         <Route path="handoff" element={<ShiftHandoffPage />} />
+        <Route path="open-shifts" element={<OpenShiftsPage />} />
         <Route path="station-map" element={<StationMapPage />} />
         <Route path="history-matrix" element={<Navigate to="/history" replace />} />
         <Route path="*" element={<NotFoundPage />} />

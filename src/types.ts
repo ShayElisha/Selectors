@@ -379,5 +379,7 @@ export type View =
   | 'settings'
   | 'cancellations'
   | 'handoff'
+  | 'openShifts'
   | 'stationMap'
   | 'pay'
+  | 'equipment'

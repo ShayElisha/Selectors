@@ -17,8 +17,10 @@ export const VIEW_PATH: Record<View, string> = {
   settings: '/settings',
   cancellations: '/cancellations',
   handoff: '/handoff',
+  openShifts: '/open-shifts',
   stationMap: '/station-map',
   pay: '/pay',
+  equipment: '/equipment',
 }
 
 export function isAppPath(pathname: string): boolean {
@@ -52,8 +54,10 @@ export function viewFromPath(pathname: string): View {
   if (path === '/settings') return 'settings'
   if (path === '/cancellations') return 'cancellations'
   if (path === '/handoff') return 'handoff'
+  if (path === '/open-shifts') return 'openShifts'
   if (path === '/station-map') return 'stationMap'
   if (path === '/pay') return 'pay'
+  if (path === '/equipment') return 'equipment'
   if (path === '/history-matrix') return 'history'
   if (path === '/history' || path.startsWith('/history/')) return 'history'
   return 'home'

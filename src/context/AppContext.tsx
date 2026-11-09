@@ -52,7 +52,11 @@ import {
 import { earlyLeaveCutoff } from '../lib/earlyLeave'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
-import { normalizeSignOff } from '../lib/shiftSignOff'
+import {
+  isShiftSignedOff,
+  namesMatchForSignOff,
+  normalizeSignOff,
+} from '../lib/shiftSignOff'
 import {
   clearAppDataCache,
   clearDraftStorage,
@@ -522,6 +526,8 @@ interface AppContextValue {
   saveCurrentShift: () => Promise<void>
   /** Close the open shift with the manager's typed name and lock the board. */
   signCurrentShift: (signature: string) => Promise<void>
+  /** Close and lock several history shifts with one manager signature. */
+  signOffShifts: (ids: string[], signature: string) => Promise<number>
   loadShiftFromHistory: (id: string) => void
   deleteHistoryItem: (id: string) => Promise<void>
   restoreHistoryVersion: (shiftId: string, versionId: string) => Promise<void>
@@ -3327,6 +3333,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [draft, toSchedule, runWithFreshRevision, user?.fullName, user?.id],
   )
 
+  const signOffShifts = useCallback(
+    async (ids: string[], signature: string) => {
+      const trimmed = signature.trim()
+      if (!namesMatchForSignOff(trimmed, user?.fullName)) {
+        const message = 'החתימה צריכה להיות השם המלא של המנהל שמחובר.'
+        setError(message)
+        throw new Error(message)
+      }
+      const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))]
+      if (unique.length === 0) return 0
+
+      setSyncing(true)
+      setError(null)
+      let locked = 0
+      try {
+        let lastSaved: AppData | null = null
+        for (const id of unique) {
+          const source =
+            lastSaved?.history.find((shift) => shift.id === id) ??
+            dataRef.current.history.find((shift) => shift.id === id)
+          if (!source || isShiftSignedOff(source)) continue
+          const pending: ShiftSchedule = {
+            ...source,
+            signOff: {
+              signedAt: new Date().toISOString(),
+              signerName: user?.fullName?.trim() || trimmed,
+              signerId: user?.id ?? '',
+              signature: trimmed,
+            },
+          }
+          lastSaved = await runWithFreshRevision((revision) =>
+            saveShiftRemote(pending, revision),
+          )
+          locked += 1
+        }
+        if (!lastSaved) return locked
+        skipNextSync.current = true
+        dataRef.current = lastSaved
+        persistedDataRef.current = lastSaved
+        setData(lastSaved)
+        saveAppDataCache(lastSaved)
+
+        const closedIds = new Set(unique)
+        setDraft((current) => {
+          if (!current || !closedIds.has(current.id)) return current
+          const stored = lastSaved!.history.find((shift) => shift.id === current.id)
+          const signOff = normalizeSignOff(stored?.signOff)
+          if (!signOff) return current
+          const closed: ShiftDraft = { ...current, signOff }
+          draftBaselineRef.current = snapshotDraft(closed)
+          setDraftDirty(false)
+          clearDraftStorage()
+          return closed
+        })
+        return locked
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 401)) {
+          setError(e instanceof Error ? e.message : 'נעילת המשמרות נכשלה')
+        }
+        throw e
+      } finally {
+        setSyncing(false)
+      }
+    },
+    [runWithFreshRevision, user?.fullName, user?.id],
+  )
+
   const loadShiftFromHistory = useCallback(
     (id: string) => {
       navigate(`/history/${encodeURIComponent(id)}`)
@@ -4036,6 +4109,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addSlotToLane,
       saveCurrentShift,
       signCurrentShift,
+      signOffShifts,
       loadShiftFromHistory,
       deleteHistoryItem,
       restoreHistoryVersion,
@@ -4138,6 +4212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addSlotToLane,
       saveCurrentShift,
       signCurrentShift,
+      signOffShifts,
       loadShiftFromHistory,
       deleteHistoryItem,
       restoreHistoryVersion,

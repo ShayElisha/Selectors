@@ -13,6 +13,7 @@ import {
   Phone,
   UserRound,
   Wallet,
+  Package,
 } from 'lucide-react'
 import { fetchWorkerNotificationsRemote } from '../api'
 import {
@@ -40,6 +41,7 @@ const NAV_ITEMS: {
   { sub: 'history', label: 'היסטוריה', icon: History },
   { sub: 'contacts', label: 'אנשי קשר', icon: Phone },
   { sub: 'faults', label: 'תקלות', icon: AlertTriangle },
+  { sub: 'equipment', label: 'ציוד', icon: Package },
   { sub: 'briefings', label: 'תדריכים', icon: BookOpen },
   { sub: 'profile', label: 'הפרופיל שלי', icon: UserRound },
 ]
@@ -225,6 +227,15 @@ export function WorkerShell({
                 >
                   <AlertTriangle className="size-4" aria-hidden />
                   דיווח תקלה
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm text-ink-soft hover:bg-surface hover:text-ink"
+                  onClick={() => go('equipment')}
+                >
+                  <Package className="size-4" aria-hidden />
+                  בקשת ציוד
                 </button>
                 <button
                   type="button"

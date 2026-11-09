@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import {
   addManagerPayEntryRemote,
   addWorkerPayEntryRemote,
@@ -26,6 +33,7 @@ import {
   type PayMinutes,
 } from '../lib/grossPay'
 import { notify } from '../lib/notify'
+import { printPaySummaryPdf } from '../lib/paySummaryPdf'
 import { useApp } from '../context/AppContext'
 import { useWorkerPortalPaths } from '../lib/workerPortalPaths'
 
@@ -144,6 +152,7 @@ function PayLedger({
   home: string
   api: PayApi
 }) {
+  const { user } = useApp()
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [month, setMonth] = useState(currentMonth)
   const [pay, setPay] = useState<WorkerPayState | null>(null)
@@ -558,6 +567,32 @@ function PayLedger({
         <SectionCard
           title={monthTitle(report.month)}
           subtitle="מה־1 עד סוף החודש"
+          actions={
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+              onClick={() => {
+                try {
+                  printPaySummaryPdf({
+                    report,
+                    workerName: user?.fullName || 'עובד',
+                    orgName: user?.orgName,
+                    basis: pay?.basis,
+                    amount: pay?.amount,
+                  })
+                } catch (err) {
+                  notify.error(
+                    err instanceof Error
+                      ? err.message
+                      : 'ייצוא ה־PDF נכשל',
+                  )
+                }
+              }}
+            >
+              <Download className="size-3.5" aria-hidden />
+              ייצוא PDF
+            </button>
+          }
         >
           <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="רגיל 100%" value={formatHours(report.totals.regular)} />

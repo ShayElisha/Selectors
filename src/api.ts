@@ -844,6 +844,68 @@ export function fetchWorkerIncidentsRemote(): Promise<{
   return request('/api/worker/incidents')
 }
 
+export type EquipmentType = 'vest' | 'device' | 'key' | 'other'
+export type EquipmentStatus = 'pending' | 'approved' | 'fulfilled' | 'rejected'
+
+export interface EquipmentRequestItem {
+  id: string
+  orgId: string
+  module: string
+  workerId: string
+  workerName: string
+  equipmentType: EquipmentType | string
+  equipmentLabel: string
+  quantity: number
+  notes: string
+  status: EquipmentStatus | string
+  managerNotes: string
+  createdAt: string
+  updatedAt: string
+  updatedBy: string
+}
+
+export function fetchWorkerEquipmentRequestsRemote(): Promise<{
+  module: string
+  types: Record<string, string>
+  requests: EquipmentRequestItem[]
+}> {
+  return request('/api/worker/equipment-requests')
+}
+
+export function submitWorkerEquipmentRequestRemote(body: {
+  equipmentType: EquipmentType
+  quantity?: number
+  notes?: string
+}): Promise<EquipmentRequestItem> {
+  return request('/api/worker/equipment-requests', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function fetchManagerEquipmentRequestsRemote(status?: EquipmentStatus | 'all'): Promise<{
+  module: string
+  types: Record<string, string>
+  statuses: Record<string, string>
+  pending: number
+  requests: EquipmentRequestItem[]
+}> {
+  const params = new URLSearchParams()
+  if (status && status !== 'all') params.set('status', status)
+  const qs = params.toString()
+  return request(`/api/equipment-requests${qs ? `?${qs}` : ''}`)
+}
+
+export function updateManagerEquipmentRequestRemote(
+  id: string,
+  body: { status: EquipmentStatus; managerNotes?: string },
+): Promise<EquipmentRequestItem> {
+  return request(`/api/equipment-requests/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
 export interface WorkerPayEntry {
   id: string
   date: string

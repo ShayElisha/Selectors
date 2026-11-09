@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -108,6 +108,22 @@ export function IncidentsPage() {
     [incidents],
   )
 
+  const matchesSearch = useCallback(
+    (item: IncidentRecord) => {
+      const text =
+        `${item.title} ${item.description} ${item.handlingNotes ?? ''} ${item.createdBy} ${item.reportedByName ?? ''} ${item.laneId ?? ''}`.toLocaleLowerCase(
+          'he',
+        )
+      const laneName = item.laneId
+        ? (data.lanes.find((lane) => lane.id === item.laneId)?.name ?? '')
+        : ''
+      return `${text} ${laneName}`.includes(
+        query.trim().toLocaleLowerCase('he'),
+      )
+    },
+    [data.lanes, query],
+  )
+
   const visible = useMemo(
     () =>
       incidents
@@ -115,32 +131,43 @@ export function IncidentsPage() {
         .filter((item) =>
           activeKind === 'fault' ? item.status !== 'pending_approval' : true,
         )
+        .filter((item) =>
+          activeKind === 'fault' ? item.status !== 'resolved' : true,
+        )
         .filter((item) => statusFilter === 'all' || item.status === statusFilter)
         .filter(
           (item) => severityFilter === 'all' || item.severity === severityFilter,
         )
-        .filter((item) => {
-          const text =
-            `${item.title} ${item.description} ${item.handlingNotes ?? ''} ${item.createdBy} ${item.reportedByName ?? ''} ${item.laneId ?? ''}`.toLocaleLowerCase(
-              'he',
-            )
-          const laneName = item.laneId
-            ? (data.lanes.find((lane) => lane.id === item.laneId)?.name ?? '')
-            : ''
-          return `${text} ${laneName}`.includes(
-            query.trim().toLocaleLowerCase('he'),
-          )
-        })
+        .filter(matchesSearch)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [
       incidents,
       activeKind,
       statusFilter,
       severityFilter,
-      query,
-      data.lanes,
+      matchesSearch,
     ],
   )
+
+  /** Closed faults live in their own table + export (not mixed into the open journal). */
+  const resolvedFaults = useMemo(
+    () =>
+      activeKind !== 'fault'
+        ? []
+        : incidents
+            .filter((item) => item.kind === 'fault' && item.status === 'resolved')
+            .filter(
+              (item) =>
+                severityFilter === 'all' || item.severity === severityFilter,
+            )
+            .filter(matchesSearch)
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [incidents, activeKind, severityFilter, matchesSearch],
+  )
+
+  const showResolvedFaults =
+    activeKind === 'fault' &&
+    (statusFilter === 'all' || statusFilter === 'resolved')
 
   const openEditor = (item?: IncidentRecord) => {
     setEditingId(item?.id)
@@ -206,11 +233,34 @@ export function IncidentsPage() {
             <button
               type="button"
               className="ui-btn ui-btn-secondary"
-              onClick={() => downloadIncidentsCsv(visible, data.lanes)}
+              onClick={() =>
+                downloadIncidentsCsv(visible, data.lanes, {
+                  filenamePrefix:
+                    activeKind === 'fault'
+                      ? 'faults-open'
+                      : 'events-log',
+                })
+              }
               disabled={!visible.length}
             >
-              <Download className="size-4" aria-hidden /> ייצוא ({visible.length})
+              <Download className="size-4" aria-hidden /> ייצוא{' '}
+              {activeKind === 'fault' ? 'פתוחות' : ''} ({visible.length})
             </button>
+            {activeKind === 'fault' ? (
+              <button
+                type="button"
+                className="ui-btn ui-btn-secondary"
+                onClick={() =>
+                  downloadIncidentsCsv(resolvedFaults, data.lanes, {
+                    filenamePrefix: 'faults-resolved',
+                  })
+                }
+                disabled={!resolvedFaults.length}
+              >
+                <Download className="size-4" aria-hidden /> ייצוא שטופלו (
+                {resolvedFaults.length})
+              </button>
+            ) : null}
             <button
               type="button"
               className="ui-btn ui-btn-primary"
@@ -543,191 +593,407 @@ export function IncidentsPage() {
         </SectionCard>
       ) : null}
 
-      <SectionCard
-        title={`יומן ${activeKind === 'fault' ? 'תקלות' : 'אירועים'}`}
-        subtitle={`${visible.length} מתוך ${kindIncidents.filter((item) => item.status !== 'pending_approval').length} דיווחים`}
-      >
-        <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_180px_180px]">
-          <label className="relative block">
-            <Search
-              className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
-              aria-hidden
-            />
-            <input
-              className="ui-field pe-9"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="חיפוש לפי כותרת, תיאור או עמדה"
-              aria-label="חיפוש אירועים"
-            />
-          </label>
-          <select
-            className="ui-field"
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as 'all' | IncidentStatus)
-            }
-            aria-label="סינון לפי סטטוס"
-          >
-            <option value="all">כל הסטטוסים</option>
-            {STATUSES.filter((item) => item.id !== 'pending_approval').map(
-              (item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ),
-            )}
-          </select>
-          <select
-            className="ui-field"
-            value={severityFilter}
-            onChange={(e) =>
-              setSeverityFilter(e.target.value as 'all' | IncidentSeverity)
-            }
-            aria-label="סינון לפי חומרה"
-          >
-            <option value="all">כל רמות החומרה</option>
-            {SEVERITIES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {visible.length === 0 ? (
-          <EmptyState
-            title={
-              kindIncidents.length
-                ? 'לא נמצאו דיווחים'
-                : activeKind === 'fault'
-                  ? 'עדיין אין תקלות ביומן'
-                  : 'עדיין אין אירועים ביומן'
-            }
-            text={
-              kindIncidents.length
-                ? 'נסו לשנות את החיפוש או את הסינון.'
-                : activeKind === 'fault'
-                  ? 'דווחו על תקלה או אשרו דיווח מעובד כדי לתעד את חומרתה והטיפול בה.'
-                  : 'דווחו על אירוע תפעולי כדי שמנהלים יוכלו לתעד אותו ולעקוב אחריו.'
-            }
-            action={
-              !kindIncidents.length ? (
-                <button
-                  className="ui-btn ui-btn-primary"
-                  type="button"
-                  onClick={() => openEditor()}
-                >
-                  <Plus className="size-4" /> דיווח {kindLabel}
-                </button>
-              ) : undefined
+      {statusFilter !== 'resolved' ? (
+        <SectionCard
+          title={
+            activeKind === 'fault'
+              ? 'תקלות פתוחות ובטיפול'
+              : 'יומן אירועים'
+          }
+          subtitle={`${visible.length} דיווחים${
+            activeKind === 'fault'
+              ? ` · ${resolvedFaults.length} שטופלו בטבלה נפרדת`
+              : ''
+          }`}
+          actions={
+            activeKind === 'fault' ? (
+              <button
+                type="button"
+                className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+                onClick={() =>
+                  downloadIncidentsCsv(visible, data.lanes, {
+                    filenamePrefix: 'faults-open',
+                  })
+                }
+                disabled={!visible.length}
+              >
+                <Download className="size-3.5" aria-hidden /> ייצוא פתוחות
+              </button>
+            ) : undefined
+          }
+        >
+          <IncidentFilters
+            query={query}
+            onQuery={setQuery}
+            statusFilter={statusFilter}
+            onStatus={setStatusFilter}
+            severityFilter={severityFilter}
+            onSeverity={setSeverityFilter}
+            statusOptions={
+              activeKind === 'fault'
+                ? STATUSES.filter(
+                    (item) =>
+                      item.id !== 'pending_approval' && item.id !== 'resolved',
+                  )
+                : STATUSES.filter((item) => item.id !== 'pending_approval')
             }
           />
-        ) : (
-          <div className="space-y-3">
-            {visible.map((item) => {
-              const lane = data.lanes.find(
-                (candidate) => candidate.id === item.laneId,
-              )
-              const severity = SEVERITIES.find(
-                (entry) => entry.id === item.severity,
-              )!
-              return (
-                <article
-                  key={item.id}
-                  className="rounded-xl border border-line/80 bg-surface/60 p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${severity.color}`}
-                        >
-                          {severity.label}
-                        </span>
-                        <span className="rounded-full bg-card px-2.5 py-1 text-xs font-medium text-ink-soft ring-1 ring-line">
-                          {statusLabel(item.status)}
-                        </span>
-                        {lane ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-ink-soft">
-                            <Wrench className="size-3.5" />
-                            {lane.name}
-                          </span>
-                        ) : null}
-                        {item.shiftDate ? (
-                          <span className="text-xs text-ink-soft">
-                            {item.shiftDate}
-                            {item.shiftType
-                              ? ` · ${SHIFT_TYPE_LABELS[item.shiftType]}`
-                              : ''}
-                          </span>
-                        ) : null}
-                      </div>
-                      <h3 className="text-base font-bold text-ink">
-                        {item.title}
-                      </h3>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-soft">
-                        {item.description}
-                      </p>
-                      {item.reportedByName ? (
-                        <p className="mt-1 text-xs text-ink-soft">
-                          דווח מפורטל עובדים על ידי {item.reportedByName}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        className="ui-btn ui-btn-ghost !px-2"
-                        onClick={() => openEditor(item)}
-                        aria-label={`עריכת ${item.title}`}
+          {visible.length === 0 ? (
+            <EmptyState
+              title={
+                kindIncidents.length
+                  ? 'לא נמצאו דיווחים'
+                  : activeKind === 'fault'
+                    ? 'אין תקלות פתוחות'
+                    : 'עדיין אין אירועים ביומן'
+              }
+              text={
+                kindIncidents.length
+                  ? 'נסו לשנות את החיפוש או את הסינון.'
+                  : activeKind === 'fault'
+                    ? 'דווחו על תקלה או אשרו דיווח מעובד כדי לתעד את חומרתה והטיפול בה.'
+                    : 'דווחו על אירוע תפעולי כדי שמנהלים יוכלו לתעד אותו ולעקוב אחריו.'
+              }
+              action={
+                !kindIncidents.length ? (
+                  <button
+                    className="ui-btn ui-btn-primary"
+                    type="button"
+                    onClick={() => openEditor()}
+                  >
+                    <Plus className="size-4" /> דיווח {kindLabel}
+                  </button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <IncidentList
+              items={visible}
+              lanes={data.lanes}
+              onEdit={openEditor}
+              onDelete={deleteIncident}
+            />
+          )}
+        </SectionCard>
+      ) : null}
+
+      {showResolvedFaults ? (
+        <SectionCard
+          title="תקלות שטופלו"
+          subtitle={`${resolvedFaults.length} תקלות סגורות — ארכיון נפרד מהיומן הפעיל`}
+          actions={
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary !py-1.5 text-xs"
+              onClick={() =>
+                downloadIncidentsCsv(resolvedFaults, data.lanes, {
+                  filenamePrefix: 'faults-resolved',
+                })
+              }
+              disabled={!resolvedFaults.length}
+            >
+              <Download className="size-3.5" aria-hidden /> ייצוא שטופלו (
+              {resolvedFaults.length})
+            </button>
+          }
+        >
+          {statusFilter === 'resolved' ? (
+            <IncidentFilters
+              query={query}
+              onQuery={setQuery}
+              statusFilter={statusFilter}
+              onStatus={setStatusFilter}
+              severityFilter={severityFilter}
+              onSeverity={setSeverityFilter}
+              statusOptions={STATUSES.filter(
+                (item) =>
+                  item.id === 'resolved' ||
+                  item.id === 'open' ||
+                  item.id === 'in_progress' ||
+                  item.id === 'rejected',
+              )}
+            />
+          ) : null}
+          {resolvedFaults.length === 0 ? (
+            <EmptyState
+              title="אין תקלות שטופלו"
+              text="כשתקלה תסומן כ«טופל», היא תופיע כאן עם ייצוא נפרד."
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-line">
+              <table className="w-full min-w-[40rem] border-collapse text-start text-[13px]">
+                <thead>
+                  <tr className="border-b border-line bg-brand/[0.045]">
+                    <th className="px-3 py-2.5 text-[11px] font-semibold text-ink-soft">
+                      כותרת
+                    </th>
+                    <th className="px-3 py-2.5 text-[11px] font-semibold text-ink-soft">
+                      חומרה
+                    </th>
+                    <th className="px-3 py-2.5 text-[11px] font-semibold text-ink-soft">
+                      עמדה
+                    </th>
+                    <th className="px-3 py-2.5 text-[11px] font-semibold text-ink-soft">
+                      טיפול
+                    </th>
+                    <th className="px-3 py-2.5 text-[11px] font-semibold text-ink-soft">
+                      עודכן
+                    </th>
+                    <th className="px-3 py-2.5 text-[11px] font-semibold text-ink-soft">
+                      פעולות
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resolvedFaults.map((item, index) => {
+                    const lane = data.lanes.find(
+                      (candidate) => candidate.id === item.laneId,
+                    )
+                    const severity = SEVERITIES.find(
+                      (entry) => entry.id === item.severity,
+                    )!
+                    return (
+                      <tr
+                        key={item.id}
+                        className={`border-b border-line/50 last:border-b-0 ${
+                          index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
+                        }`}
                       >
-                        <Pencil className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        className="ui-btn ui-btn-ghost !px-2 text-hard"
-                        onClick={() => {
-                          if (window.confirm('למחוק את הדיווח מהיומן?'))
-                            deleteIncident(item.id)
-                        }}
-                        aria-label={`מחיקת ${item.title}`}
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                  </div>
-                  {item.handlingNotes ? (
-                    <div className="mt-3 rounded-lg border border-line/60 bg-card px-3 py-2.5">
-                      <p className="mb-1 text-xs font-semibold text-ink">
-                        <ShieldAlert className="me-1 inline size-3.5" />
-                        טיפול והמשך
-                      </p>
-                      <p className="whitespace-pre-wrap text-sm leading-6 text-ink-soft">
-                        {item.handlingNotes}
-                      </p>
-                    </div>
-                  ) : null}
-                  {item.rejectionReason ? (
-                    <p className="mt-2 text-sm text-hard">
-                      סיבת דחייה: {item.rejectionReason}
-                    </p>
-                  ) : null}
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-line/60 pt-2.5 text-[11px] text-ink-soft">
-                    <span>
-                      נפתח: {item.createdBy} · {formatDate(item.createdAt)}
+                        <td className="px-3 py-2.5 align-middle">
+                          <p className="font-semibold text-ink">{item.title}</p>
+                          <p className="mt-0.5 line-clamp-2 text-[12px] text-ink-soft">
+                            {item.description}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2.5 align-middle">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${severity.color}`}
+                          >
+                            {severity.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 align-middle text-ink-soft">
+                          {lane?.name ?? '—'}
+                        </td>
+                        <td className="max-w-[14rem] px-3 py-2.5 align-middle text-ink-soft">
+                          <p className="line-clamp-2">
+                            {item.handlingNotes?.trim() || '—'}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2.5 align-middle text-[12px] text-ink-soft whitespace-nowrap">
+                          {formatDate(item.updatedAt)}
+                        </td>
+                        <td className="px-3 py-2.5 align-middle">
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              className="ui-btn ui-btn-ghost !px-2"
+                              onClick={() => openEditor(item)}
+                              aria-label={`עריכת ${item.title}`}
+                            >
+                              <Pencil className="size-4" />
+                            </button>
+                            <button
+                              type="button"
+                              className="ui-btn ui-btn-ghost !px-2 text-hard"
+                              onClick={() => {
+                                if (window.confirm('למחוק את הדיווח מהיומן?'))
+                                  deleteIncident(item.id)
+                              }}
+                              aria-label={`מחיקת ${item.title}`}
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+      ) : null}
+    </div>
+  )
+}
+
+function IncidentFilters({
+  query,
+  onQuery,
+  statusFilter,
+  onStatus,
+  severityFilter,
+  onSeverity,
+  statusOptions,
+}: {
+  query: string
+  onQuery: (value: string) => void
+  statusFilter: 'all' | IncidentStatus
+  onStatus: (value: 'all' | IncidentStatus) => void
+  severityFilter: 'all' | IncidentSeverity
+  onSeverity: (value: 'all' | IncidentSeverity) => void
+  statusOptions: { id: IncidentStatus; label: string }[]
+}) {
+  return (
+    <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_180px_180px]">
+      <label className="relative block">
+        <Search
+          className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
+          aria-hidden
+        />
+        <input
+          className="ui-field pe-9"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder="חיפוש לפי כותרת, תיאור או עמדה"
+          aria-label="חיפוש אירועים"
+        />
+      </label>
+      <select
+        className="ui-field"
+        value={statusFilter}
+        onChange={(e) => onStatus(e.target.value as 'all' | IncidentStatus)}
+        aria-label="סינון לפי סטטוס"
+      >
+        <option value="all">כל הסטטוסים</option>
+        {statusOptions.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
+          </option>
+        ))}
+        {!statusOptions.some((item) => item.id === 'resolved') ? (
+          <option value="resolved">טופל (ארכיון)</option>
+        ) : null}
+      </select>
+      <select
+        className="ui-field"
+        value={severityFilter}
+        onChange={(e) =>
+          onSeverity(e.target.value as 'all' | IncidentSeverity)
+        }
+        aria-label="סינון לפי חומרה"
+      >
+        <option value="all">כל רמות החומרה</option>
+        {SEVERITIES.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function IncidentList({
+  items,
+  lanes,
+  onEdit,
+  onDelete,
+}: {
+  items: IncidentRecord[]
+  lanes: { id: string; name: string }[]
+  onEdit: (item: IncidentRecord) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <div className="space-y-3">
+      {items.map((item) => {
+        const lane = lanes.find((candidate) => candidate.id === item.laneId)
+        const severity = SEVERITIES.find((entry) => entry.id === item.severity)!
+        return (
+          <article
+            key={item.id}
+            className="rounded-xl border border-line/80 bg-surface/60 p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${severity.color}`}
+                  >
+                    {severity.label}
+                  </span>
+                  <span className="rounded-full bg-card px-2.5 py-1 text-xs font-medium text-ink-soft ring-1 ring-line">
+                    {statusLabel(item.status)}
+                  </span>
+                  {lane ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-ink-soft">
+                      <Wrench className="size-3.5" />
+                      {lane.name}
                     </span>
-                    {item.updatedAt !== item.createdAt ? (
-                      <span>
-                        עודכן: {item.updatedBy} · {formatDate(item.updatedAt)}
-                      </span>
-                    ) : null}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        )}
-      </SectionCard>
+                  ) : null}
+                  {item.shiftDate ? (
+                    <span className="text-xs text-ink-soft">
+                      {item.shiftDate}
+                      {item.shiftType
+                        ? ` · ${SHIFT_TYPE_LABELS[item.shiftType]}`
+                        : ''}
+                    </span>
+                  ) : null}
+                </div>
+                <h3 className="text-base font-bold text-ink">{item.title}</h3>
+                <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-soft">
+                  {item.description}
+                </p>
+                {item.reportedByName ? (
+                  <p className="mt-1 text-xs text-ink-soft">
+                    דווח מפורטל עובדים על ידי {item.reportedByName}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-ghost !px-2"
+                  onClick={() => onEdit(item)}
+                  aria-label={`עריכת ${item.title}`}
+                >
+                  <Pencil className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn ui-btn-ghost !px-2 text-hard"
+                  onClick={() => {
+                    if (window.confirm('למחוק את הדיווח מהיומן?'))
+                      onDelete(item.id)
+                  }}
+                  aria-label={`מחיקת ${item.title}`}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            </div>
+            {item.handlingNotes ? (
+              <div className="mt-3 rounded-lg border border-line/60 bg-card px-3 py-2.5">
+                <p className="mb-1 text-xs font-semibold text-ink">
+                  <ShieldAlert className="me-1 inline size-3.5" />
+                  טיפול והמשך
+                </p>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-ink-soft">
+                  {item.handlingNotes}
+                </p>
+              </div>
+            ) : null}
+            {item.rejectionReason ? (
+              <p className="mt-2 text-sm text-hard">
+                סיבת דחייה: {item.rejectionReason}
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-line/60 pt-2.5 text-[11px] text-ink-soft">
+              <span>
+                נפתח: {item.createdBy} · {formatDate(item.createdAt)}
+              </span>
+              {item.updatedAt !== item.createdAt ? (
+                <span>
+                  עודכן: {item.updatedBy} · {formatDate(item.updatedAt)}
+                </span>
+              ) : null}
+            </div>
+          </article>
+        )
+      })}
     </div>
   )
 }

@@ -48,6 +48,12 @@ import {
   submitWorkerFault,
 } from './workerIncidents.js'
 import {
+  listManagerEquipmentRequests,
+  listWorkerEquipmentRequests,
+  submitWorkerEquipmentRequest,
+  updateManagerEquipmentRequest,
+} from './equipmentRequests.js'
+import {
   addWorkerPayEntry,
   addManagerPayEntry,
   deleteWorkerPayEntry,
@@ -440,6 +446,56 @@ app.post('/api/worker/incidents', async (req, res) => {
       windowMs: 15 * 60_000,
     })
     res.status(201).json(await submitWorkerFault(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/worker/equipment-requests', async (req, res) => {
+  try {
+    res.json(await listWorkerEquipmentRequests(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/worker/equipment-requests', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `worker-equipment:${clientKey(req)}`,
+      limit: 20,
+      windowMs: 15 * 60_000,
+    })
+    res
+      .status(201)
+      .json(await submitWorkerEquipmentRequest(req, req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/equipment-requests', async (req, res) => {
+  try {
+    res.json(await listManagerEquipmentRequests(req))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/equipment-requests/:id', async (req, res) => {
+  try {
+    await assertRateLimit({
+      key: `equipment-update:${clientKey(req)}`,
+      limit: 40,
+      windowMs: 15 * 60_000,
+    })
+    res.json(
+      await updateManagerEquipmentRequest(
+        req,
+        req.params.id,
+        req.body || {},
+      ),
+    )
   } catch (err) {
     sendError(res, err)
   }
