@@ -46,7 +46,11 @@ import {
 } from '../lib/hebrew'
 import { notify } from '../lib/notify'
 import { formatShiftShare } from '../lib/trackingHeatmap'
-import { effectiveStaffingStandard } from '../lib/shiftStaffing'
+import {
+  effectiveStaffingStandard,
+  shiftHeadcountSnapshot,
+  totalHeadcountDeficit,
+} from '../lib/shiftStaffing'
 import {
   EmptyState,
   IntensityBadge,
@@ -331,6 +335,28 @@ export function HomePage() {
   }, [draft])
 
   /** Short same-lane returns within 2 calendar days (from history). */
+  const currentHeadcount = useMemo(
+    () =>
+      currentShift
+        ? shiftHeadcountSnapshot(currentShift)
+        : {
+            tracked: false,
+            standard: undefined as number | undefined,
+            present: 0,
+            deficit: 0,
+            surplus: 0,
+          },
+    [currentShift],
+  )
+
+  /** Recent tracked shortages — same helper used on ביטולים וחוסרים. */
+  const recentHeadcountDeficit = useMemo(() => {
+    const recent = data.history.filter(
+      (h) => daysBetweenLocal(h.date, currentCtx.date) <= 7,
+    )
+    return totalHeadcountDeficit(recent)
+  }, [data.history, currentCtx.date])
+
   const shortReturns = useMemo(() => {
     const recent = data.history
       .filter((h) => daysBetweenLocal(h.date, currentCtx.date) <= 2)
@@ -816,117 +842,148 @@ export function HomePage() {
           <p className="text-[13px] text-ink-soft">
             אין שיבוץ בודקים למשמרת הזו. שיבוץ הסלקטורים מופיע מתחת.
           </p>
-        ) : usesRounds(currentShift) ? (
-          <SelectorRoundTable
-            layout={module === 'selectors' ? 'table' : 'cards'}
-            rounds={currentShift.rounds ?? []}
-            lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
-            workers={data.workers.filter((worker) =>
-              currentShift.presentWorkerIds.includes(worker.id),
-            )}
-            overrides={currentShift.staffingOverrides}
-            ramashName={
-              currentShift.gateManagerWorkerId
-                ? data.workers.find((worker) => worker.id === currentShift.gateManagerWorkerId)
-                    ?.fullName ?? ''
-                : ''
-            }
-          />
         ) : (
           <>
-            <div className="max-w-3xl overflow-hidden rounded-2xl border border-line shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full table-fixed border-collapse text-center text-[13px]">
-                  <colgroup>
-                    <col className="w-[32%]" />
-                    <col className="w-[22%]" />
-                    <col className="w-[46%]" />
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-line bg-brand/[0.045]">
-                      <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                        נתיב
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                        עצימות
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                        בודקים
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentTableRows.map((row, index) => {
-                      const missing = Math.max(
-                        0,
-                        row.staffingStandard - row.assigned,
-                      )
-                      const staffingOff =
-                        row.assigned !== row.staffingStandard
-                      return (
-                        <tr
-                          key={row.laneId}
-                          className={`h-12 border-b border-line/50 transition-colors last:border-b-0 hover:bg-brand/[0.04] ${
-                            index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
-                          }`}
-                        >
-                          <td className="px-3 py-2 align-middle text-center font-semibold text-ink">
-                            {row.laneName}
-                          </td>
-                          <td className="px-3 py-2 align-middle text-center">
-                            <div className="flex justify-center">
-                              <IntensityBadge intensity={row.intensity} />
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 align-middle text-center">
-                            <div className="flex flex-wrap items-center justify-center gap-1.5">
-                              {row.workers.length === 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={primaryEdit}
-                                  className="inline-flex items-center rounded-full border border-dashed border-line bg-surface/80 px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/[0.06] hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
-                                  aria-label={`שיבוץ לנתיב ${row.laneName}`}
-                                >
-                                  לא משובץ
-                                </button>
-                              ) : (
-                                row.workers.map((name) => (
-                                  <PersonChip key={name} name={name} />
-                                ))
-                              )}
-                              {staffingOff ? (
-                                <span
-                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ring-1 sm:text-[11px] ${
-                                    missing > 0
-                                      ? 'bg-hard-soft text-hard ring-hard/20'
-                                      : 'bg-warn-soft text-warn ring-warn/20'
-                                  }`}
-                                  title={`תקן ${row.staffingStandard}`}
-                                >
-                                  {missing > 0
-                                    ? `חסר ${missing}`
-                                    : `${row.assigned}/${row.staffingStandard}`}
-                                </span>
-                              ) : null}
-                            </div>
-                          </td>
+            {usesRounds(currentShift) ? (
+              <SelectorRoundTable
+                layout={module === 'selectors' ? 'table' : 'cards'}
+                rounds={currentShift.rounds ?? []}
+                lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
+                workers={data.workers.filter((worker) =>
+                  currentShift.presentWorkerIds.includes(worker.id),
+                )}
+                overrides={currentShift.staffingOverrides}
+                ramashName={
+                  currentShift.gateManagerWorkerId
+                    ? data.workers.find(
+                        (worker) =>
+                          worker.id === currentShift.gateManagerWorkerId,
+                      )?.fullName ?? ''
+                    : ''
+                }
+              />
+            ) : (
+              <>
+                <div className="max-w-3xl overflow-hidden rounded-2xl border border-line shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full table-fixed border-collapse text-center text-[13px]">
+                      <colgroup>
+                        <col className="w-[32%]" />
+                        <col className="w-[22%]" />
+                        <col className="w-[46%]" />
+                      </colgroup>
+                      <thead>
+                        <tr className="border-b border-line bg-brand/[0.045]">
+                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                            נתיב
+                          </th>
+                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                            עצימות
+                          </th>
+                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                            בודקים
+                          </th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            {currentUnassigned.length > 0 && (
-              <p className="mt-3 text-[13px] text-ink-soft">
-                לא שובצו:{' '}
-                {currentUnassigned.map((n) => (
-                  <span key={n} className="me-1.5 inline-block">
-                    <PersonChip name={n} />
-                  </span>
-                ))}
-              </p>
+                      </thead>
+                      <tbody>
+                        {currentTableRows.map((row, index) => {
+                          const missing = Math.max(
+                            0,
+                            row.staffingStandard - row.assigned,
+                          )
+                          const staffingOff =
+                            row.assigned !== row.staffingStandard
+                          return (
+                            <tr
+                              key={row.laneId}
+                              className={`h-12 border-b border-line/50 transition-colors last:border-b-0 hover:bg-brand/[0.04] ${
+                                index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
+                              }`}
+                            >
+                              <td className="px-3 py-2 align-middle text-center font-semibold text-ink">
+                                {row.laneName}
+                              </td>
+                              <td className="px-3 py-2 align-middle text-center">
+                                <div className="flex justify-center">
+                                  <IntensityBadge intensity={row.intensity} />
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 align-middle text-center">
+                                <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                  {row.workers.length === 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={primaryEdit}
+                                      className="inline-flex items-center rounded-full border border-dashed border-line bg-surface/80 px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/[0.06] hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
+                                      aria-label={`שיבוץ לנתיב ${row.laneName}`}
+                                    >
+                                      לא משובץ
+                                    </button>
+                                  ) : (
+                                    row.workers.map((name) => (
+                                      <PersonChip key={name} name={name} />
+                                    ))
+                                  )}
+                                  {staffingOff ? (
+                                    <span
+                                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ring-1 sm:text-[11px] ${
+                                        missing > 0
+                                          ? 'bg-hard-soft text-hard ring-hard/20'
+                                          : 'bg-warn-soft text-warn ring-warn/20'
+                                      }`}
+                                      title={`תקן ${row.staffingStandard}`}
+                                    >
+                                      {missing > 0
+                                        ? `חסר ${missing}`
+                                        : `${row.assigned}/${row.staffingStandard}`}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {currentUnassigned.length > 0 && (
+                  <p className="mt-3 text-[13px] text-ink-soft">
+                    לא שובצו:{' '}
+                    {currentUnassigned.map((n) => (
+                      <span key={n} className="me-1.5 inline-block">
+                        <PersonChip name={n} />
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </>
             )}
+            {currentHeadcount.tracked ? (
+              <div
+                className={`mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 text-[13px] ${
+                  currentHeadcount.deficit > 0
+                    ? 'border-hard/25 bg-hard-soft/70 text-hard'
+                    : 'border-ok/25 bg-ok-soft/70 text-ok'
+                }`}
+                role="status"
+              >
+                {currentHeadcount.deficit > 0 ? (
+                  <AlertTriangle className="size-4 shrink-0" aria-hidden />
+                ) : (
+                  <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                )}
+                <span className="font-semibold">
+                  {currentHeadcount.deficit > 0
+                    ? `חוסר בכוח אדם: חסרים ${currentHeadcount.deficit}`
+                    : 'כוח אדם מלא לפי תקן המשמרת'}
+                </span>
+                <span className="tabular-nums opacity-90">
+                  נוכחים {currentHeadcount.present} · תקן{' '}
+                  {currentHeadcount.standard}
+                </span>
+              </div>
+            ) : null}
           </>
         )}
       </SectionCard>
@@ -967,7 +1024,28 @@ export function HomePage() {
       ) : null}
 
       {/* Metrics + quick links — RTL order: first card is rightmost */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 no-print">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 no-print">
+        <button
+          type="button"
+          onClick={() => setView('cancellations')}
+          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-hard/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
+        >
+          <MetricIconBadge tone="hard">
+            <Users className="size-[18px]" aria-hidden />
+          </MetricIconBadge>
+          <p className="mt-3 text-sm font-semibold text-ink">חוסר בכוח אדם</p>
+          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
+            {currentHeadcount.tracked
+              ? currentHeadcount.deficit
+              : recentHeadcountDeficit}
+          </p>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            {currentHeadcount.tracked
+              ? `נוכחים ${currentHeadcount.present} מתוך תקן ${currentHeadcount.standard}`
+              : 'סה״כ בשבוע האחרון'}
+          </p>
+        </button>
+
         <button
           type="button"
           onClick={() => setView('analytics')}

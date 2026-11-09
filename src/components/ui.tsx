@@ -204,7 +204,7 @@ export function MetricIconBadge({
   tone = 'brand',
 }: {
   children: React.ReactNode
-  tone?: 'brand' | 'ok' | 'accent' | 'mid' | 'warn'
+  tone?: 'brand' | 'ok' | 'accent' | 'mid' | 'warn' | 'hard'
 }) {
   const tones: Record<string, string> = {
     brand: 'bg-brand/8 text-brand ring-brand/10',
@@ -212,6 +212,7 @@ export function MetricIconBadge({
     accent: 'bg-accent-soft text-accent ring-accent/15',
     mid: 'bg-mid-soft text-mid ring-mid/15',
     warn: 'bg-warn-soft text-warn ring-warn/15',
+    hard: 'bg-hard-soft text-hard ring-hard/15',
   }
   return (
     <span

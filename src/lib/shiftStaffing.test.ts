@@ -9,7 +9,9 @@ import {
   MAX_SHIFT_HEADCOUNT,
   normalizeHeadcountStandard,
   normalizeStaffingOverrides,
+  shiftHeadcountSnapshot,
   staffingChoicesForLane,
+  totalHeadcountDeficit,
 } from './shiftStaffing'
 
 const lane = (id: string, staffingStandard: StaffingStandard): Lane => ({
@@ -86,5 +88,39 @@ describe('shiftStaffing', () => {
     expect(headcountDeficit(10, 8)).toBe(0)
     expect(headcountDeficit(7, 10)).toBe(3)
     expect(headcountDeficit(0, 5)).toBe(5)
+  })
+
+  it('builds a reusable shift headcount snapshot', () => {
+    expect(
+      shiftHeadcountSnapshot({
+        presentWorkerIds: ['a', 'b'],
+        headcountStandard: undefined,
+      }),
+    ).toEqual({
+      tracked: false,
+      standard: undefined,
+      present: 2,
+      deficit: 0,
+      surplus: 0,
+    })
+    expect(
+      shiftHeadcountSnapshot({
+        presentWorkerIds: ['a', 'b', 'c'],
+        headcountStandard: 5,
+      }),
+    ).toEqual({
+      tracked: true,
+      standard: 5,
+      present: 3,
+      deficit: 2,
+      surplus: 0,
+    })
+    expect(
+      totalHeadcountDeficit([
+        { presentWorkerIds: ['a'], headcountStandard: 3 },
+        { presentWorkerIds: ['a', 'b'], headcountStandard: 2 },
+        { presentWorkerIds: ['a'], headcountStandard: undefined },
+      ]),
+    ).toBe(2)
   })
 })

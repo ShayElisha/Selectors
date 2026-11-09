@@ -4,7 +4,11 @@ import { useApp } from '../context/AppContext'
 import { EmptyState, Ltr, PersonChip, SectionCard } from '../components/ui'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { formatShiftDate } from '../lib/hebrew'
-import { effectiveStaffingStandard } from '../lib/shiftStaffing'
+import {
+  effectiveStaffingStandard,
+  shiftHeadcountSnapshot,
+  totalHeadcountDeficit,
+} from '../lib/shiftStaffing'
 import { downloadCancellationsCsv } from '../lib/cancellationsExport'
 import type { ShiftDrop, ShiftSchedule, ShiftType } from '../types'
 
@@ -94,21 +98,54 @@ export function CancellationsPage() {
   const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const openShifts = data.history.filter((shift) => shift.date >= todayISO && !shift.signOff?.signedAt)
   const gaps = useMemo(() => openShifts.reduce((sum, shift) => sum + getShiftGaps(shift, data.lanes), 0), [openShifts, data.lanes])
+  const periodShifts = useMemo(() => {
+    const start = rangeStart
+    const end = rangeEnd
+    return data.history.filter(
+      (shift) =>
+        (!start || shift.date >= start) &&
+        (!end || shift.date <= end) &&
+        (shiftType === 'all' || shift.shiftType === shiftType) &&
+        (status === 'all' ||
+          (status === 'closed') === Boolean(shift.signOff?.signedAt)),
+    )
+  }, [data.history, rangeStart, rangeEnd, shiftType, status])
+  const headcountShortShifts = useMemo(
+    () =>
+      periodShifts
+        .map((shift) => ({ shift, headcount: shiftHeadcountSnapshot(shift) }))
+        .filter(({ headcount }) => headcount.tracked && headcount.deficit > 0)
+        .sort(
+          (a, b) =>
+            b.headcount.deficit - a.headcount.deficit ||
+            b.shift.date.localeCompare(a.shift.date),
+        ),
+    [periodShifts],
+  )
+  const headcountDeficitTotal = useMemo(
+    () => totalHeadcountDeficit(periodShifts),
+    [periodShifts],
+  )
+  const openHeadcountDeficit = useMemo(
+    () => totalHeadcountDeficit(openShifts),
+    [openShifts],
+  )
 
   return (
     <div className="space-y-4">
-      <SectionCard title="לוח חוסרים וביטולים" subtitle="ביטולים, אי הגעה ועמדות שעדיין חסר להן כיסוי, לפי השיבוצים השמורים.">
+      <SectionCard title="לוח חוסרים וביטולים" subtitle="ביטולים, אי הגעה, חוסר כוח אדם לפי תקן משמרת, ועמדות שעדיין חסר להן כיסוי.">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium text-ink-soft">סיכום לפי טווח התאריכים והמסננים שנבחרו</p>
           <button type="button" className="ui-btn ui-btn-secondary min-h-9" onClick={() => downloadCancellationsCsv(rows, data.lanes, { fromDate: rangeStart, toDate: rangeEnd })} disabled={rows.length === 0}>
             <Download className="size-4" aria-hidden />ייצוא {rows.length} אירועים
           </button>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-line bg-surface p-3"><p className="text-xs text-ink-soft">ביטולים בתקופה</p><p className="mt-1 text-xl font-bold tabular-nums text-ink">{canceled}</p></div>
           <div className="rounded-xl border border-line bg-surface p-3"><p className="text-xs text-ink-soft">אי הגעה בתקופה</p><p className="mt-1 text-xl font-bold tabular-nums text-ink">{noShows}</p></div>
           <div className="rounded-xl border border-line bg-surface p-3"><p className="text-xs text-ink-soft">יציאות מוקדמות בתקופה</p><p className="mt-1 text-xl font-bold tabular-nums text-ink">{earlyLeaves}</p></div>
-          <div className="rounded-xl border border-warn/30 bg-warn-soft p-3"><p className="text-xs text-warn">משמרות שטרם נסגרו</p><p className="mt-1 text-xl font-bold tabular-nums text-warn">{unclosed}</p></div>
+          <div className="rounded-xl border border-hard/30 bg-hard-soft p-3"><p className="text-xs text-hard">חוסר כוח אדם בתקופה</p><p className="mt-1 text-xl font-bold tabular-nums text-hard">{headcountDeficitTotal}</p><p className="mt-0.5 text-[11px] text-hard/80">{headcountShortShifts.length} משמרות עם תקן</p></div>
+          <div className="rounded-xl border border-warn/30 bg-warn-soft p-3"><p className="text-xs text-warn">משמרות שטרם נסגרו</p><p className="mt-1 text-xl font-bold tabular-nums text-warn">{unclosed}</p>{openHeadcountDeficit > 0 ? <p className="mt-0.5 text-[11px] text-warn">מתוכן חסרים {openHeadcountDeficit} אנשים</p> : null}</div>
         </div>
         <div className="mt-4 rounded-xl border border-line bg-surface/70 p-3">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -149,7 +186,38 @@ export function CancellationsPage() {
           ))}
         </div>
       </SectionCard>
-      <SectionCard title="משמרות עם חוסרים" subtitle="הפער מחושב מהתקן מול השיבוץ האחרון שנשמר לכל משמרת.">
+      <SectionCard
+        title="חוסר בכוח אדם לפי תקן משמרת"
+        subtitle="תקן המשמרת מול מספר הנוכחים שנשמרו. החישוב משותף לדף הראשי ולסטטיסטיקה."
+      >
+        <div className="space-y-2">
+          {headcountShortShifts.slice(0, 30).map(({ shift, headcount }) => (
+            <div
+              key={shift.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2.5"
+            >
+              <span className="text-sm font-semibold text-ink">
+                {SHIFT_TYPE_LABELS[shift.shiftType]} ·{' '}
+                <Ltr>{formatShiftDate(shift.date)}</Ltr>
+              </span>
+              <span className="inline-flex flex-wrap items-center gap-2 text-sm font-semibold text-hard">
+                <AlertTriangle className="size-4" aria-hidden />
+                חסרים {headcount.deficit}
+                <span className="text-[12px] font-medium text-ink-soft tabular-nums">
+                  נוכחים {headcount.present} · תקן {headcount.standard}
+                </span>
+              </span>
+            </div>
+          ))}
+          {headcountShortShifts.length === 0 ? (
+            <EmptyState
+              title="אין חוסר כוח אדם בתקופה"
+              text="כשמגדירים תקן משמרת ונוכחות נמוכה ממנו, הפער יופיע כאן."
+            />
+          ) : null}
+        </div>
+      </SectionCard>
+      <SectionCard title="משמרות עם חוסרי עמדות" subtitle="הפער מחושב מתקן העמדה מול השיבוץ האחרון שנשמר לכל משמרת פתוחה.">
         <div className="space-y-2">
           {openShifts.filter((shift) => getShiftGaps(shift, data.lanes) > 0).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 30).map((shift) => (
             <div key={shift.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2.5">
@@ -157,7 +225,7 @@ export function CancellationsPage() {
               <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-warn"><AlertTriangle className="size-4" aria-hidden />{getShiftGaps(shift, data.lanes)} מקומות חסרים</span>
             </div>
           ))}
-          {gaps === 0 ? <EmptyState title="אין חוסרים בשיבוצים השמורים" text="כל המשמרות מכוסות לפי התקן שהוגדר." /> : null}
+          {gaps === 0 ? <EmptyState title="אין חוסרי עמדות בשיבוצים השמורים" text="כל המשמרות מכוסות לפי תקן העמדות שהוגדר." /> : null}
         </div>
       </SectionCard>
     </div>

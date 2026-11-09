@@ -98,3 +98,45 @@ export function headcountDeficit(
   if (headcountStandard == null || headcountStandard < 1) return 0
   return Math.max(0, headcountStandard - Math.max(0, presentCount))
 }
+
+/** Snapshot of whole-shift headcount vs present — reusable for home, cancellations, analytics. */
+export type ShiftHeadcountSnapshot = {
+  /** True when a תקן משמרת was set on the shift. */
+  tracked: boolean
+  standard: number | undefined
+  present: number
+  deficit: number
+  surplus: number
+}
+
+export function shiftHeadcountSnapshot(shift: {
+  presentWorkerIds?: string[] | null
+  headcountStandard?: number | null
+}): ShiftHeadcountSnapshot {
+  const present = (shift.presentWorkerIds ?? []).filter(Boolean).length
+  const standard = normalizeHeadcountStandard(shift.headcountStandard)
+  if (standard == null) {
+    return { tracked: false, standard: undefined, present, deficit: 0, surplus: 0 }
+  }
+  const deficit = headcountDeficit(present, standard)
+  return {
+    tracked: true,
+    standard,
+    present,
+    deficit,
+    surplus: Math.max(0, present - standard),
+  }
+}
+
+/** Sum of headcount deficits across shifts that have תקן משמרת set. */
+export function totalHeadcountDeficit(
+  shifts: Array<{
+    presentWorkerIds?: string[] | null
+    headcountStandard?: number | null
+  }>,
+): number {
+  return shifts.reduce(
+    (sum, shift) => sum + shiftHeadcountSnapshot(shift).deficit,
+    0,
+  )
+}
