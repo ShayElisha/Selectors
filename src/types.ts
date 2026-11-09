@@ -172,6 +172,11 @@ export interface ShiftSchedule {
    */
   staffingOverrides?: Record<string, StaffingStandard>
   /**
+   * Headcount target for the whole shift (not per lane).
+   * Used to track how many people are missing vs present.
+   */
+  headcountStandard?: number
+  /**
    * Personal hours for present workers (window preset id).
    * Missing means the person covers the whole main shift.
    */

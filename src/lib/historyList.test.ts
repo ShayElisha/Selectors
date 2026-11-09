@@ -176,6 +176,20 @@ describe('search / filter / counts', () => {
     expect(shiftCountsLabel(s)).not.toContain('1 נתיבים')
   })
 
+  it('includes shift headcount and shortage when set', () => {
+    const s: ShiftSchedule = {
+      ...shift('x', '2026-09-20', 'morning', {
+        present: ['w1', 'w2'],
+        activeLaneIds: ['l1'],
+        assignments: [{ laneId: 'l1', workerIds: ['w1'] }],
+      }),
+      headcountStandard: 5,
+    }
+    const label = shiftCountsLabel(s)
+    expect(label).toContain('תקן 5')
+    expect(label).toContain('חסרים 3')
+  })
+
   it('separates selector-round and shift counts with one separator each', () => {
     const s = shift('x', '2026-09-20', 'morning', {
       audience: 'selector',

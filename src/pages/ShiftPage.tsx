@@ -73,7 +73,11 @@ import { exportBlockedReason } from '../lib/exportGate'
 import { postAuditEvent, reportShiftPresence } from '../api'
 import { pluralizeHe } from '../lib/hebrew'
 import { sortIdsByCatalogOrder } from '../lib/lanesCertHelpers'
-import { effectiveStaffingStandard, staffingChoicesForLane } from '../lib/shiftStaffing'
+import {
+  effectiveStaffingStandard,
+  headcountDeficit,
+  staffingChoicesForLane,
+} from '../lib/shiftStaffing'
 import {
   attendanceStepSummary,
   canAdvanceFromAttendance,
@@ -379,6 +383,15 @@ export function ShiftPage() {
       draft.staffingOverrides,
     )
   }, [draft, data.lanes, data.workers])
+
+  const missingHeadcount = useMemo(
+    () =>
+      headcountDeficit(
+        draft?.presentWorkerIds.length ?? 0,
+        draft?.headcountStandard,
+      ),
+    [draft?.presentWorkerIds.length, draft?.headcountStandard],
+  )
 
   const lastSameType = useMemo(() => {
     if (!draft) return null
@@ -751,6 +764,35 @@ export function ShiftPage() {
             </Ltr>
           </p>
         </label>
+        <label className="text-xs sm:text-sm">
+          <span className="mb-1.5 block text-[10px] font-medium text-ink-soft sm:text-xs">
+            תקן משמרת
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={99}
+            inputMode="numeric"
+            className="ui-field !w-auto min-w-[5.5rem] !py-1.5 !text-xs sm:!py-2 sm:!text-sm"
+            value={draft.headcountStandard ?? ''}
+            placeholder="—"
+            aria-label="תקן משמרת — מספר אנשים נדרש למשמרת"
+            onChange={(e) => {
+              const raw = e.target.value
+              updateDraftMeta({
+                headcountStandard:
+                  raw.trim() === '' ? undefined : Number(raw),
+              })
+            }}
+          />
+          <p className="mt-1 text-[13px] text-ink-soft">
+            {draft.headcountStandard != null
+              ? missingHeadcount > 0
+                ? `נוכחים ${draft.presentWorkerIds.length} · חסרים ${missingHeadcount}`
+                : `נוכחים ${draft.presentWorkerIds.length} · מלא`
+              : 'אופציונלי — מעקב חוסר'}
+          </p>
+        </label>
         <div className="ms-auto flex flex-col items-end gap-1.5">
           {draftDirty ? (
             <p className="text-[12px] font-medium text-ink-soft">
@@ -808,6 +850,7 @@ export function ShiftPage() {
                 ? attendanceStepSummary(
                     draft.presentWorkerIds.length,
                     attendanceWorkers.length,
+                    draft.headcountStandard,
                   )
                 : draft.assignments.length > 0
                   ? 'לוח מוכן'
@@ -1430,10 +1473,23 @@ export function ShiftPage() {
                   )}
                 </button>
               <p className="text-[12px] text-ink-soft tabular-nums">
-                נוכחים {feasibility.present} · תקן {feasibility.totalStandard}
-                {deficitMessage(feasibility)
-                  ? ` · ${deficitMessage(feasibility)}`
-                  : ''}
+                {draft.headcountStandard != null ? (
+                  <>
+                    נוכחים {feasibility.present} · תקן משמרת{' '}
+                    {draft.headcountStandard}
+                    {missingHeadcount > 0
+                      ? ` · חסרים ${missingHeadcount}`
+                      : ''}
+                  </>
+                ) : (
+                  <>
+                    נוכחים {feasibility.present} · תקן עמדות{' '}
+                    {feasibility.totalStandard}
+                    {deficitMessage(feasibility)
+                      ? ` · ${deficitMessage(feasibility)}`
+                      : ''}
+                  </>
+                )}
               </p>
               </div>
             {feasibilityOpen ? (

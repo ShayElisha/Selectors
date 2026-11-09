@@ -75,3 +75,26 @@ export function lanesWithStaffingOverrides(
     return { ...l, staffingStandard: next }
   })
 }
+
+/** Max people that can be set as the whole-shift headcount target. */
+export const MAX_SHIFT_HEADCOUNT = 99 as const
+
+/**
+ * Whole-shift תקן. `undefined` / empty means not set (no shortage tracking).
+ * Values below 1 clear the target.
+ */
+export function normalizeHeadcountStandard(raw: unknown): number | undefined {
+  if (raw == null || raw === '') return undefined
+  const n = Math.trunc(Number(raw))
+  if (!Number.isFinite(n) || n < 1) return undefined
+  return Math.min(MAX_SHIFT_HEADCOUNT, n)
+}
+
+/** How many people are still missing vs the shift headcount target. */
+export function headcountDeficit(
+  presentCount: number,
+  headcountStandard: number | undefined,
+): number {
+  if (headcountStandard == null || headcountStandard < 1) return 0
+  return Math.max(0, headcountStandard - Math.max(0, presentCount))
+}

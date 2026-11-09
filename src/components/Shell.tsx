@@ -386,75 +386,79 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full min-w-0 max-w-7xl flex-col overflow-x-clip px-4 pb-32 pt-5 sm:px-6 sm:pt-7 lg:pb-10 lg:pt-8">
-      <header className="relative z-40 mb-6 flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-4 animate-fade-up sm:mb-7 no-print">
+      <header className="relative z-40 mb-6 flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-3 animate-fade-up sm:mb-7 sm:gap-4 no-print">
         <div className="min-w-0 max-w-full">
-          <div className="mb-1.5 flex items-center gap-2.5">
-            <BrandMark className="size-11" />
-            <div className="min-w-0">
-              <h1 className="ui-page-title font-display tracking-tight">
-                שיבוצון
-              </h1>
-              <p className="mt-1 flex flex-wrap items-center gap-1.5 break-words text-[13px] text-ink-soft sm:text-sm">
-                <span>
-                  {`ניהול ושיבוץ עמדות ${MODULE_LABELS[module]}`}
-                  {(orgProfile.name || user?.orgName)
-                    ? ` · ${orgProfile.name || user?.orgName}`
-                    : ''}
-                </span>
-                {orgProfile.logo ? (
-                  <img
-                    src={orgProfile.logo}
-                    alt={orgProfile.name || 'לוגו הארגון'}
-                    className="size-7 rounded-md object-contain"
-                  />
-                ) : null}
-              </p>
-            </div>
-          </div>
-          {user?.role === 'org_manager' &&
-            (user.modules.selectors ||
-              user.modules.inspectors ||
-              user.modules.security) && (
-              <div
-                className="mt-3 inline-flex rounded-lg border border-line/80 bg-card p-0.5"
-                role="group"
-                aria-label={
-                  user.isOrgManager
-                    ? 'מעבר בין כל מודולי הארגון'
-                    : 'בחירת מודול'
-                }
-              >
-                {(
-                  [
-                    ['selectors', 'סלקטורים'],
-                    ['inspectors', 'בודקים'],
-                    ['security', 'מאבטחים'],
-                  ] as const
-                )
-                  .filter(([id]) => user.modules[id])
-                  .map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-pressed={module === id}
-                      onClick={() => setModule(id)}
-                      className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${
-                        module === id
-                          ? 'bg-brand text-white'
-                          : 'text-ink-soft hover:text-ink'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <BrandMark className="size-11" />
+              <div className="min-w-0">
+                <h1 className="ui-page-title font-display tracking-tight">
+                  שיבוצון
+                </h1>
+                <p className="mt-1 flex flex-wrap items-center gap-1.5 break-words text-[13px] text-ink-soft sm:text-sm">
+                  <span>
+                    {`ניהול ושיבוץ עמדות ${MODULE_LABELS[module]}`}
+                    {(orgProfile.name || user?.orgName)
+                      ? ` · ${orgProfile.name || user?.orgName}`
+                      : ''}
+                  </span>
+                  {orgProfile.logo ? (
+                    <img
+                      src={orgProfile.logo}
+                      alt={orgProfile.name || 'לוגו הארגון'}
+                      className="size-7 rounded-md object-contain"
+                    />
+                  ) : null}
+                </p>
               </div>
-            )}
+            </div>
+            {user?.role === 'org_manager' &&
+              (user.modules.selectors ||
+                user.modules.inspectors ||
+                user.modules.security) && (
+                <div
+                  className="inline-flex h-8 items-center rounded-full border border-line/80 bg-surface/70 p-0.5 shadow-sm"
+                  role="group"
+                  aria-label={
+                    user.isOrgManager
+                      ? 'מעבר בין כל מודולי הארגון'
+                      : 'בחירת מודול'
+                  }
+                >
+                  {(
+                    [
+                      ['selectors', 'סלקטורים'],
+                      ['inspectors', 'בודקים'],
+                      ['security', 'מאבטחים'],
+                    ] as const
+                  )
+                    .filter(([id]) => user.modules[id])
+                    .map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-pressed={module === id}
+                        onClick={() => setModule(id)}
+                        className={`h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:px-3 sm:text-xs ${
+                          module === id
+                            ? 'bg-brand text-white shadow-sm'
+                            : 'text-ink-soft hover:bg-card/80 hover:text-ink'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                </div>
+              )}
+          </div>
         </div>
 
-        <div className="ms-auto flex max-w-full flex-wrap items-center justify-end gap-2">
-          <ThemeToggle />
+        <div
+          className="ms-auto inline-flex min-h-9 max-w-full flex-wrap items-center justify-end gap-1.5 rounded-full border border-line/80 bg-card/80 p-0.5 pe-0.5 ps-1 shadow-sm backdrop-blur-md sm:gap-2 sm:pe-1 sm:ps-1.5"
+          aria-label="סטטוס וחשבון"
+        >
           <div
-            className="hidden items-center gap-1.5 rounded-full border border-line/80 bg-card/80 px-2.5 py-1 text-[11px] text-ink-soft shadow-sm backdrop-blur-md lg:inline-flex"
+            className="hidden h-8 items-center gap-1.5 rounded-full px-2.5 text-[11px] text-ink-soft lg:inline-flex"
             title={statusText}
           >
             <Circle
@@ -466,6 +470,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="font-medium">{statusText}</span>
           </div>
 
+          <ThemeToggle className="shrink-0" />
+
           {user && (
             <div className="relative" ref={profileRef}>
               <button
@@ -475,9 +481,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 aria-expanded={profileOpen}
                 aria-haspopup="menu"
                 aria-label="תפריט משתמש"
-                className="group inline-flex items-center gap-2 rounded-full border border-line/80 bg-card/90 py-1 pe-2.5 ps-1 shadow-sm backdrop-blur-md transition hover:border-brand/25 hover:bg-card"
+                className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-transparent bg-transparent py-0 pe-2 ps-0.5 transition hover:border-line/80 hover:bg-surface/80"
               >
-                <span className={`flex size-8 items-center justify-center rounded-full text-[11px] font-bold tracking-wide ${avatarColor(user.fullName)}`}>
+                <span className={`flex size-7 items-center justify-center rounded-full text-[10px] font-bold tracking-wide ${avatarColor(user.fullName)}`}>
                   {initials(user.fullName)}
                 </span>
                 <span className="max-w-[7.5rem] truncate text-xs font-semibold text-ink sm:max-w-[9rem]">

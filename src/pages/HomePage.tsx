@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowLeft,
   ArrowUpRight,
   CheckCircle2,
   Clock,
   Download,
   LayoutGrid,
   Loader2,
-  Play,
+  Pencil,
+  Plus,
   RefreshCw,
   Users,
   Table2,
@@ -17,7 +17,6 @@ import {
   ClipboardPenLine,
   Wrench,
   Map as MapIcon,
-  Plus,
 } from 'lucide-react'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import { useApp } from '../context/AppContext'
@@ -56,7 +55,6 @@ import {
   PersonChip,
   SectionCard,
   Skeleton,
-  StaffingBadge,
 } from '../components/ui'
 import type { Intensity, ShiftHandoffNote, ShiftSchedule } from '../types'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
@@ -631,7 +629,7 @@ export function HomePage() {
                 className="ui-btn ui-btn-secondary gap-2"
                 title="לא ניתן לשמור פעמיים לאותו תאריך וסוג משמרת אם כבר קיים שיבוץ"
               >
-                <Play className="size-4 fill-current" aria-hidden />
+                <Plus className="size-4" aria-hidden />
                 משמרת חדשה
               </button>
               <button
@@ -662,7 +660,7 @@ export function HomePage() {
                 onClick={primaryEdit}
                 className="ui-btn ui-btn-primary gap-2"
               >
-                <ArrowLeft className="size-4" aria-hidden />
+                <Pencil className="size-4" aria-hidden />
                 {currentShift.signOff?.signedAt ? 'צפייה בשיבוץ' : 'עריכת שיבוץ'}
               </button>
               <button
@@ -671,7 +669,7 @@ export function HomePage() {
                 className="ui-btn ui-btn-secondary gap-2"
                 title="לא ניתן לשמור פעמיים לאותו תאריך וסוג משמרת אם כבר קיים שיבוץ"
               >
-                <Play className="size-4 fill-current" aria-hidden />
+                <Plus className="size-4" aria-hidden />
                 משמרת חדשה
               </button>
               {showSelectorEntry && (
@@ -691,7 +689,7 @@ export function HomePage() {
               onClick={() => startShift()}
               className="ui-btn ui-btn-primary gap-2"
             >
-              <Play className="size-4 fill-current" aria-hidden />
+              <Plus className="size-4" aria-hidden />
               התחלת משמרת
             </button>
             {showSelectorEntry && (
@@ -721,15 +719,36 @@ export function HomePage() {
           </>
         }
       >
-        <p className="mb-3 text-[13px] text-ink-soft">
-          חלונות:{' '}
-          {shiftModels.map((model, index) => (
-            <span key={model.id}>
-              {index > 0 ? ' · ' : ''}
-              {model.name} <Ltr>{formatShiftModelWindow(model).replace(' עד ', '–')}</Ltr>
-            </span>
-          ))}
-        </p>
+        <div
+          className="mb-3 flex flex-wrap gap-1.5"
+          role="group"
+          aria-label="חלונות משמרת"
+        >
+          {shiftModels.map((model) => {
+            const active = model.id === currentCtx.shiftType
+            return (
+              <button
+                key={model.id}
+                type="button"
+                aria-pressed={active}
+                className={`inline-flex min-h-9 flex-col items-start justify-center rounded-full border px-3 py-1.5 text-start transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                  active
+                    ? 'border-brand/35 bg-brand/10 text-brand shadow-sm'
+                    : 'border-line/80 bg-surface/60 text-ink-soft hover:border-brand/25 hover:bg-card hover:text-ink'
+                }`}
+              >
+                <span className="text-[12px] font-semibold leading-none sm:text-[13px]">
+                  {model.name}
+                </span>
+                <span className="mt-0.5 text-[11px] leading-none opacity-90">
+                  <Ltr>
+                    {formatShiftModelWindow(model).replace(' עד ', '–')}
+                  </Ltr>
+                </span>
+              </button>
+            )
+          })}
+        </div>
 
         {shiftHealth && (
           <div className="mb-3 no-print">
@@ -815,9 +834,14 @@ export function HomePage() {
           />
         ) : (
           <>
-            <div className="overflow-hidden rounded-2xl border border-line shadow-sm">
+            <div className="max-w-3xl overflow-hidden rounded-2xl border border-line shadow-sm">
               <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-right text-[13px]">
+                <table className="w-full table-fixed border-collapse text-start text-[13px]">
+                  <colgroup>
+                    <col className="w-[32%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[46%]" />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-line bg-brand/[0.045]">
                       <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
@@ -827,44 +851,66 @@ export function HomePage() {
                         עצימות
                       </th>
                       <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                        תקן
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                         בודקים
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-line/60">
-                    {currentTableRows.map((row) => (
-                      <tr
-                        key={row.laneId}
-                        className="bg-card transition-colors hover:bg-brand/[0.025]"
-                      >
-                        <td className="px-3 py-2.5 font-semibold text-ink">
-                          {row.laneName}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <IntensityBadge intensity={row.intensity} />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <StaffingBadge
-                            assigned={row.assigned}
-                            standard={row.staffingStandard}
-                          />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {row.workers.length === 0 ? (
-                            <span className="text-ink-soft">—</span>
-                          ) : (
-                            <div className="flex flex-wrap gap-1.5">
-                              {row.workers.map((name) => (
-                                <PersonChip key={name} name={name} />
-                              ))}
+                  <tbody>
+                    {currentTableRows.map((row, index) => {
+                      const missing = Math.max(
+                        0,
+                        row.staffingStandard - row.assigned,
+                      )
+                      const staffingOff =
+                        row.assigned !== row.staffingStandard
+                      return (
+                        <tr
+                          key={row.laneId}
+                          className={`h-12 border-b border-line/50 transition-colors last:border-b-0 hover:bg-brand/[0.04] ${
+                            index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
+                          }`}
+                        >
+                          <td className="px-3 py-2 align-middle font-semibold text-ink">
+                            {row.laneName}
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <IntensityBadge intensity={row.intensity} />
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {row.workers.length === 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={primaryEdit}
+                                  className="inline-flex items-center rounded-full border border-dashed border-line bg-surface/80 px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/[0.06] hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
+                                  aria-label={`שיבוץ לנתיב ${row.laneName}`}
+                                >
+                                  לא משובץ
+                                </button>
+                              ) : (
+                                row.workers.map((name) => (
+                                  <PersonChip key={name} name={name} />
+                                ))
+                              )}
+                              {staffingOff ? (
+                                <span
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ring-1 sm:text-[11px] ${
+                                    missing > 0
+                                      ? 'bg-hard-soft text-hard ring-hard/20'
+                                      : 'bg-warn-soft text-warn ring-warn/20'
+                                  }`}
+                                  title={`תקן ${row.staffingStandard}`}
+                                >
+                                  {missing > 0
+                                    ? `חסר ${missing}`
+                                    : `${row.assigned}/${row.staffingStandard}`}
+                                </span>
+                              ) : null}
                             </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -918,63 +964,18 @@ export function HomePage() {
         </SectionCard>
       ) : null}
 
-      {/* Metrics + quick links */}
+      {/* Metrics + quick links — RTL order: first card is rightmost */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 no-print">
         <button
           type="button"
-          onClick={() => setView('workers')}
-          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-brand/[0.035] via-card to-card p-4 text-right shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="brand">
-            <Users className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-[13px] font-medium text-ink-soft">בודקים פעילים</p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {activeWorkers}
-          </p>
-          {activeWorkers !== data.workers.length && (
-            <p className="mt-1 text-[13px] text-ink-soft">
-              מתוך <Ltr>{String(data.workers.length)}</Ltr>
-            </p>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setView('lanes')}
-          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-mid/[0.045] via-card to-card p-4 text-right shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="mid">
-            <LayoutGrid className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-[13px] font-medium text-ink-soft">נתיבים מוגדרים</p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {data.lanes.length}
-          </p>
-        </button>
-
-        <div className="rounded-2xl border border-line/80 bg-gradient-to-bl from-warn/[0.045] via-card to-card p-4 shadow-[var(--shadow-panel)] sm:p-5">
-          <MetricIconBadge tone="warn">
-            <AlertTriangle className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-[13px] font-medium text-ink-soft">
-            חזרות קצרות לעמדה
-          </p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {shortReturns}
-          </p>
-          <p className="mt-1 text-[13px] text-ink-soft">ב־יומיים האחרונים</p>
-        </div>
-
-        <div
-          className="group relative rounded-2xl border border-line/80 bg-gradient-to-bl from-accent/[0.045] via-card to-card p-4 shadow-[var(--shadow-panel)] outline-none transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] sm:p-5"
-          tabIndex={0}
+          onClick={() => setView('analytics')}
           aria-describedby="hard-gap-tooltip"
+          className="group relative rounded-2xl border border-line/80 bg-gradient-to-bl from-accent/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] outline-none transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
         >
           <MetricIconBadge tone="accent">
             <BarChart3 className="size-[18px]" aria-hidden />
           </MetricIconBadge>
-          <p className="mt-3 text-[13px] font-medium text-ink-soft">פער עמדות קשות</p>
+          <p className="mt-3 text-sm font-semibold text-ink">פער עמדות קשות</p>
           <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
             {formatShiftShare(hardGapInfo.gap)}
           </p>
@@ -1006,7 +1007,55 @@ export function HomePage() {
               </ul>
             )}
           </div>
-        </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setView('tracking')}
+          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-warn/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
+        >
+          <MetricIconBadge tone="warn">
+            <AlertTriangle className="size-[18px]" aria-hidden />
+          </MetricIconBadge>
+          <p className="mt-3 text-sm font-semibold text-ink">
+            חזרות קצרות לעמדה
+          </p>
+          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
+            {shortReturns}
+          </p>
+          <p className="mt-1 text-[13px] text-ink-soft">ב־יומיים האחרונים</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setView('workers')}
+          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-brand/[0.035] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
+        >
+          <MetricIconBadge tone="brand">
+            <Users className="size-[18px]" aria-hidden />
+          </MetricIconBadge>
+          <p className="mt-3 text-sm font-semibold text-ink">בודקים פעילים</p>
+          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
+            {activeWorkers}
+          </p>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            מתוך <Ltr>{String(data.workers.length)}</Ltr>
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setView('lanes')}
+          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-mid/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
+        >
+          <MetricIconBadge tone="mid">
+            <LayoutGrid className="size-[18px]" aria-hidden />
+          </MetricIconBadge>
+          <p className="mt-3 text-sm font-semibold text-ink">נתיבים מוגדרים</p>
+          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
+            {data.lanes.length}
+          </p>
+        </button>
       </section>
 
       <div className="flex flex-wrap gap-2 no-print">

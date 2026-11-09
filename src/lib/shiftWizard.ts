@@ -157,8 +157,14 @@ export function lanesStepSummary(
 export function attendanceStepSummary(
   present: number,
   activeInspectors: number,
+  headcountStandard?: number,
 ): string {
-  return `${present} מתוך ${activeInspectors} נוכחים`
+  const base = `${present} מתוך ${activeInspectors} נוכחים`
+  if (headcountStandard == null || headcountStandard < 1) return base
+  const missing = Math.max(0, headcountStandard - Math.max(0, present))
+  return missing > 0
+    ? `${base} · תקן ${headcountStandard} · חסרים ${missing}`
+    : `${base} · תקן ${headcountStandard}`
 }
 
 export function mostRecentShiftOfType(

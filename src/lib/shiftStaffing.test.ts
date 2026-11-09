@@ -3,8 +3,11 @@ import type { Lane, StaffingStandard } from '../types'
 import {
   clampStaffingStandard,
   effectiveStaffingStandard,
+  headcountDeficit,
   lanesWithStaffingOverrides,
   MAX_LANE_STAFFING,
+  MAX_SHIFT_HEADCOUNT,
+  normalizeHeadcountStandard,
   normalizeStaffingOverrides,
   staffingChoicesForLane,
 } from './shiftStaffing'
@@ -66,5 +69,22 @@ describe('shiftStaffing', () => {
     expect(staffingChoicesForLane(lane('a', 1))).toEqual([1])
     expect(staffingChoicesForLane(lane('b', 2))).toEqual([1, 2])
     expect(staffingChoicesForLane(lane('c', 5))).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('normalizes whole-shift headcount; empty clears tracking', () => {
+    expect(normalizeHeadcountStandard(undefined)).toBeUndefined()
+    expect(normalizeHeadcountStandard('')).toBeUndefined()
+    expect(normalizeHeadcountStandard(0)).toBeUndefined()
+    expect(normalizeHeadcountStandard(-2)).toBeUndefined()
+    expect(normalizeHeadcountStandard(12)).toBe(12)
+    expect(normalizeHeadcountStandard('8')).toBe(8)
+    expect(normalizeHeadcountStandard(200)).toBe(MAX_SHIFT_HEADCOUNT)
+  })
+
+  it('computes headcount deficit vs present', () => {
+    expect(headcountDeficit(10, undefined)).toBe(0)
+    expect(headcountDeficit(10, 8)).toBe(0)
+    expect(headcountDeficit(7, 10)).toBe(3)
+    expect(headcountDeficit(0, 5)).toBe(5)
   })
 })

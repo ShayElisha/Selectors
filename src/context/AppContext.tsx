@@ -83,6 +83,7 @@ import {
   DEFAULT_SHIFT_STAFFING,
   effectiveStaffingStandard,
   laneMaxStaffing,
+  normalizeHeadcountStandard,
   normalizeStaffingOverrides,
   type StaffingOverrides,
 } from '../lib/shiftStaffing'
@@ -355,6 +356,8 @@ export interface ShiftDraft {
   staggerRounds: boolean
   /** Per-shift תקן (1…5); falls back to lane catalog when absent */
   staffingOverrides: StaffingOverrides
+  /** Whole-shift headcount target (not per lane). */
+  headcountStandard?: number
   /** Set after a formal close. The board is read-only. */
   signOff?: ShiftSignOff
   frozenLaneIds?: string[]
@@ -429,7 +432,9 @@ interface AppContextValue {
   startShift: (audience?: ShiftAudience) => void
   /** Discard in-progress shift draft and return home */
   discardDraft: () => void
-  updateDraftMeta: (patch: Partial<Pick<ShiftDraft, 'date' | 'shiftType'>>) => void
+  updateDraftMeta: (
+    patch: Partial<Pick<ShiftDraft, 'date' | 'shiftType' | 'headcountStandard'>>,
+  ) => void
   toggleLane: (laneId: string) => void
   /** Replace active lane set (and optional per-shift תקן) without touching attendance. */
   applyLaneSelection: (
@@ -698,6 +703,7 @@ function restoreDraft(): ShiftDraft | null {
       signOff: normalizeSignOff(parsed.signOff),
       explanations: Array.isArray(parsed.explanations) ? parsed.explanations : [],
       staffingOverrides: normalizeStaffingOverrides(parsed.staffingOverrides),
+      headcountStandard: normalizeHeadcountStandard(parsed.headcountStandard),
       gateManagerWorkerId: parsed.gateManagerWorkerId?.trim() || undefined,
     }
   } catch {
@@ -736,6 +742,7 @@ function snapshotDraft(d: ShiftDraft): string {
     unassignedWorkerIds: d.unassignedWorkerIds,
     explanations: d.explanations ?? [],
     staffingOverrides: d.staffingOverrides ?? {},
+    headcountStandard: d.headcountStandard ?? null,
   })
 }
 
@@ -1494,6 +1501,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           unassignedWorkerIds: [],
           explanations: Array.isArray(item.explanations) ? item.explanations : [],
           staffingOverrides: normalizeStaffingOverrides(item.staffingOverrides),
+          headcountStandard: normalizeHeadcountStandard(item.headcountStandard),
         },
         data.lanes,
       ),
@@ -1514,6 +1522,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const toSchedule = useCallback((d: ShiftDraft): ShiftSchedule => {
     const now = new Date().toISOString()
     const overrides = normalizeStaffingOverrides(d.staffingOverrides)
+    const headcountStandard = normalizeHeadcountStandard(d.headcountStandard)
     const gateManagerWorkerId = d.gateManagerWorkerId?.trim() || undefined
     return {
       id: d.id,
@@ -1542,6 +1551,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(Object.keys(overrides).length > 0
         ? { staffingOverrides: overrides }
         : {}),
+      ...(headcountStandard != null ? { headcountStandard } : {}),
       explanations: (d.explanations ?? [])
         .filter(
           (item) =>
@@ -1602,6 +1612,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       explanations: [],
       quality: undefined,
       staffingOverrides: {},
+      headcountStandard: undefined,
     })
     setShiftStep('lanes')
     setView('shift')
@@ -1617,16 +1628,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setShiftStep, setView])
 
   const updateDraftMeta = useCallback(
-    (patch: Partial<Pick<ShiftDraft, 'date' | 'shiftType'>>) => {
+    (
+      patch: Partial<
+        Pick<ShiftDraft, 'date' | 'shiftType' | 'headcountStandard'>
+      >,
+    ) => {
       setDraft((d) => {
         if (!d) return d
+        const nextPatch = { ...patch }
+        if ('headcountStandard' in nextPatch) {
+          nextPatch.headcountStandard = normalizeHeadcountStandard(
+            nextPatch.headcountStandard,
+          )
+        }
         const typeChanged =
-          patch.shiftType != null && patch.shiftType !== d.shiftType
-        const dateChanged = patch.date != null && patch.date !== d.date
-        if (!typeChanged && !dateChanged) return { ...d, ...patch }
+          nextPatch.shiftType != null && nextPatch.shiftType !== d.shiftType
+        const dateChanged =
+          nextPatch.date != null && nextPatch.date !== d.date
+        if (!typeChanged && !dateChanged) return { ...d, ...nextPatch }
         return {
           ...d,
-          ...patch,
+          ...nextPatch,
           id: uuid(),
           signOff: undefined,
           assignments: [],

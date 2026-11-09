@@ -307,6 +307,12 @@ export function shiftCountsLabel(shift: ShiftSchedule): string {
       many: 'נוכחים',
     }),
   ]
+  const headcount = shift.headcountStandard
+  if (headcount != null && headcount >= 1) {
+    parts.push(`תקן ${headcount}`)
+    const missing = Math.max(0, headcount - present)
+    if (missing > 0) parts.push(`חסרים ${missing}`)
+  }
   if (usesRounds(shift)) {
     const rounds = shift.rounds?.length ?? 0
     const who =

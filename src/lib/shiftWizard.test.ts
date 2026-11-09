@@ -155,6 +155,12 @@ describe('gating and summaries', () => {
     expect(canAdvanceFromLanes(2).ok).toBe(true)
     expect(lanesStepSummary(2, 5)).toContain('תקן 5')
     expect(attendanceStepSummary(3, 10)).toBe('3 מתוך 10 נוכחים')
+    expect(attendanceStepSummary(3, 10, 12)).toBe(
+      '3 מתוך 10 נוכחים · תקן 12 · חסרים 9',
+    )
+    expect(attendanceStepSummary(12, 15, 12)).toBe(
+      '12 מתוך 15 נוכחים · תקן 12',
+    )
   })
 })
 
