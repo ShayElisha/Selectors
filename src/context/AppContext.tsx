@@ -296,15 +296,17 @@ function normalizeWorkerRoles(w: Worker, fallbackKind: StaffKind): Worker {
   const staffKind = isStaffKind(w.staffKind) ? w.staffKind : fallbackKind
   const isOrgManager = Boolean(w.isOrgManager)
   const trainingRole = normalizeTrainingRole(w.trainingRole)
-  return {
+  const next: Worker = {
     ...w,
     certifications: uniqueLabels(w.certifications),
     isManager: isManager || isOrgManager,
     isInspector,
     staffKind,
     isOrgManager,
-    ...(trainingRole ? { trainingRole } : {}),
   }
+  if (trainingRole) next.trainingRole = trainingRole
+  else delete next.trainingRole
+  return next
 }
 
 function activeModule(user: SessionUser | null | undefined): AppModule {
@@ -3544,28 +3546,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addWorker = useCallback(
     (w: Omit<Worker, 'id'>) => {
-      patchData((prev) => ({
-        ...prev,
-        workers: [
-          ...prev.workers,
+      patchData((prev) => {
+        const module = activeModule(userRef.current)
+        const created = normalizeWorkerRoles(
           {
             ...w,
             id: uuid(),
             isManager: Boolean(w.isManager),
             isInspector: Boolean(w.isInspector) || !w.isManager,
           },
-        ],
-      }))
+          staffKindForModule(module),
+        )
+        return {
+          ...prev,
+          workers: [...prev.workers, created],
+        }
+      })
     },
     [patchData],
   )
 
   const updateWorker = useCallback(
     (w: Worker) => {
-      patchData((prev) => ({
-        ...prev,
-        workers: prev.workers.map((x) => (x.id === w.id ? w : x)),
-      }))
+      patchData((prev) => {
+        const module = activeModule(userRef.current)
+        const next = normalizeWorkerRoles(w, staffKindForModule(module))
+        return {
+          ...prev,
+          workers: prev.workers.map((x) => (x.id === next.id ? next : x)),
+        }
+      })
     },
     [patchData],
   )

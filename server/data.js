@@ -107,6 +107,8 @@ function normalizeWorker(w, fallbackKind = "selector") {
   };
   if (w.trainingRole === "trainee" || w.trainingRole === "mentor") {
     worker.trainingRole = w.trainingRole;
+  } else {
+    delete worker.trainingRole;
   }
   if (typeof w.passwordHash === "string" && w.passwordHash) {
     worker.passwordHash = w.passwordHash;
