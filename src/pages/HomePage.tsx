@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -18,6 +18,11 @@ import {
   Wrench,
   Map as MapIcon,
 } from 'lucide-react'
+import {
+  BoardKiosk,
+  BoardKioskEnterButton,
+  type BoardKioskHandle,
+} from '../components/BoardKiosk'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import { useApp } from '../context/AppContext'
 import {
@@ -146,6 +151,8 @@ export function HomePage() {
   /** Reserved for when health is persisted on ShiftSchedule — not filled today. */
   const [shiftHealth] = useState<ShiftHealthSnapshot | null>(null)
   const [healthOpen, setHealthOpen] = useState(false)
+  const boardKioskRef = useRef<BoardKioskHandle>(null)
+  const selectorKioskRef = useRef<BoardKioskHandle>(null)
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000)
@@ -762,9 +769,16 @@ export function HomePage() {
             <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
           </>
         }
+        actions={
+          currentShift ? (
+            <BoardKioskEnterButton
+              onClick={() => void boardKioskRef.current?.enter()}
+            />
+          ) : null
+        }
       >
         <div
-          className="mb-3 flex flex-wrap gap-1.5"
+          className="mb-3 flex flex-wrap gap-1.5 no-kiosk"
           role="group"
           aria-label="חלונות משמרת"
         >
@@ -861,7 +875,20 @@ export function HomePage() {
             אין שיבוץ בודקים למשמרת הזו. שיבוץ הסלקטורים מופיע מתחת.
           </p>
         ) : (
-          <>
+          <BoardKiosk
+            ref={boardKioskRef}
+            title={`משמרת נוכחית · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
+            subtitle={
+              <>
+                <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
+                {' · '}
+                <ShiftWindowLabel
+                  shiftType={currentCtx.shiftType}
+                  inspectors={inspectorModule}
+                />
+              </>
+            }
+          >
             {usesRounds(currentShift) ? (
               <SelectorRoundTable
                 layout={module === 'selectors' ? 'table' : 'cards'}
@@ -1009,7 +1036,7 @@ export function HomePage() {
                 </span>
               </div>
             ) : null}
-          </>
+          </BoardKiosk>
         )}
       </SectionCard>
 
@@ -1022,29 +1049,44 @@ export function HomePage() {
             </>
           }
           actions={
-            <button
-              type="button"
-              onClick={() => loadShiftFromHistory(selectorShift.id)}
-              className="ui-btn ui-btn-secondary no-print"
-            >
-              {selectorShift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
-            </button>
+            <>
+              <BoardKioskEnterButton
+                onClick={() => void selectorKioskRef.current?.enter()}
+              />
+              <button
+                type="button"
+                onClick={() => loadShiftFromHistory(selectorShift.id)}
+                className="ui-btn ui-btn-secondary no-print"
+              >
+                {selectorShift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
+              </button>
+            </>
           }
         >
-          <SelectorRoundTable
-            layout="table"
-            rounds={selectorShift.rounds ?? []}
-            lanes={selectorLanes(data.lanes, selectorShift.activeLaneIds)}
-            workers={data.workers}
-            overrides={selectorShift.staffingOverrides}
-            ramashName={
-              selectorShift.gateManagerWorkerId
-                ? data.workers.find(
-                    (w) => w.id === selectorShift.gateManagerWorkerId,
-                  )?.fullName ?? ''
-                : ''
+          <BoardKiosk
+            ref={selectorKioskRef}
+            title={`${MODULE_LABELS.selectors} · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
+            subtitle={
+              <>
+                סבבים של שעתיים · <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
+              </>
             }
-          />
+          >
+            <SelectorRoundTable
+              layout="table"
+              rounds={selectorShift.rounds ?? []}
+              lanes={selectorLanes(data.lanes, selectorShift.activeLaneIds)}
+              workers={data.workers}
+              overrides={selectorShift.staffingOverrides}
+              ramashName={
+                selectorShift.gateManagerWorkerId
+                  ? data.workers.find(
+                      (w) => w.id === selectorShift.gateManagerWorkerId,
+                    )?.fullName ?? ''
+                  : ''
+              }
+            />
+          </BoardKiosk>
         </SectionCard>
       ) : null}
 

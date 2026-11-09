@@ -1047,6 +1047,69 @@ summary:focus-visible {
   }
 }
 
+/* Fullscreen gate board / TV kiosk (HomePage BoardKiosk) */
+.board-kiosk__chrome {
+  display: none;
+}
+
+.board-kiosk:fullscreen,
+.board-kiosk:-webkit-full-screen {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  overflow: auto;
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgb(47 91 255 / 0.08), transparent 55%),
+    var(--color-bg);
+}
+
+.board-kiosk:fullscreen .board-kiosk__chrome,
+.board-kiosk:-webkit-full-screen .board-kiosk__chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.board-kiosk:fullscreen .board-kiosk__body,
+.board-kiosk:-webkit-full-screen .board-kiosk__body {
+  min-height: 0;
+}
+
+.board-kiosk:fullscreen .no-kiosk,
+.board-kiosk:-webkit-full-screen .no-kiosk {
+  display: none !important;
+}
+
+.board-kiosk:fullscreen button:not(.board-kiosk__exit),
+.board-kiosk:-webkit-full-screen button:not(.board-kiosk__exit) {
+  pointer-events: none;
+}
+
+.board-kiosk:fullscreen table,
+.board-kiosk:-webkit-full-screen table {
+  font-size: clamp(1rem, 1.6vw, 1.35rem);
+}
+
+.board-kiosk:fullscreen th,
+.board-kiosk:-webkit-full-screen th {
+  font-size: clamp(0.85rem, 1.2vw, 1.05rem);
+  padding-block: 0.85rem;
+}
+
+.board-kiosk:fullscreen td,
+.board-kiosk:-webkit-full-screen td {
+  padding-block: 0.85rem;
+}
+
+.board-kiosk:fullscreen .board-kiosk__body > .max-w-3xl,
+.board-kiosk:-webkit-full-screen .board-kiosk__body > .max-w-3xl {
+  max-width: none;
+}
+
 @media print {
   body {
     background: #fff !important;
