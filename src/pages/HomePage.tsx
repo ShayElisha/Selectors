@@ -836,7 +836,7 @@ export function HomePage() {
           <>
             <div className="max-w-3xl overflow-hidden rounded-2xl border border-line shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full table-fixed border-collapse text-start text-[13px]">
+                <table className="w-full table-fixed border-collapse text-center text-[13px]">
                   <colgroup>
                     <col className="w-[32%]" />
                     <col className="w-[22%]" />
@@ -844,13 +844,13 @@ export function HomePage() {
                   </colgroup>
                   <thead>
                     <tr className="border-b border-line bg-brand/[0.045]">
-                      <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                         נתיב
                       </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                         עצימות
                       </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                         בודקים
                       </th>
                     </tr>
@@ -870,14 +870,16 @@ export function HomePage() {
                             index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
                           }`}
                         >
-                          <td className="px-3 py-2 align-middle font-semibold text-ink">
+                          <td className="px-3 py-2 align-middle text-center font-semibold text-ink">
                             {row.laneName}
                           </td>
-                          <td className="px-3 py-2 align-middle">
-                            <IntensityBadge intensity={row.intensity} />
+                          <td className="px-3 py-2 align-middle text-center">
+                            <div className="flex justify-center">
+                              <IntensityBadge intensity={row.intensity} />
+                            </div>
                           </td>
-                          <td className="px-3 py-2 align-middle">
-                            <div className="flex flex-wrap items-center gap-1.5">
+                          <td className="px-3 py-2 align-middle text-center">
+                            <div className="flex flex-wrap items-center justify-center gap-1.5">
                               {row.workers.length === 0 ? (
                                 <button
                                   type="button"
