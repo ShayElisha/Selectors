@@ -6,10 +6,23 @@ export class ApiError extends Error {
   current?: AppData
 
   constructor(message: string, status: number, current?: AppData) {
-    super(message)
+    super(sanitizeApiMessage(message))
     this.status = status
     this.current = current
   }
+}
+
+/** Hide OpenSSL / TLS dumps that sometimes surface from Atlas (esp. מאבטחים). */
+function sanitizeApiMessage(message: string): string {
+  const raw = String(message || '')
+  if (
+    /tlsv1 alert internal error|SSL alert number 80|EPROTO|ssl3_read_bytes|SSL routines|C[0-9A-F]+:error:/i.test(
+      raw,
+    )
+  ) {
+    return 'חיבור מאובטח לשרת נכשל זמנית. נסו שוב בעוד רגע.'
+  }
+  return raw
 }
 
 function authHeaders(): HeadersInit {

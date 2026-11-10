@@ -139,6 +139,19 @@ app.use((req, res, next) => {
   express.json({ limit: '5mb' })(req, res, next)
 })
 
+function publicErrorMessage(err) {
+  const raw = String(err?.message || '')
+  // Never leak OpenSSL / TLS handshake dumps (common on מאבטחים Atlas URI).
+  if (
+    /tlsv1 alert internal error|SSL alert number 80|EPROTO|ssl3_read_bytes|SSL routines|C[0-9A-F]+:error:/i.test(
+      raw,
+    )
+  ) {
+    return 'חיבור מאובטח לשרת נכשל זמנית. נסו שוב בעוד רגע.'
+  }
+  return raw || 'שגיאת שרת'
+}
+
 function sendError(res, err) {
   const status = err.status || 500
   if (status >= 500) {
@@ -147,7 +160,7 @@ function sendError(res, err) {
       console.error('[system-errors] failed to persist server error', logError?.message || logError)
     })
   }
-  const body = { error: err.message || 'שגיאת שרת' }
+  const body = { error: publicErrorMessage(err) }
   if (err.current) body.current = err.current
   if (err.retryAfterSec) body.retryAfterSec = err.retryAfterSec
   if (err.code) body.code = err.code
