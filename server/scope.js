@@ -50,12 +50,21 @@ export async function scopeForRequest(req) {
     throw err
   }
   const modules = publicModules(org.modules)
+  // Org managers may open any enabled module; shift managers stay on their own modules.
+  const actorModules = actor.isOrgManager
+    ? modules
+    : publicModules(actor.modules)
   let module = requestedModule(req)
   if (!module) {
-    module = defaultModule(modules)
+    module = defaultModule(actorModules) || defaultModule(modules)
   }
   if (!module || !modules[module]) {
     const err = new Error('המודול הזה לא פתוח לארגון')
+    err.status = 403
+    throw err
+  }
+  if (!actorModules[module]) {
+    const err = new Error('רק מנהל ארגון יכול לעבור בין מודולים')
     err.status = 403
     throw err
   }

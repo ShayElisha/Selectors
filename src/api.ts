@@ -1,5 +1,10 @@
 import type { AppData, ShiftHandoffNote, ShiftSchedule, ShiftVersionSummary, Worker } from './types'
-import { clearSession, loadAppDataCache, loadSession, type SessionUser } from './auth'
+import {
+  clearClientAuthStorage,
+  loadAppDataCache,
+  loadSession,
+  type SessionUser,
+} from './auth'
 
 export class ApiError extends Error {
   status: number
@@ -62,7 +67,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       /* ignore */
     }
     if (res.status === 401) {
-      clearSession()
+      clearClientAuthStorage()
     }
     throw new ApiError(message, res.status, current)
   }

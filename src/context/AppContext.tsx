@@ -73,8 +73,8 @@ import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
 import {
   clearAppDataCache,
+  clearClientAuthStorage,
   clearDraftStorage,
-  clearSession,
   loadAppDataCache,
   loadDraftJson,
   audienceForModule,
@@ -968,13 +968,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [location.pathname, draft])
 
   const handleAuthFailure = useCallback(() => {
-    clearSession()
-    clearAppDataCache()
+    clearClientAuthStorage()
     setUser(null)
     draftBaselineRef.current = null
     setDraftDirty(false)
     setDraft(null)
-    clearDraftStorage()
     setData(emptyData)
     dataRef.current = emptyData
     persistedDataRef.current = emptyData
@@ -1254,7 +1252,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const requestPasswordReset = useCallback(async (phone: string) => {
     const result = await requestPasswordResetRemote(phone)
-    return result.message || 'אם המספר רשום, נשלח מייל עם סיסמה זמנית.'
+    return result.message || 'אם המספר רשום במערכת, נשלח קוד איפוס למייל המשויך.'
   }, [])
 
   const resendManagerTempPassword = useCallback(async (workerId: string) => {
@@ -1272,9 +1270,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    clearAppDataCache()
-    clearSession()
-    clearDraftStorage()
+    clearClientAuthStorage()
     setUser(null)
     setAssignmentModes(DEFAULT_ASSIGNMENT_MODES)
     draftBaselineRef.current = null

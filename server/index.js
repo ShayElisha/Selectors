@@ -75,7 +75,9 @@ import {
 } from './workerNotices.js'
 import { assertRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
-import { createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
+import { assertSessionSecretConfigured, createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
+
+assertSessionSecretConfigured()
 import { createLoginChallenge, verifyLoginChallenge } from './loginChallenge.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 import { listSystemMessages, createSystemMessage } from './messages.js'
@@ -253,19 +255,17 @@ app.get('/api/health', async (_req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const phone = String(req.body?.phone || '')
+    // Rate-limit by client IP (+ phone) so one attacker cannot lock out a victim phone globally.
     await assertRateLimit({
       key: `login:${clientKey(req)}:${phone.replace(/\D/g, '') || 'empty'}`,
       limit: 10,
       windowMs: 15 * 60_000,
     })
-    const phoneKey = phone.replace(/\D/g, '')
-    if (phoneKey) {
-      await assertRateLimit({
-        key: `login-phone:${phoneKey}`,
-        limit: 10,
-        windowMs: 15 * 60_000,
-      })
-    }
+    await assertRateLimit({
+      key: `login-ip:${clientKey(req)}`,
+      limit: 40,
+      windowMs: 15 * 60_000,
+    })
     const result = await loginByPhone(phone, {
       password: req.body?.password,
       passwordConfirm: req.body?.passwordConfirm,
@@ -690,14 +690,12 @@ app.post('/api/password-reset', async (req, res) => {
       limit: 5,
       windowMs: 15 * 60_000,
     })
-    const phoneKey = phone.replace(/\D/g, '')
-    if (phoneKey) {
-      await assertRateLimit({
-        key: `reset-phone:${phoneKey}`,
-        limit: 5,
-        windowMs: 15 * 60_000,
-      })
-    }
+    // Cap email-bombing a single mailbox, but keep the budget per phone generous vs login lockouts.
+    await assertRateLimit({
+      key: `reset-ip:${clientKey(req)}`,
+      limit: 20,
+      windowMs: 15 * 60_000,
+    })
     res.json(await requestPasswordReset(phone))
   } catch (err) {
     sendError(res, err)

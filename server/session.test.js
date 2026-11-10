@@ -20,14 +20,17 @@ function signedToken(payload) {
 
 describe('email-verified session tokens', () => {
   beforeEach(() => {
-    vi.stubEnv('SESSION_SECRET', 'session-test-secret-long-enough')
+    vi.stubEnv('SESSION_SECRET', 'session-test-secret-long-enough-32c')
+    vi.stubEnv('NODE_ENV', 'test')
+    vi.stubEnv('VERCEL', '')
+    vi.stubEnv('VERCEL_URL', '')
   })
 
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it('marks newly issued sessions as email-verified', () => {
+  it('marks newly issued sessions as email-verified and embeds tokenVersion', () => {
     const token = createSessionToken({
       id: 'manager-1',
       fullName: 'Manager',
@@ -36,12 +39,14 @@ describe('email-verified session tokens', () => {
       orgId: 'org-1',
       modules: { selectors: true },
       module: 'selectors',
+      tokenVersion: 3,
     })
 
     expect(verifySessionToken(token)).toMatchObject({
       id: 'manager-1',
       role: 'org_manager',
       orgId: 'org-1',
+      tokenVersion: 3,
     })
   })
 
@@ -57,5 +62,13 @@ describe('email-verified session tokens', () => {
     })
 
     expect(verifySessionToken(token)).toBeNull()
+  })
+
+  it('rejects placeholder SESSION_SECRET in production', async () => {
+    vi.resetModules()
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('SESSION_SECRET', 'change-me-to-a-long-random-secret')
+    const { assertSessionSecretConfigured } = await import('./session.js')
+    expect(() => assertSessionSecretConfigured()).toThrow(/SESSION_SECRET/)
   })
 })

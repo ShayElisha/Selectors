@@ -200,7 +200,11 @@ export function saveSession(user: SessionUser): void {
 }
 
 export function clearSession(): void {
-  localStorage.removeItem(SESSION_KEY)
+  try {
+    localStorage.removeItem(SESSION_KEY)
+  } catch {
+    /* private mode */
+  }
 }
 
 export function sessionFromWorker(w: Worker, token: string): SessionUser {
@@ -293,7 +297,43 @@ export function saveAppDataCache(data: AppData): void {
   }
 }
 
+/** Remove every module snapshot for the signed-in org (or all orgs if unknown). */
 export function clearAppDataCache(): void {
-  const key = cacheKey(loadSession())
-  if (key) localStorage.removeItem(key)
+  try {
+    const session = loadSession()
+    const prefix = session?.orgId
+      ? `shibutzon-app-data-v2:${session.orgId}:`
+      : 'shibutzon-app-data-v2:'
+    const toRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(prefix)) toRemove.push(key)
+    }
+    for (const key of toRemove) localStorage.removeItem(key)
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Full client wipe used on logout / 401 — session, drafts, and cached app data. */
+export function clearClientAuthStorage(): void {
+  clearAppDataCache()
+  clearDraftStorage()
+  clearSession()
+  try {
+    const doomed: string[] = []
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)
+      if (
+        key &&
+        (key.startsWith('getin.worker.home.') ||
+          key.startsWith('getin.worker.history.'))
+      ) {
+        doomed.push(key)
+      }
+    }
+    for (const key of doomed) sessionStorage.removeItem(key)
+  } catch {
+    /* private mode */
+  }
 }

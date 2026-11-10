@@ -1,16 +1,56 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const MIN_SECRET_LENGTH = 32
+
+const PLACEHOLDER_SECRETS = new Set([
+  'change-me-to-a-long-random-secret',
+  'change-me-to-a-different-long-random-secret',
+  'session-test-secret',
+])
 
 let ephemeralSecret = null
 
+function isProductionRuntime() {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.VERCEL || process.env.VERCEL_URL)
+  )
+}
+
+function isPlaceholderSecret(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (!normalized) return true
+  if (PLACEHOLDER_SECRETS.has(normalized)) return true
+  return /^change-me\b/i.test(normalized)
+}
+
+/**
+ * Fail closed in production when SESSION_SECRET is missing/weak/placeholder.
+ * Dev/test may use an ephemeral secret so local work still boots.
+ */
+export function assertSessionSecretConfigured() {
+  const fromEnv = process.env.SESSION_SECRET?.trim() || ''
+  if (fromEnv.length >= MIN_SECRET_LENGTH && !isPlaceholderSecret(fromEnv)) {
+    return fromEnv
+  }
+  if (isProductionRuntime()) {
+    throw new Error(
+      `SESSION_SECRET must be a random string of at least ${MIN_SECRET_LENGTH} characters (placeholders are rejected)`,
+    )
+  }
+  return null
+}
+
 function getSecret() {
-  const fromEnv = process.env.SESSION_SECRET?.trim()
-  if (fromEnv && fromEnv.length >= 16) return fromEnv
+  const configured = assertSessionSecretConfigured()
+  if (configured) return configured
   if (!ephemeralSecret) {
     ephemeralSecret = randomBytes(32).toString('hex')
     console.warn(
-      '[auth] SESSION_SECRET missing or too short — using ephemeral secret (sessions reset on restart). Set SESSION_SECRET in .env for production.',
+      '[auth] SESSION_SECRET missing or too short — using ephemeral secret (sessions reset on restart). Set SESSION_SECRET (32+ chars) in .env.',
     )
   }
   return ephemeralSecret
@@ -40,6 +80,7 @@ function fromB64url(str) {
  *   orgName?: string | null,
  *   modules?: { selectors?: boolean, inspectors?: boolean, security?: boolean },
  *   module?: 'selectors' | 'inspectors' | 'security' | null,
+ *   tokenVersion?: number,
  * }} user
  * @returns {string}
  */
@@ -59,6 +100,7 @@ export function createSessionToken(user) {
     module: user.module || null,
     isOrgManager: Boolean(user.isOrgManager),
     staffKind: user.staffKind || null,
+    tokenVersion: Number(user.tokenVersion || 0),
     mfa: true,
     exp: Date.now() + SESSION_TTL_MS,
   }
@@ -69,16 +111,6 @@ export function createSessionToken(user) {
 
 /**
  * @param {string | null | undefined} token
- * @returns {{
- *   id: string,
- *   fullName: string,
- *   phone: string,
- *   role: 'super_admin' | 'org_manager' | 'worker',
- *   orgId: string | null,
- *   orgName: string | null,
- *   modules: { selectors: boolean, inspectors: boolean, security: boolean },
- *   module: 'selectors' | 'inspectors' | 'security' | null,
- * } | null}
  */
 export function verifySessionToken(token) {
   if (!token || typeof token !== 'string' || !token.includes('.')) return null
@@ -135,6 +167,7 @@ export function verifySessionToken(token) {
         payload.staffKind === 'security'
           ? payload.staffKind
           : null,
+      tokenVersion: Number(payload.tokenVersion || 0),
     }
   } catch {
     return null
@@ -153,16 +186,6 @@ export function getBearerToken(req) {
 
 /**
  * @param {import('http').IncomingMessage | { headers?: Record<string, string|string[]|undefined> }} req
- * @returns {{
- *   id: string,
- *   fullName: string,
- *   phone: string,
- *   role: 'super_admin' | 'org_manager' | 'worker',
- *   orgId: string | null,
- *   orgName: string | null,
- *   modules: { selectors: boolean, inspectors: boolean, security: boolean },
- *   module: 'selectors' | 'inspectors' | 'security' | null,
- * }}
  */
 export function requireUser(req) {
   const user = verifySessionToken(getBearerToken(req))

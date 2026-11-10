@@ -110,12 +110,7 @@ function normalizeWorker(w, fallbackKind = "selector") {
   } else {
     delete worker.trainingRole;
   }
-  if (typeof w.passwordHash === "string" && w.passwordHash) {
-    worker.passwordHash = w.passwordHash;
-  }
-  if ("mustChangePassword" in w) {
-    worker.mustChangePassword = Boolean(w.mustChangePassword);
-  }
+  // Never accept passwordHash / mustChangePassword from the client.
   return worker;
 }
 
@@ -436,39 +431,66 @@ function mergeWorkerSecrets(incomingWorkers, prevWorkers) {
   return incomingWorkers.map((w) => {
     const prev = prevById.get(w.id);
     const next = { ...w };
-    if (!next.passwordHash && prev?.passwordHash) {
-      next.passwordHash = prev.passwordHash;
-    }
-    if ("mustChangePassword" in w) {
-      if (w.mustChangePassword && (next.isManager || next.canLogin)) {
-        next.mustChangePassword = true;
-      } else {
-        delete next.mustChangePassword;
-      }
-    } else if (
-      prev?.mustChangePassword &&
-      (next.isManager || next.canLogin)
-    ) {
+    // Credentials are server-owned — strip any client-supplied values.
+    delete next.passwordHash;
+    delete next.mustChangePassword;
+    if (prev?.passwordHash) next.passwordHash = prev.passwordHash;
+    if (prev?.mustChangePassword && (next.isManager || next.canLogin)) {
       next.mustChangePassword = true;
     }
     if (!next.isManager && !next.canLogin) {
       delete next.mustChangePassword;
+      delete next.passwordHash;
     }
     return next;
   });
 }
 
-function assertOrgManagerEdits(nextWorkers, prevWorkers, actor) {
+/** Exported for unit tests. */
+export function assertOrgManagerEdits(nextWorkers, prevWorkers, actor) {
   if (actor?.isOrgManager || actor?.role === "super_admin") return;
   const prevById = new Map(
     (prevWorkers || []).map((worker) => [worker.id, worker]),
   );
+  const nextById = new Map(
+    (nextWorkers || []).map((worker) => [worker.id, worker]),
+  );
+
+  // Shift managers may edit fields (e.g. email) but must not remove org managers.
+  for (const prev of prevWorkers || []) {
+    if (!prev?.isOrgManager) continue;
+    if (!nextById.has(prev.id)) {
+      const err = new Error("רק מנהל ארגון יכול למחוק מנהל ארגון");
+      err.status = 403;
+      throw err;
+    }
+  }
+
   for (const worker of nextWorkers) {
     const prev = prevById.get(worker.id);
     if (Boolean(prev?.isOrgManager) !== Boolean(worker.isOrgManager)) {
       const err = new Error("רק מנהל ארגון יכול למנות או להסיר מנהל ארגון");
       err.status = 403;
       throw err;
+    }
+    const prevManager = Boolean(prev?.isManager || prev?.isOrgManager);
+    const nextManager = Boolean(worker.isManager || worker.isOrgManager);
+    if (prevManager !== nextManager) {
+      const err = new Error("רק מנהל ארגון יכול למנות או להסיר מנהל משמרת");
+      err.status = 403;
+      throw err;
+    }
+    if (prev?.isOrgManager) {
+      const prevStatus = prev.status || "active";
+      const nextStatus = worker.status || "active";
+      if (
+        prevStatus !== nextStatus &&
+        (nextStatus === "inactive" || nextStatus === "archived")
+      ) {
+        const err = new Error("רק מנהל ארגון יכול להשבית מנהל ארגון");
+        err.status = 403;
+        throw err;
+      }
     }
   }
 }
@@ -587,10 +609,43 @@ export async function assertUniqueWorkerContacts(workers, scope) {
   }
 }
 
+function workerLoginRevoked(worker) {
+  if (!worker) return true;
+  if (worker.status === "inactive" || worker.status === "archived") return true;
+  return !workerHasLogin(worker);
+}
+
+/** Pure helper — which previous login-capable workers must lose access. */
+export function workersNeedingLoginRevoke(prevWorkers, nextWorkers) {
+  const nextById = new Map((nextWorkers || []).map((w) => [w.id, w]));
+  const out = [];
+  for (const prev of prevWorkers || []) {
+    if (!workerHadLogin(prev)) continue;
+    const next = nextById.get(prev.id);
+    if (next && !workerLoginRevoked(next)) continue;
+    out.push({ id: prev.id, phone: prev.phone || "" });
+  }
+  return out;
+}
+
+/** Disable accounts for deleted / inactive / de-permissioned workers. */
+async function revokeStaleWorkerLogins(nextWorkers, prevWorkers, orgId) {
+  if (!orgId) return;
+  for (const row of workersNeedingLoginRevoke(prevWorkers, nextWorkers)) {
+    await disableWorkerAccount(orgId, row.id, row.phone);
+  }
+}
+
 async function syncManagerAccess(workers, orgId, prevWorkers = []) {
   if (!orgId) return;
   const prevById = new Map((prevWorkers || []).map((w) => [w.id, w]));
   for (const worker of workers) {
+    if (workerLoginRevoked(worker)) {
+      if (workerHadLogin(prevById.get(worker.id)) || worker.phone) {
+        await disableWorkerAccount(orgId, worker.id, worker.phone);
+      }
+      continue;
+    }
     const role = accountRoleForWorker(worker);
     if (!role || !worker.phone) continue;
     const prev = prevById.get(worker.id);
@@ -1633,6 +1688,7 @@ export async function writeState(data, options = {}) {
 
   const invited = await applyManagerInvites(workers, prev?.workers, options);
   workers = invited.workers;
+  await revokeStaleWorkerLogins(workers, prev?.workers, scope.orgId);
   await syncManagerAccess(workers, scope.orgId, prev?.workers);
 
   const payload = {
@@ -1799,10 +1855,26 @@ export async function deleteWorkerRecord(id, actor, options = {}) {
     if (!(latest.workers || []).some((worker) => worker.id === workerId)) {
       return publicData(latest);
     }
+    const removed = (latest.workers || []).find(
+      (worker) => worker.id === workerId,
+    );
+    if (
+      removed?.isOrgManager &&
+      !actor?.isOrgManager &&
+      actor?.role !== "super_admin"
+    ) {
+      const err = new Error("רק מנהל ארגון יכול למחוק מנהל ארגון");
+      err.status = 403;
+      throw err;
+    }
     const workers = (latest.workers || []).filter(
       (worker) => worker.id !== workerId,
     );
     try {
+      // Revoke login before the write so a deleted user cannot keep a live session.
+      if (removed) {
+        await disableWorkerAccount(scope.orgId, removed.id, removed.phone);
+      }
       return await writeState(
         { ...latest, workers },
         {

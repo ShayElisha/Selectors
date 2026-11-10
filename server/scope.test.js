@@ -25,11 +25,13 @@ describe('scopeForRequest', () => {
       role: 'org_manager',
       orgId: 'org-1',
       fullName: 'Manager',
+      isOrgManager: true,
+      modules: { selectors: true, inspectors: true, security: false },
     })
     getOrganization.mockResolvedValue({
       _id: 'org-1',
       status: 'approved',
-      modules: { selectors: true, inspectors: false, security: false },
+      modules: { selectors: true, inspectors: true, security: false },
     })
   })
 
@@ -46,10 +48,58 @@ describe('scopeForRequest', () => {
   it('rejects disabled modules even when requested explicitly', async () => {
     await expect(
       scopeForRequest({
-        headers: { 'x-app-module': 'inspectors' },
+        headers: { 'x-app-module': 'security' },
         query: {},
       }),
     ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('lets org managers hop between open modules via X-App-Module', async () => {
+    const result = await scopeForRequest({
+      headers: { 'x-app-module': 'inspectors' },
+      query: {},
+    })
+    expect(result.scope.module).toBe('inspectors')
+  })
+
+  it('blocks shift managers from hopping to another module', async () => {
+    refreshManagerSession.mockResolvedValue({
+      id: 'shift-1',
+      role: 'org_manager',
+      orgId: 'org-1',
+      fullName: 'Shift',
+      isOrgManager: false,
+      staffKind: 'selector',
+      modules: { selectors: true, inspectors: false, security: false },
+    })
+
+    await expect(
+      scopeForRequest({
+        headers: { 'x-app-module': 'inspectors' },
+        query: {},
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/מנהל ארגון/),
+    })
+  })
+
+  it('keeps shift managers on their own module', async () => {
+    refreshManagerSession.mockResolvedValue({
+      id: 'shift-1',
+      role: 'org_manager',
+      orgId: 'org-1',
+      fullName: 'Shift',
+      isOrgManager: false,
+      staffKind: 'selector',
+      modules: { selectors: true, inspectors: false, security: false },
+    })
+
+    const result = await scopeForRequest({
+      headers: { 'x-app-module': 'selectors' },
+      query: {},
+    })
+    expect(result.scope.module).toBe('selectors')
   })
 
   it('rejects accounts whose organization is not approved', async () => {

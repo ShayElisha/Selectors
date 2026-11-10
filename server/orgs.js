@@ -65,6 +65,24 @@ function httpError(message, status) {
   return err
 }
 
+/** Uniform auth failure — never reveal whether the phone/password/account exists. */
+const AUTH_FAIL_MESSAGE = 'מספר הטלפון או הסיסמה אינם נכונים'
+const REGISTER_FAIL_MESSAGE = 'לא ניתן להשלים את ההרשמה עם הפרטים שהוזנו'
+
+async function bumpAccountTokenVersion(accountId) {
+  if (!accountId) return 0
+  const col = await accounts()
+  const updated = await col.findOneAndUpdate(
+    { _id: String(accountId) },
+    {
+      $inc: { tokenVersion: 1 },
+      $set: { updatedAt: new Date().toISOString() },
+    },
+    { returnDocument: 'after' },
+  )
+  return Number(updated?.tokenVersion || 1)
+}
+
 function emptyModules() {
   return { selectors: false, inspectors: false, security: false }
 }
@@ -232,6 +250,11 @@ export async function refreshOrgSession(user) {
   if (!account || (account.status && account.status !== 'active')) {
     throw httpError('החשבון אינו זמין. בדקו את פרטי הכניסה או פנו למנהל המערכת.', 401)
   }
+  const expectedVersion = Number(account.tokenVersion || 0)
+  const presentedVersion = Number(user.tokenVersion || 0)
+  if (presentedVersion !== expectedVersion) {
+    throw httpError('ההתחברות אינה בתוקף. יש להתחבר מחדש.', 401)
+  }
   account = await ensureOrgManagerFlag(account, org)
   const session = sessionFromAccount(account, org)
   if (user.module && session.modules[user.module]) session.module = user.module
@@ -276,6 +299,7 @@ function sessionFromAccount(account, org) {
     isOrgManager: role === 'org_manager' ? Boolean(account.isOrgManager) : false,
     staffKind: normalizeStaffKind(account.staffKind),
     avatarUrl,
+    tokenVersion: Number(account.tokenVersion || 0),
   }
 }
 
@@ -410,11 +434,11 @@ export async function registerOrganization(body) {
 
   const superAdmin = superAdminIdentity(phone)
   if (superAdmin) {
-    throw httpError('המספר הזה שמור לסופר אדמין', 400)
+    throw httpError(REGISTER_FAIL_MESSAGE, 400)
   }
 
   const existing = await findAccountByPhone(phone)
-  if (existing) throw httpError('המספר כבר רשום לארגון', 409)
+  if (existing) throw httpError(REGISTER_FAIL_MESSAGE, 400)
 
   const now = new Date().toISOString()
   const orgId = randomUUID()
@@ -861,27 +885,37 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
 
   if (superAdmin) {
     const expected = process.env.SUPER_ADMIN_PASSWORD || ''
-    if (!passwordsMatch(password, expected)) throw httpError('סיסמה שגויה', 401)
+    if (!passwordsMatch(password, expected)) throw httpError(AUTH_FAIL_MESSAGE, 401)
     if (!credentials.deferLoginAudit) await recordSuccessfulLogin(identity)
     return identity
   }
 
   if (!storedHash) {
-    throw httpError(
-      'אין סיסמה לחשבון. יש לבקש סיסמה זמנית במייל ממנהל המערכת או דרך איפוס סיסמה.',
-      400,
-    )
+    throw httpError(AUTH_FAIL_MESSAGE, 401)
   }
-  const ok = await verifyPassword(password, storedHash)
-  if (!ok) throw httpError('מספר הטלפון או הסיסמה אינם נכונים', 401)
-  if (mustChangePassword && tempPasswordExpired(account.passwordExpiresAt)) {
+  let ok = await verifyPassword(password, storedHash)
+  let usingPasswordReset = false
+  if (!ok) {
+    const resetHash = account.passwordResetHash || ''
+    const resetValid =
+      Boolean(resetHash) &&
+      !tempPasswordExpired(account.passwordResetExpiresAt) &&
+      (await verifyPassword(password, resetHash))
+    if (!resetValid) throw httpError(AUTH_FAIL_MESSAGE, 401)
+    usingPasswordReset = true
+  }
+  if (
+    !usingPasswordReset &&
+    mustChangePassword &&
+    tempPasswordExpired(account.passwordExpiresAt)
+  ) {
     throw httpError('הסיסמה הזמנית פגה אחרי 24 שעות. בקשו סיסמה חדשה.', 400)
   }
 
   const blocked = orgGate(org, modulesForAccount(account, org))
   if (blocked) return { ...blocked, phone }
 
-  if (mustChangePassword) {
+  if (mustChangePassword || usingPasswordReset) {
     if (!newPassword) return { next: 'change_password', phone }
     const ruleError = validatePasswordRules(newPassword)
     if (ruleError) throw httpError(ruleError, 400)
@@ -891,17 +925,23 @@ export async function authenticateManager(phoneRaw, credentials = {}) {
     }
     const passwordHash = await hashPassword(newPassword)
     const col = await accounts()
+    const tokenVersion = await bumpAccountTokenVersion(account._id)
     await col.updateOne(
       { _id: account._id },
       {
         $set: { passwordHash, mustChangePassword: false },
-        $unset: { passwordExpiresAt: '' },
+        $unset: {
+          passwordExpiresAt: '',
+          passwordResetHash: '',
+          passwordResetExpiresAt: '',
+        },
       },
     )
+    const nextIdentity = { ...identity, tokenVersion }
     if (!credentials.deferLoginAudit) {
-      await recordSuccessfulLogin(identity, { passwordChanged: true })
+      await recordSuccessfulLogin(nextIdentity, { passwordChanged: true })
     }
-    return identity
+    return nextIdentity
   }
 
   if (!credentials.deferLoginAudit) await recordSuccessfulLogin(identity)
@@ -957,7 +997,7 @@ export async function requestAccountPasswordReset(phoneRaw) {
   if (!phone) throw httpError('נא להזין מספר טלפון', 400)
   const generic = {
     ok: true,
-    message: 'אם המספר רשום כמנהל, נשלחה סיסמה זמנית למייל המשויך.',
+    message: 'אם המספר רשום במערכת, נשלח קוד איפוס למייל המשויך.',
   }
   if (superAdminIdentity(phone)) return generic
 
@@ -984,16 +1024,17 @@ export async function requestAccountPasswordReset(phoneRaw) {
     )
   }
 
-  const passwordHash = await hashPassword(tempPassword)
+  // Keep the current password intact until the emailed one-time code is used.
+  const passwordResetHash = await hashPassword(tempPassword)
   const col = await accounts()
   await col.updateOne(
     { _id: account._id },
     {
       $set: {
-        passwordHash,
-        mustChangePassword: true,
-        passwordExpiresAt: tempPasswordExpiresAt(),
+        passwordResetHash,
+        passwordResetExpiresAt: tempPasswordExpiresAt(),
       },
+      $inc: { tokenVersion: 1 },
     },
   )
   await appendAuditLog({
@@ -1004,7 +1045,7 @@ export async function requestAccountPasswordReset(phoneRaw) {
       phone: account.phone,
     },
     orgId: account.orgId,
-    details: `איפוס סיסמה נשלח אל ${account.email}`,
+    details: `קוד איפוס סיסמה נשלח אל ${account.email}`,
   })
   return generic
 }
@@ -1074,12 +1115,24 @@ export async function upsertManagerAccount({
   })
 }
 
-export async function disableWorkerAccount(orgId, workerId) {
-  if (!orgId || !workerId) return
+/**
+ * Revoke login for a worker/manager account and bump tokenVersion so existing
+ * sessions stop working on the next authenticated request.
+ */
+export async function disableWorkerAccount(orgId, workerId, phoneRaw = '') {
+  if (!orgId) return
   const col = await accounts()
-  await col.updateOne(
-    { _id: String(workerId), orgId: String(orgId) },
-    { $set: { status: 'inactive' } },
+  const phone = normalizePhone(phoneRaw)
+  const clauses = []
+  if (workerId) clauses.push({ _id: String(workerId) })
+  if (phone) clauses.push({ phone })
+  if (clauses.length === 0) return
+  await col.updateMany(
+    { orgId: String(orgId), $or: clauses },
+    {
+      $set: { status: 'inactive', updatedAt: new Date().toISOString() },
+      $inc: { tokenVersion: 1 },
+    },
   )
 }
 
@@ -1476,9 +1529,14 @@ export async function changeOwnPassword(user, body) {
     { _id: account._id },
     {
       $set: { passwordHash, mustChangePassword: false },
-      $unset: { passwordExpiresAt: '' },
+      $unset: {
+        passwordExpiresAt: '',
+        passwordResetHash: '',
+        passwordResetExpiresAt: '',
+      },
     },
   )
+  await bumpAccountTokenVersion(account._id)
   await appendAuditLog({
     action: 'password_change',
     actor: user,
