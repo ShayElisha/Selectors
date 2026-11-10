@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Shield } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Info, Shield, X } from 'lucide-react'
+import { explainSavedBoard } from '../algorithm'
 import { INTENSITY_LABELS } from '../constants'
+import { useApp } from '../context/AppContext'
 import { isGateManagerLane } from '../lib/gateManager'
+import { visibleExplanationReasons } from './AssignmentExplainDialog'
 import { Ltr, TraineeBadge } from './ui'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import type {
   Intensity,
   Lane,
+  LaneAssignment,
   SelectorRound,
   ShiftSchedule,
   StaffingStandard,
@@ -26,6 +30,7 @@ export type GateIsland = {
   required: StaffingStandard
   workers: GatePerson[]
   missing: number
+  notes?: string
 }
 
 function minutesOfDay(date = new Date()): number {
@@ -73,17 +78,15 @@ function islandsFromAssignments(
   shift: ShiftSchedule,
   lanes: Lane[],
   workers: Worker[],
-  assignments: { laneId: string; workerIds: string[] }[],
+  assignments: LaneAssignment[],
 ): GateIsland[] {
   const order = new Map(lanes.map((lane, index) => [lane.id, index]))
   const islands: GateIsland[] = []
   for (const laneId of shift.activeLaneIds) {
     const lane = lanes.find((item) => item.id === laneId)
     if (!lane || isGateManagerLane(lane)) continue
-    const assigned = peopleFromIds(
-      assignments.find((row) => row.laneId === laneId)?.workerIds ?? [],
-      workers,
-    )
+    const row = assignments.find((item) => item.laneId === laneId)
+    const assigned = peopleFromIds(row?.workerIds ?? [], workers)
     const required = effectiveStaffingStandard(lane, shift.staffingOverrides)
     islands.push({
       laneId,
@@ -92,6 +95,7 @@ function islandsFromAssignments(
       required,
       workers: assigned,
       missing: Math.max(0, required - assigned.length),
+      notes: row?.notes,
     })
   }
   return islands.sort(
@@ -101,53 +105,30 @@ function islandsFromAssignments(
   )
 }
 
-/** Staggered “throat of the gate” coordinates in percent. */
-function gateCoordinates(count: number): { x: number; y: number }[] {
-  if (count <= 0) return []
-  const cols = count <= 3 ? count : count <= 6 ? 3 : count <= 10 ? 4 : 5
-  const rows = Math.ceil(count / cols)
-  return Array.from({ length: count }, (_, index) => {
-    const row = Math.floor(index / cols)
-    const col = index % cols
-    const inRow = Math.min(cols, count - row * cols)
-    const rowWidth = 62 + row * 6
-    const startX = (100 - rowWidth) / 2
-    const step = inRow <= 1 ? 0 : rowWidth / (inRow - 1)
-    const x = startX + col * step
-    const y = 14 + (row / Math.max(rows - 1, 1)) * 62 + ((col % 2) * 3.5)
-    const sway = Math.sin((index + 1) * 1.7) * 3.2
-    return {
-      x: Math.min(92, Math.max(8, x + sway)),
-      y: Math.min(86, Math.max(10, y)),
-    }
-  })
-}
-
 function IslandNode({
   island,
-  x,
-  y,
   delayMs,
+  selected,
+  onSelect,
 }: {
   island: GateIsland
-  x: number
-  y: number
   delayMs: number
+  selected: boolean
+  onSelect: () => void
 }) {
   const filled = island.missing <= 0 && island.workers.length > 0
   const empty = island.workers.length === 0
   return (
-    <article
+    <button
+      type="button"
       className={`gate-island gate-island--${island.intensity} ${
         island.missing > 0 ? 'gate-island--gap' : filled ? 'gate-island--ok' : ''
-      } ${empty ? 'gate-island--empty' : ''}`}
-      style={{
-        left: `${x}%`,
-        top: `${y}%`,
-        animationDelay: `${delayMs}ms`,
-      }}
+      } ${empty ? 'gate-island--empty' : ''} ${selected ? 'is-selected' : ''}`}
+      style={{ animationDelay: `${delayMs}ms` }}
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={`פרטי עמדה ${island.name}`}
     >
-      <div className="gate-island__aura" aria-hidden />
       <div className="gate-island__card">
         <header className="gate-island__head">
           <div className="min-w-0">
@@ -160,14 +141,12 @@ function IslandNode({
             className={`gate-island__status ${
               island.missing > 0 ? 'is-gap' : 'is-ok'
             }`}
-            aria-label={
-              island.missing > 0 ? `חסר ${island.missing}` : 'מאויש'
-            }
+            aria-hidden
           >
             {island.missing > 0 ? (
-              <AlertTriangle className="size-5" aria-hidden />
+              <AlertTriangle className="size-5" />
             ) : (
-              <CheckCircle2 className="size-5" aria-hidden />
+              <CheckCircle2 className="size-5" />
             )}
           </span>
         </header>
@@ -183,11 +162,15 @@ function IslandNode({
             ))
           )}
         </ul>
+        <p className="gate-island__hint">
+          <Info className="size-3.5 shrink-0" aria-hidden />
+          לחיצה להסבר שיבוץ
+        </p>
         {island.missing > 0 ? (
           <p className="gate-island__gap">חסר {island.missing}</p>
         ) : null}
       </div>
-    </article>
+    </button>
   )
 }
 
@@ -200,7 +183,9 @@ export function GateMapKiosk({
   lanes: Lane[]
   workers: Worker[]
 }) {
+  const { data } = useApp()
   const [now, setNow] = useState(() => Date.now())
+  const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null)
   const rounds = shift.rounds ?? []
   const hasRounds = rounds.length > 0
 
@@ -216,14 +201,81 @@ export function GateMapKiosk({
 
   const activeRound = hasRounds ? rounds[activeRoundIndex] : null
 
-  const islands = useMemo(() => {
-    const assignments = hasRounds
-      ? (rounds[activeRoundIndex]?.assignments ?? [])
-      : shift.assignments
-    return islandsFromAssignments(shift, lanes, workers, assignments)
-  }, [shift, lanes, workers, hasRounds, rounds, activeRoundIndex])
+  const currentAssignments = useMemo(() => {
+    if (hasRounds) return rounds[activeRoundIndex]?.assignments ?? []
+    return shift.assignments
+  }, [hasRounds, rounds, activeRoundIndex, shift.assignments])
 
-  const coords = useMemo(() => gateCoordinates(islands.length), [islands.length])
+  const islands = useMemo(
+    () => islandsFromAssignments(shift, lanes, workers, currentAssignments),
+    [shift, lanes, workers, currentAssignments],
+  )
+
+  useEffect(() => {
+    if (selectedLaneId && !islands.some((island) => island.laneId === selectedLaneId)) {
+      setSelectedLaneId(null)
+    }
+  }, [islands, selectedLaneId])
+
+  const explanations = useMemo(() => {
+    const activeLanes = lanes
+      .filter(
+        (lane) =>
+          shift.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
+      )
+      .map((lane) => ({
+        ...lane,
+        staffingStandard: effectiveStaffingStandard(lane, shift.staffingOverrides),
+      }))
+    const rebuilt = explainSavedBoard({
+      assignments: currentAssignments,
+      activeLanes,
+      presentWorkers: workers.filter(
+        (worker) =>
+          shift.presentWorkerIds.includes(worker.id) &&
+          worker.id !== shift.gateManagerWorkerId,
+      ),
+      history: data.history.filter((item) => item.id !== shift.id),
+      allLanes: lanes,
+      date: shift.date,
+      shiftType: shift.shiftType,
+    })
+    const byKey = new Map<string, (typeof rebuilt)[number]>()
+    for (const item of rebuilt) {
+      byKey.set(`${item.laneId}:${item.workerId}`, item)
+    }
+    for (const item of shift.explanations ?? []) {
+      const reasons = visibleExplanationReasons(item.reasons)
+      if (!reasons.length && !item.decision) continue
+      const key = `${item.laneId}:${item.workerId}`
+      const prev = byKey.get(key)
+      byKey.set(key, {
+        ...prev,
+        ...item,
+        laneId: item.laneId,
+        workerId: item.workerId,
+        reasons: item.reasons?.length ? item.reasons : prev?.reasons ?? [],
+        candidateRanking: item.candidateRanking ?? prev?.candidateRanking,
+        decision: item.decision ?? prev?.decision,
+      })
+    }
+    return [...byKey.values()]
+  }, [
+    currentAssignments,
+    data.history,
+    lanes,
+    shift.activeLaneIds,
+    shift.date,
+    shift.explanations,
+    shift.gateManagerWorkerId,
+    shift.id,
+    shift.presentWorkerIds,
+    shift.shiftType,
+    shift.staffingOverrides,
+    workers,
+  ])
+
+  const selected = islands.find((island) => island.laneId === selectedLaneId) ?? null
 
   const ramashName = shift.gateManagerWorkerId
     ? workers.find((worker) => worker.id === shift.gateManagerWorkerId)?.fullName
@@ -293,20 +345,22 @@ export function GateMapKiosk({
         <div className="gate-map__corridor" aria-hidden>
           <span className="gate-map__beam" />
           <span className="gate-map__beam gate-map__beam--delay" />
-          <span className="gate-map__throat" />
         </div>
-        {islands.map((island, index) => {
-          const point = coords[index] ?? { x: 50, y: 40 }
-          return (
+        <div className="gate-map__grid">
+          {islands.map((island, index) => (
             <IslandNode
               key={island.laneId}
               island={island}
-              x={point.x}
-              y={point.y}
-              delayMs={index * 70}
+              delayMs={index * 55}
+              selected={island.laneId === selectedLaneId}
+              onSelect={() =>
+                setSelectedLaneId((current) =>
+                  current === island.laneId ? null : island.laneId,
+                )
+              }
             />
-          )
-        })}
+          ))}
+        </div>
       </div>
 
       {hasRounds ? (
@@ -319,7 +373,10 @@ export function GateMapKiosk({
                   ? 'is-past'
                   : 'is-next'
             return (
-              <div key={`${round.startMinutes}-${round.label}`} className={`gate-map__tick ${state}`}>
+              <div
+                key={`${round.startMinutes}-${round.label}`}
+                className={`gate-map__tick ${state}`}
+              >
                 <span className="gate-map__tick-dot" aria-hidden />
                 <span className="gate-map__tick-label">
                   <Ltr>{round.label}</Ltr>
@@ -341,6 +398,102 @@ export function GateMapKiosk({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {selected ? (
+        <div
+          className="gate-detail"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`הסבר שיבוץ · ${selected.name}`}
+        >
+          <button
+            type="button"
+            className="gate-detail__backdrop board-kiosk__exit"
+            aria-label="סגירה"
+            onClick={() => setSelectedLaneId(null)}
+          />
+          <div className="gate-detail__panel">
+            <header className="gate-detail__head">
+              <div className="min-w-0">
+                <p className="gate-detail__eyebrow">הסבר שיבוץ</p>
+                <h3 className="gate-detail__title">{selected.name}</h3>
+                <p className="gate-detail__meta">
+                  {INTENSITY_LABELS[selected.intensity]} ·{' '}
+                  {selected.workers.length}/{selected.required} מאוישים
+                  {activeRound ? (
+                    <>
+                      {' · '}
+                      <Ltr>{activeRound.label}</Ltr>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="gate-detail__close board-kiosk__exit"
+                onClick={() => setSelectedLaneId(null)}
+                aria-label="סגירת ההסבר"
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </header>
+
+            <div className="gate-detail__body">
+              {selected.workers.length === 0 ? (
+                <p className="gate-detail__empty">אין משובצים בעמדה הזו כרגע.</p>
+              ) : (
+                selected.workers.map((person) => {
+                  const explanation = explanations.find(
+                    (item) =>
+                      item.laneId === selected.laneId &&
+                      item.workerId === person.id,
+                  )
+                  const reasons = explanation
+                    ? visibleExplanationReasons(explanation.reasons)
+                    : []
+                  return (
+                    <section key={person.id} className="gate-detail__person">
+                      <div className="gate-detail__person-head">
+                        <span className="gate-detail__person-name">
+                          {person.name}
+                        </span>
+                        {person.trainingRole === 'trainee' ? (
+                          <TraineeBadge />
+                        ) : null}
+                      </div>
+                      {reasons.length > 0 ? (
+                        <>
+                          <p className="gate-detail__section-label">
+                            למה שובץ כאן
+                          </p>
+                          <ul className="gate-detail__reasons">
+                            {reasons.map((reason) => (
+                              <li key={reason}>{reason}</li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        <p className="gate-detail__empty">
+                          אין הסבר שמור לשיבוץ הזה.
+                        </p>
+                      )}
+                      {explanation?.decision ? (
+                        <div className="gate-detail__decision">
+                          <p className="gate-detail__section-label">מה הכריע?</p>
+                          <p>{explanation.decision}</p>
+                        </div>
+                      ) : null}
+                    </section>
+                  )
+                })
+              )}
+              {selected.notes ? (
+                <p className="gate-detail__notes">{selected.notes}</p>
+              ) : null}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

@@ -180,18 +180,12 @@ export const BoardKiosk = forwardRef<
       {active && needsRotate ? (
         <div className="board-kiosk__rotate" role="status">
           <RotateCw className="board-kiosk__rotate-icon" aria-hidden />
-          <p className="board-kiosk__rotate-title">סובבו את המכשיר לרוחב</p>
-          <p className="board-kiosk__rotate-text">
-            מסך הקיוסק מותאם לצפייה אופקית בטלפון או בטלוויזיה
-          </p>
-          <button
-            type="button"
-            onClick={() => void exit()}
-            className="board-kiosk__exit ui-btn ui-btn-secondary gap-2 mt-2"
-          >
-            <Minimize2 className="size-4" aria-hidden />
-            יציאה
-          </button>
+          <div className="min-w-0">
+            <p className="board-kiosk__rotate-title">מומלץ לרוחב</p>
+            <p className="board-kiosk__rotate-text">
+              סובבו לצפייה נוחה יותר — אפשר גם להמשיך כאן בגלילה
+            </p>
+          </div>
         </div>
       ) : null}
 
