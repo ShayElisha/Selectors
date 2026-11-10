@@ -132,6 +132,7 @@ export function ShiftPage() {
     applyLaneSelection,
     applyPresentSelection,
     toggleWorker,
+    setTrainingPair,
     addGuestWorkers,
     setGateManager,
     setAllActiveLanes,
@@ -1511,6 +1512,120 @@ export function ShiftPage() {
                                 </select>
                               </label>
                             </div>
+                          </div>
+                        ) : null}
+                        {w.trainingRole === 'trainee' && on && !isGate ? (
+                          <div className="border-t border-brand/15 px-2.5 py-2">
+                            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-brand">
+                              <TraineeBadge />
+                              שיבוץ חונך מראש
+                            </p>
+                            {(() => {
+                              const pair = draft.trainingPairs?.find(
+                                (item) => item.traineeId === w.id,
+                              )
+                              const mentors = data.workers.filter(
+                                (mentor) =>
+                                  mentor.trainingRole === 'mentor' &&
+                                  mentor.status === 'active' &&
+                                  mentor.id !== w.id &&
+                                  draft.presentWorkerIds.includes(mentor.id) &&
+                                  mentor.id !== draft.gateManagerWorkerId,
+                              )
+                              const pairLanes = data.lanes.filter(
+                                (lane) =>
+                                  draft.activeLaneIds.includes(lane.id) &&
+                                  !isGateManagerLane(lane),
+                              )
+                              const mentorBusy = mentors.filter((mentor) =>
+                                (draft.trainingPairs ?? []).some(
+                                  (item) =>
+                                    item.mentorId === mentor.id &&
+                                    item.traineeId !== w.id,
+                                ),
+                              )
+                              return (
+                                <div className="grid gap-1.5 sm:grid-cols-2">
+                                  <label className="text-[11px] font-semibold text-ink-soft">
+                                    חונך
+                                    <select
+                                      className="ui-field mt-0.5 w-full py-1.5 text-[13px]"
+                                      aria-label={`חונך למתלמד ${w.fullName}`}
+                                      value={pair?.mentorId ?? ''}
+                                      onChange={(e) => {
+                                        const mentorId = e.target.value
+                                        if (!mentorId) {
+                                          setTrainingPair(w.id, null)
+                                          return
+                                        }
+                                        const laneId =
+                                          pair?.laneId || pairLanes[0]?.id
+                                        if (!laneId) return
+                                        setTrainingPair(w.id, {
+                                          mentorId,
+                                          laneId,
+                                        })
+                                      }}
+                                    >
+                                      <option value="">בחר חונך נוכח</option>
+                                      {mentors.map((mentor) => (
+                                        <option
+                                          key={mentor.id}
+                                          value={mentor.id}
+                                          disabled={mentorBusy.some(
+                                            (busy) => busy.id === mentor.id,
+                                          )}
+                                        >
+                                          {mentor.fullName}
+                                          {mentorBusy.some(
+                                            (busy) => busy.id === mentor.id,
+                                          )
+                                            ? ' (תפוס)'
+                                            : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="text-[11px] font-semibold text-ink-soft">
+                                    נתיב
+                                    <select
+                                      className="ui-field mt-0.5 w-full py-1.5 text-[13px]"
+                                      aria-label={`נתיב למתלמד ${w.fullName}`}
+                                      value={pair?.laneId ?? ''}
+                                      disabled={!pair?.mentorId}
+                                      onChange={(e) => {
+                                        const laneId = e.target.value
+                                        if (!laneId || !pair?.mentorId) {
+                                          setTrainingPair(w.id, null)
+                                          return
+                                        }
+                                        setTrainingPair(w.id, {
+                                          mentorId: pair.mentorId,
+                                          laneId,
+                                        })
+                                      }}
+                                    >
+                                      <option value="">בחר נתיב</option>
+                                      {pairLanes.map((lane) => (
+                                        <option key={lane.id} value={lane.id}>
+                                          {lane.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  {mentors.length === 0 ? (
+                                    <p className="sm:col-span-2 text-[11px] text-warn">
+                                      סמנו נוכחות לחונך מוסמך כדי לקשור אותו למתלמד
+                                    </p>
+                                  ) : null}
+                                  {pair?.mentorId && pair.laneId ? (
+                                    <p className="sm:col-span-2 text-[11px] font-semibold text-ok">
+                                      יישבצו יחד בנתיב שנבחר בשיבוץ האוטומטי
+                                    </p>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
                           </div>
                         ) : null}
                       </div>

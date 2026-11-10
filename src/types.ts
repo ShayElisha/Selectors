@@ -66,6 +66,16 @@ export interface LaneAssignment {
   notes?: string
 }
 
+/**
+ * Pre-lock a trainee with a mentor on a chosen lane (set from attendance).
+ * Auto-assign must keep both on that lane.
+ */
+export interface TrainingPairLock {
+  traineeId: string
+  mentorId: string
+  laneId: string
+}
+
 /** Which staff module a shift board belongs to. */
 export type ShiftAudience = 'inspector' | 'selector' | 'security'
 
@@ -168,6 +178,10 @@ export interface ShiftSchedule {
    * Must be a present manager; auto-assigned to the מנהל שער station.
    */
   gateManagerWorkerId?: string
+  /**
+   * Trainee↔mentor locks chosen on the attendance step (who + which lane).
+   */
+  trainingPairs?: TrainingPairLock[]
   assignments: LaneAssignment[]
   /** Selector board: time rounds × lanes. */
   rounds?: SelectorRound[]

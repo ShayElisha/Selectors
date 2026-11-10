@@ -1047,7 +1047,7 @@ summary:focus-visible {
   }
 }
 
-/* Fullscreen gate board / TV kiosk (HomePage BoardKiosk) */
+/* Fullscreen gate board / TV kiosk — matches site theme (light/dark/warm) */
 .board-kiosk__chrome {
   display: none;
 }
@@ -1078,11 +1078,19 @@ summary:focus-visible {
   padding-inline: max(clamp(0.75rem, 2vw, 2rem), env(safe-area-inset-left), env(safe-area-inset-right));
   overflow: hidden;
   overscroll-behavior: contain;
-  color: #e8eef8;
+  color: var(--color-text);
   background:
-    radial-gradient(90% 70% at 50% -10%, rgb(56 189 168 / 0.16), transparent 50%),
-    radial-gradient(70% 50% at 100% 100%, rgb(47 91 255 / 0.14), transparent 45%),
-    linear-gradient(165deg, #07111f 0%, #0c1a2e 48%, #10233a 100%);
+    radial-gradient(1200px 400px at 50% -100px, color-mix(in srgb, var(--color-brand) 6%, transparent), transparent),
+    var(--color-bg);
+  background-attachment: fixed;
+}
+
+html.dark .board-kiosk:fullscreen,
+html.dark .board-kiosk:-webkit-full-screen,
+html.dark .board-kiosk--active {
+  background:
+    radial-gradient(1200px 400px at 50% -100px, color-mix(in srgb, var(--color-brand) 12%, transparent), transparent),
+    var(--color-bg);
 }
 
 /* Phone / browsers without Fullscreen API: fixed immersive overlay */
@@ -1116,7 +1124,7 @@ summary:focus-visible {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgb(148 197 255 / 0.72);
+  color: var(--color-brand);
 }
 
 .board-kiosk:fullscreen .board-kiosk__chrome .text-ink,
@@ -1125,29 +1133,29 @@ summary:focus-visible {
 .board-kiosk:fullscreen .board-kiosk__chrome h2,
 .board-kiosk:-webkit-full-screen .board-kiosk__chrome h2,
 .board-kiosk--active .board-kiosk__chrome h2 {
-  color: #f4f7fc !important;
+  color: var(--color-ink) !important;
 }
 
 .board-kiosk:fullscreen .board-kiosk__chrome .text-ink-soft,
 .board-kiosk:-webkit-full-screen .board-kiosk__chrome .text-ink-soft,
 .board-kiosk--active .board-kiosk__chrome .text-ink-soft {
-  color: rgb(186 202 224 / 0.82) !important;
+  color: var(--color-ink-soft) !important;
 }
 
 .board-kiosk:fullscreen .board-kiosk__clock,
 .board-kiosk:-webkit-full-screen .board-kiosk__clock,
 .board-kiosk--active .board-kiosk__clock {
-  color: #7dd3c0 !important;
-  text-shadow: 0 0 24px rgb(56 189 168 / 0.35);
+  color: var(--color-brand) !important;
+  text-shadow: none;
   font-size: clamp(1.35rem, 4vw, 2.35rem) !important;
 }
 
 .board-kiosk:fullscreen .board-kiosk__exit,
 .board-kiosk:-webkit-full-screen .board-kiosk__exit,
 .board-kiosk--active .board-kiosk__exit {
-  background: rgb(255 255 255 / 0.08);
-  border-color: rgb(255 255 255 / 0.16);
-  color: #e8eef8;
+  background: var(--color-card);
+  border-color: var(--color-line);
+  color: var(--color-ink);
   pointer-events: auto;
 }
 
@@ -1197,17 +1205,18 @@ summary:focus-visible {
   align-items: center;
   gap: 0.65rem;
   margin-bottom: 0.55rem;
-  border: 1px solid rgb(125 211 252 / 0.28);
+  border: 1px solid var(--color-line);
   border-radius: 0.9rem;
-  background: rgb(12 28 48 / 0.88);
+  background: var(--color-card);
   padding: 0.55rem 0.85rem;
+  box-shadow: var(--shadow-panel);
 }
 
 .board-kiosk__rotate-icon {
   width: 1.35rem;
   height: 1.35rem;
   flex-shrink: 0;
-  color: #7dd3c0;
+  color: var(--color-brand);
 }
 
 .board-kiosk__rotate-title {
@@ -1215,13 +1224,13 @@ summary:focus-visible {
   font-family: var(--font-display);
   font-size: 0.92rem;
   font-weight: 700;
-  color: #f4f7fc;
+  color: var(--color-ink);
 }
 
 .board-kiosk__rotate-text {
   margin: 0;
   font-size: 0.8rem;
-  color: rgb(186 202 224 / 0.85);
+  color: var(--color-ink-soft);
 }
 
 .board-kiosk--active .board-kiosk__canvas {
@@ -1257,34 +1266,35 @@ html.kiosk-immersive body {
   min-width: 8.5rem;
   flex-direction: column;
   gap: 0.15rem;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid var(--color-line);
   border-radius: 1rem;
-  background: rgb(8 18 32 / 0.55);
+  background: var(--color-card);
   padding: 0.7rem 0.95rem;
-  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-panel);
 }
 
 .gate-map__stat.is-gap {
-  border-color: rgb(248 113 113 / 0.4);
-  box-shadow: 0 0 0 1px rgb(248 113 113 / 0.12), 0 0 28px rgb(185 28 28 / 0.18);
+  border-color: color-mix(in srgb, var(--color-hard) 35%, var(--color-line));
+  background: color-mix(in srgb, var(--color-hard-soft) 70%, var(--color-card));
 }
 
 .gate-map__stat.is-ok {
-  border-color: rgb(74 222 128 / 0.28);
+  border-color: color-mix(in srgb, var(--color-ok) 30%, var(--color-line));
+  background: color-mix(in srgb, var(--color-ok-soft) 55%, var(--color-card));
 }
 
 .gate-map__stat-label {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: rgb(168 190 214 / 0.78);
+  color: var(--color-ink-soft);
 }
 
 .gate-map__stat-value {
   font-family: var(--font-display);
   font-size: clamp(1.05rem, 1.8vw, 1.45rem);
   font-weight: 700;
-  color: #f3f7fd;
+  color: var(--color-ink);
 }
 
 .gate-map__ramash,
@@ -1299,8 +1309,8 @@ html.kiosk-immersive body {
   width: 0.7rem;
   height: 0.7rem;
   border-radius: 999px;
-  background: #34d399;
-  box-shadow: 0 0 0 0 rgb(52 211 153 / 0.7);
+  background: var(--color-ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 70%, transparent);
   animation: gate-live-pulse 1.8s ease-out infinite;
 }
 
@@ -1310,11 +1320,11 @@ html.kiosk-immersive body {
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid var(--color-line);
   border-radius: 1.25rem;
   background:
-    radial-gradient(120% 80% at 50% 100%, rgb(15 40 70 / 0.9), transparent 55%),
-    linear-gradient(180deg, rgb(10 24 42 / 0.2), rgb(6 14 26 / 0.55));
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--color-brand) 7%, transparent), transparent 55%),
+    var(--color-surface);
   padding: clamp(0.75rem, 2vw, 1.25rem);
 }
 
@@ -1335,12 +1345,11 @@ html.kiosk-immersive body {
   translate: -50% 0;
   background: linear-gradient(
     180deg,
-    rgb(125 211 252 / 0.0),
-    rgb(56 189 168 / 0.08) 35%,
-    rgb(47 91 255 / 0.06) 70%,
+    transparent,
+    color-mix(in srgb, var(--color-brand) 8%, transparent) 40%,
     transparent
   );
-  opacity: 0.85;
+  opacity: 0.9;
   animation: gate-beam-drift 7s ease-in-out infinite alternate;
 }
 
@@ -1361,6 +1370,8 @@ html.kiosk-immersive body {
 }
 
 .gate-island {
+  --gate-glow: 47 91 255;
+  --gate-glow-soft: var(--color-brand-soft);
   min-width: 0;
   padding: 0;
   border: 0;
@@ -1371,19 +1382,32 @@ html.kiosk-immersive body {
   -webkit-tap-highlight-color: transparent;
 }
 
+.gate-island--easy {
+  --gate-glow: 22 163 74;
+  --gate-glow-soft: var(--color-easy-soft);
+}
+
+.gate-island--medium {
+  --gate-glow: 217 119 6;
+  --gate-glow-soft: var(--color-mid-soft);
+}
+
+.gate-island--hard {
+  --gate-glow: 185 28 28;
+  --gate-glow-soft: var(--color-hard-soft);
+}
+
 .gate-island:focus-visible .gate-island__card {
-  outline: 2px solid #7dd3c0;
+  outline: 2px solid rgb(var(--gate-glow));
   outline-offset: 3px;
 }
 
 .gate-island.is-selected .gate-island__card {
-  border-color: rgb(125 211 252 / 0.7);
+  border-color: rgb(var(--gate-glow));
   box-shadow:
-    0 0 0 1px rgb(125 211 252 / 0.35),
-    0 0 22px rgb(94 234 212 / 0.35),
-    0 0 40px rgb(47 91 255 / 0.22),
-    0 14px 28px rgb(0 0 0 / 0.35),
-    inset 0 1px 0 rgb(255 255 255 / 0.06);
+    0 0 0 2px color-mix(in srgb, rgb(var(--gate-glow)) 35%, transparent),
+    0 0 24px color-mix(in srgb, rgb(var(--gate-glow)) 40%, transparent),
+    var(--shadow-panel-hover);
 }
 
 .gate-island__hint {
@@ -1393,50 +1417,76 @@ html.kiosk-immersive body {
   margin: 0;
   font-size: 0.68rem;
   font-weight: 700;
-  color: rgb(168 190 214 / 0.78);
+  color: var(--color-ink-soft);
 }
 
 .gate-island__card {
-  --gate-glow: 56 189 168;
   position: relative;
   display: flex;
   height: 100%;
   min-height: 8rem;
   flex-direction: column;
   gap: 0.55rem;
-  border: 1px solid rgb(var(--gate-glow) / 0.42);
+  overflow: hidden;
+  border: 1.5px solid rgb(var(--gate-glow) / 0.55);
   border-radius: 1.15rem;
-  background: linear-gradient(160deg, rgb(18 36 58 / 0.96), rgb(10 22 38 / 0.94));
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--gate-glow-soft) 70%, var(--color-card)),
+      var(--color-card) 42%
+    );
   padding: 0.85rem 0.9rem 0.8rem;
+  padding-inline-start: 1.15rem;
   box-shadow:
-    0 0 0 1px rgb(var(--gate-glow) / 0.18),
-    0 0 18px rgb(var(--gate-glow) / 0.35),
-    0 0 36px rgb(var(--gate-glow) / 0.18),
-    0 14px 28px rgb(0 0 0 / 0.35),
-    inset 0 1px 0 rgb(255 255 255 / 0.06);
+    0 0 0 1px rgb(var(--gate-glow) / 0.2),
+    0 0 16px rgb(var(--gate-glow) / 0.35),
+    0 0 32px rgb(var(--gate-glow) / 0.18),
+    var(--shadow-panel);
 }
 
-.gate-island--easy {
-  --gate-glow: 74 222 128;
-}
-
-.gate-island--medium {
-  --gate-glow: 251 191 36;
-}
-
-.gate-island--hard {
-  --gate-glow: 248 113 113;
+.gate-island__card::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.35rem;
+  background: rgb(var(--gate-glow));
+  box-shadow: 0 0 14px rgb(var(--gate-glow) / 0.7);
 }
 
 .gate-island--gap .gate-island__card {
-  border-color: rgb(248 113 113 / 0.55);
+  border-color: color-mix(in srgb, var(--color-hard) 55%, var(--color-line));
   box-shadow:
-    0 0 0 1px rgb(248 113 113 / 0.28),
-    0 0 20px rgb(248 113 113 / 0.42),
-    0 0 40px rgb(248 113 113 / 0.22),
-    0 14px 28px rgb(0 0 0 / 0.35),
-    inset 0 1px 0 rgb(255 255 255 / 0.06);
+    0 0 0 1px color-mix(in srgb, var(--color-hard) 25%, transparent),
+    0 0 20px color-mix(in srgb, var(--color-hard) 35%, transparent),
+    var(--shadow-panel);
   animation: gate-gap-glow 1.6s ease-in-out infinite;
+}
+
+/* Phones: stronger intensity lighting (soft outer glow is weak on mobile GPUs) */
+@media (hover: none), (max-width: 900px) {
+  .gate-island__card {
+    border-width: 2px;
+    border-color: rgb(var(--gate-glow) / 0.75);
+    background:
+      linear-gradient(
+        165deg,
+        color-mix(in srgb, var(--gate-glow-soft) 88%, var(--color-card)),
+        var(--color-card) 48%
+      );
+    box-shadow:
+      0 0 0 1px rgb(var(--gate-glow) / 0.35),
+      0 0 12px rgb(var(--gate-glow) / 0.45),
+      0 8px 20px rgb(var(--gate-glow) / 0.2),
+      var(--shadow-panel);
+  }
+
+  .gate-island__card::before {
+    width: 0.45rem;
+    box-shadow: 4px 0 16px rgb(var(--gate-glow) / 0.85);
+  }
 }
 
 .gate-island__head {
@@ -1452,14 +1502,14 @@ html.kiosk-immersive body {
   font-size: clamp(1rem, 1.5vw, 1.25rem);
   font-weight: 700;
   line-height: 1.15;
-  color: #f7fafc;
+  color: var(--color-ink);
 }
 
 .gate-island__meta {
   margin: 0.2rem 0 0;
   font-size: 0.72rem;
   font-weight: 600;
-  color: rgb(168 190 214 / 0.85);
+  color: var(--color-ink-soft);
 }
 
 .gate-island__status {
@@ -1473,13 +1523,13 @@ html.kiosk-immersive body {
 }
 
 .gate-island__status.is-ok {
-  background: rgb(74 222 128 / 0.16);
-  color: #86efac;
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
 }
 
 .gate-island__status.is-gap {
-  background: rgb(248 113 113 / 0.18);
-  color: #fca5a5;
+  background: var(--color-hard-soft);
+  color: var(--color-hard);
 }
 
 .gate-island__people {
@@ -1497,28 +1547,29 @@ html.kiosk-immersive body {
   align-items: center;
   gap: 0.35rem;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.06);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
   padding: 0.35rem 0.65rem;
   font-size: clamp(0.85rem, 1.15vw, 1.05rem);
   font-weight: 700;
-  color: #eef3fa;
+  color: var(--color-ink);
 }
 
 .gate-island__vacant {
-  border: 1px dashed rgb(255 255 255 / 0.2);
+  border: 1px dashed var(--color-line);
   border-radius: 999px;
   padding: 0.4rem 0.7rem;
   text-align: center;
   font-size: 0.85rem;
   font-weight: 700;
-  color: rgb(186 202 224 / 0.7);
+  color: var(--color-ink-soft);
 }
 
 .gate-island__gap {
   margin: 0;
   font-size: 0.78rem;
   font-weight: 800;
-  color: #fca5a5;
+  color: var(--color-hard);
 }
 
 .gate-detail {
@@ -1535,7 +1586,7 @@ html.kiosk-immersive body {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgb(3 10 20 / 0.62);
+  background: color-mix(in srgb, var(--color-ink) 35%, transparent);
   cursor: pointer;
 }
 
@@ -1547,10 +1598,10 @@ html.kiosk-immersive body {
   width: min(100%, 34rem);
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgb(125 211 252 / 0.28);
+  border: 1px solid var(--color-line);
   border-radius: 1.25rem;
-  background: linear-gradient(165deg, rgb(14 28 48 / 0.98), rgb(8 18 32 / 0.98));
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.45);
+  background: var(--color-card);
+  box-shadow: var(--shadow-panel-hover);
 }
 
 .gate-detail__head {
@@ -1558,7 +1609,7 @@ html.kiosk-immersive body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  border-bottom: 1px solid var(--color-line);
   padding: 0.9rem 1rem;
 }
 
@@ -1568,7 +1619,7 @@ html.kiosk-immersive body {
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgb(148 197 255 / 0.75);
+  color: var(--color-brand);
 }
 
 .gate-detail__title {
@@ -1576,13 +1627,13 @@ html.kiosk-immersive body {
   font-family: var(--font-display);
   font-size: 1.25rem;
   font-weight: 700;
-  color: #f4f7fc;
+  color: var(--color-ink);
 }
 
 .gate-detail__meta {
   margin: 0.25rem 0 0;
   font-size: 0.82rem;
-  color: rgb(186 202 224 / 0.85);
+  color: var(--color-ink-soft);
 }
 
 .gate-detail__close {
@@ -1592,10 +1643,10 @@ html.kiosk-immersive body {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgb(255 255 255 / 0.14);
+  border: 1px solid var(--color-line);
   border-radius: 0.75rem;
-  background: rgb(255 255 255 / 0.06);
-  color: #e8eef8;
+  background: var(--color-surface);
+  color: var(--color-ink);
 }
 
 .gate-detail__body {
@@ -1608,9 +1659,9 @@ html.kiosk-immersive body {
 }
 
 .gate-detail__person {
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid var(--color-line);
   border-radius: 1rem;
-  background: rgb(255 255 255 / 0.04);
+  background: var(--color-surface);
   padding: 0.75rem 0.85rem;
 }
 
@@ -1626,20 +1677,20 @@ html.kiosk-immersive body {
   font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 700;
-  color: #f4f7fc;
+  color: var(--color-ink);
 }
 
 .gate-detail__section-label {
   margin: 0 0 0.3rem;
   font-size: 0.72rem;
   font-weight: 800;
-  color: rgb(148 197 255 / 0.85);
+  color: var(--color-brand);
 }
 
 .gate-detail__reasons {
   margin: 0;
   padding-inline-start: 1.1rem;
-  color: rgb(220 230 242 / 0.92);
+  color: var(--color-text);
   font-size: 0.88rem;
   line-height: 1.45;
 }
@@ -1647,9 +1698,9 @@ html.kiosk-immersive body {
 .gate-detail__decision {
   margin-top: 0.55rem;
   border-radius: 0.75rem;
-  background: rgb(47 91 255 / 0.16);
+  background: var(--color-brand-soft);
   padding: 0.55rem 0.7rem;
-  color: rgb(220 230 242 / 0.92);
+  color: var(--color-text);
   font-size: 0.86rem;
   line-height: 1.4;
 }
@@ -1657,16 +1708,17 @@ html.kiosk-immersive body {
 .gate-detail__empty {
   margin: 0;
   font-size: 0.86rem;
-  color: rgb(186 202 224 / 0.8);
+  color: var(--color-ink-soft);
 }
 
 .gate-detail__notes {
   margin: 0;
   border-radius: 0.75rem;
-  background: rgb(255 255 255 / 0.05);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
   padding: 0.65rem 0.75rem;
   font-size: 0.86rem;
-  color: #e8eef8;
+  color: var(--color-ink);
 }
 
 .gate-map__timeline {
@@ -1685,27 +1737,27 @@ html.kiosk-immersive body {
   align-items: center;
   gap: 0.35rem;
   border-radius: 0.9rem;
-  border: 1px solid rgb(255 255 255 / 0.08);
-  background: rgb(8 18 32 / 0.45);
+  border: 1px solid var(--color-line);
+  background: var(--color-card);
   padding: 0.55rem 0.4rem;
-  opacity: 0.45;
+  opacity: 0.55;
   transition: opacity 200ms var(--ease-design), border-color 200ms var(--ease-design),
     transform 200ms var(--ease-design);
 }
 
 .gate-map__tick.is-past {
-  opacity: 0.35;
+  opacity: 0.4;
 }
 
 .gate-map__tick.is-next {
-  opacity: 0.55;
+  opacity: 0.65;
 }
 
 .gate-map__tick.is-live {
   opacity: 1;
-  border-color: rgb(125 211 252 / 0.45);
-  background: linear-gradient(180deg, rgb(47 91 255 / 0.28), rgb(8 18 32 / 0.65));
-  box-shadow: 0 0 28px rgb(56 189 168 / 0.18);
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-line));
+  background: color-mix(in srgb, var(--color-brand-soft) 70%, var(--color-card));
+  box-shadow: var(--shadow-panel);
   transform: translateY(-2px);
 }
 
@@ -1713,18 +1765,18 @@ html.kiosk-immersive body {
   width: 0.45rem;
   height: 0.45rem;
   border-radius: 999px;
-  background: rgb(186 202 224 / 0.5);
+  background: var(--color-ink-soft);
 }
 
 .gate-map__tick.is-live .gate-map__tick-dot {
-  background: #5eead4;
-  box-shadow: 0 0 12px rgb(94 234 212 / 0.8);
+  background: var(--color-brand);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-brand) 55%, transparent);
 }
 
 .gate-map__tick-label {
   font-size: clamp(0.72rem, 1vw, 0.9rem);
   font-weight: 700;
-  color: #dbe7f5;
+  color: var(--color-ink);
   white-space: nowrap;
 }
 
@@ -1734,16 +1786,17 @@ html.kiosk-immersive body {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.55rem 0.75rem;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid var(--color-line);
   border-radius: 1rem;
-  background: rgb(8 18 32 / 0.5);
+  background: var(--color-card);
   padding: 0.65rem 0.85rem;
+  box-shadow: var(--shadow-panel);
 }
 
 .gate-map__bench-label {
   font-size: 0.78rem;
   font-weight: 800;
-  color: rgb(186 202 224 / 0.8);
+  color: var(--color-ink-soft);
 }
 
 .gate-map__bench-list {
@@ -1761,22 +1814,23 @@ html.kiosk-immersive body {
   align-items: center;
   gap: 0.3rem;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.07);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
   padding: 0.3rem 0.65rem;
   font-size: 0.85rem;
   font-weight: 700;
-  color: #e8eef8;
+  color: var(--color-ink);
 }
 
 @keyframes gate-live-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgb(52 211 153 / 0.65);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ok) 65%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 12px rgb(52 211 153 / 0);
+    box-shadow: 0 0 0 12px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(52 211 153 / 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
@@ -1795,19 +1849,15 @@ html.kiosk-immersive body {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgb(248 113 113 / 0.22),
-      0 0 14px rgb(248 113 113 / 0.28),
-      0 0 28px rgb(248 113 113 / 0.14),
-      0 14px 28px rgb(0 0 0 / 0.35),
-      inset 0 1px 0 rgb(255 255 255 / 0.06);
+      0 0 0 1px color-mix(in srgb, var(--color-hard) 16%, transparent),
+      0 0 14px color-mix(in srgb, var(--color-hard) 18%, transparent),
+      var(--shadow-panel);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgb(248 113 113 / 0.4),
-      0 0 24px rgb(248 113 113 / 0.55),
-      0 0 48px rgb(248 113 113 / 0.28),
-      0 14px 28px rgb(0 0 0 / 0.35),
-      inset 0 1px 0 rgb(255 255 255 / 0.06);
+      0 0 0 1px color-mix(in srgb, var(--color-hard) 35%, transparent),
+      0 0 24px color-mix(in srgb, var(--color-hard) 35%, transparent),
+      var(--shadow-panel);
   }
 }
 

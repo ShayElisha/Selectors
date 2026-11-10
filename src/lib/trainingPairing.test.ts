@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyTrainingPairsToAssignments,
   canPlaceTraineeOnLane,
   filterAutoAssignPool,
   laneTrainingIssues,
+  normalizeTrainingPairs,
   normalizeTrainingRole,
   pickLaneWorkersWithTraining,
+  pruneTrainingPairs,
 } from './trainingPairing'
 import type { Lane, Worker } from '../types'
 
@@ -100,5 +103,34 @@ describe('trainingPairing', () => {
       workersById,
     )
     expect(picked.map((w) => w.id)).toEqual(['m', 't'])
+  })
+
+  it('normalize/prune training pairs and seats mentor+trainee on lane', () => {
+    expect(
+      normalizeTrainingPairs([
+        { traineeId: 't', mentorId: 'm', laneId: 'L' },
+        { traineeId: 't', mentorId: 'm2', laneId: 'L2' },
+      ]),
+    ).toEqual([{ traineeId: 't', mentorId: 'm', laneId: 'L' }])
+
+    const workersById = new Map([
+      ['t', worker('t', 'trainee')],
+      ['m', worker('m', 'mentor')],
+    ])
+    expect(
+      pruneTrainingPairs(
+        [{ traineeId: 't', mentorId: 'm', laneId: 'L' }],
+        ['t'],
+        ['L'],
+        workersById,
+      ),
+    ).toEqual([])
+
+    const seated = applyTrainingPairsToAssignments(
+      [{ laneId: 'L', workerIds: ['x', 'y'] }],
+      [{ traineeId: 't', mentorId: 'm', laneId: 'L' }],
+      [lane('L', 2)],
+    )
+    expect(seated[0]!.workerIds.slice(0, 2)).toEqual(['m', 't'])
   })
 })

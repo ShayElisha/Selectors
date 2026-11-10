@@ -57,7 +57,17 @@ import {
   primaryAssignmentFix,
 } from '../lib/orgHealth'
 import { earlyLeaveCutoff } from '../lib/earlyLeave'
-import { laneTrainingIssues, normalizeTrainingRole } from '../lib/trainingPairing'
+import {
+  applyTrainingPairsToAssignments,
+  applyTrainingPairsToRounds,
+  isMentor,
+  isTrainee,
+  laneTrainingIssues,
+  normalizeTrainingPairs,
+  normalizeTrainingRole,
+  pruneTrainingPairs,
+  trainingPairLockedIds,
+} from '../lib/trainingPairing'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
@@ -159,6 +169,7 @@ import type {
   CustomsBroker,
   CustomsBrokerContact,
   IncidentRecord,
+  TrainingPairLock,
   IncidentKind,
   IncidentSeverity,
   IncidentStatus,
@@ -356,6 +367,8 @@ export interface ShiftDraft {
   guestWorkerIds?: string[]
   /** Designated מנהל שער — present, no lane required */
   gateManagerWorkerId?: string
+  /** Trainee locked with mentor + lane from the attendance step. */
+  trainingPairs?: TrainingPairLock[]
   assignments: LaneAssignment[]
   /** Selector board: two-hour route rounds */
   rounds: SelectorRound[]
@@ -469,6 +482,14 @@ interface AppContextValue {
   /** Set תקן for a lane in the current shift only (does not change the lane catalog). */
   setLaneStaffingStandard: (laneId: string, standard: StaffingStandard) => void
   toggleWorker: (workerId: string) => void
+  /**
+   * Lock a present trainee with a mentor on a lane (attendance step).
+   * Pass null to clear the trainee's lock.
+   */
+  setTrainingPair: (
+    traineeId: string,
+    lock: { mentorId: string; laneId: string } | null,
+  ) => void
   /** Mark workers from other modules as present guests (manual board only). */
   addGuestWorkers: (workerIds: string[]) => void
   setWorkerWindow: (workerId: string, windowId: string | null) => void
@@ -726,6 +747,7 @@ function restoreDraft(): ShiftDraft | null {
       staffingOverrides: normalizeStaffingOverrides(parsed.staffingOverrides),
       headcountStandard: normalizeHeadcountStandard(parsed.headcountStandard),
       gateManagerWorkerId: parsed.gateManagerWorkerId?.trim() || undefined,
+      trainingPairs: normalizeTrainingPairs(parsed.trainingPairs),
     }
   } catch {
     return null
@@ -754,6 +776,7 @@ function snapshotDraft(d: ShiftDraft): string {
     presentWorkerIds: d.presentWorkerIds,
     guestWorkerIds: d.guestWorkerIds ?? [],
     gateManagerWorkerId: d.gateManagerWorkerId ?? '',
+    trainingPairs: d.trainingPairs ?? [],
     assignments: d.assignments.map((a) => ({
       laneId: a.laneId,
       workerIds: a.workerIds,
@@ -1512,6 +1535,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           presentWorkerIds: item.presentWorkerIds,
           guestWorkerIds: item.guestWorkerIds,
           gateManagerWorkerId,
+          trainingPairs: normalizeTrainingPairs(item.trainingPairs),
           assignments: padAssignments(
             item.assignments,
             data.lanes,
@@ -1566,6 +1590,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       presentWorkerIds: d.presentWorkerIds,
       ...(d.guestWorkerIds?.length ? { guestWorkerIds: d.guestWorkerIds } : {}),
       ...(gateManagerWorkerId ? { gateManagerWorkerId } : {}),
+      ...(d.trainingPairs?.length
+        ? { trainingPairs: normalizeTrainingPairs(d.trainingPairs) }
+        : {}),
       assignmentMode: usesRounds(d) ? 'rounds' : 'single',
       assignments: usesRounds(d) ? [] : stripEmpty(d.assignments),
       ...(d.audience === 'selector' || d.audience === 'security'
@@ -1887,11 +1914,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setDraft((d) => {
       if (!d) return d
+      const workersById = new Map(data.workers.map((w) => [w.id, w]))
       const has = d.presentWorkerIds.includes(workerId)
       if (!has) {
+        const presentWorkerIds = [...d.presentWorkerIds, workerId]
         const next = {
           ...d,
-          presentWorkerIds: [...d.presentWorkerIds, workerId],
+          presentWorkerIds,
+          trainingPairs: pruneTrainingPairs(
+            d.trainingPairs,
+            presentWorkerIds,
+            d.activeLaneIds,
+            workersById,
+          ),
         }
         if (usesRounds(d)) {
           return withGateManagerSync(next, data.lanes)
@@ -1926,12 +1961,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return { ...a, workerIds }
       })
+      const trainingPairs = pruneTrainingPairs(
+        d.trainingPairs,
+        presentWorkerIds,
+        d.activeLaneIds,
+        workersById,
+      )
       return withGateManagerSync(
         {
           ...d,
           presentWorkerIds,
           guestWorkerIds: guestWorkerIds.length ? guestWorkerIds : undefined,
           gateManagerWorkerId,
+          trainingPairs: trainingPairs.length ? trainingPairs : undefined,
           assignments,
           rounds: usesRounds(d)
             ? clearWorkerFromRounds(d.rounds ?? [], workerId)
@@ -1940,7 +1982,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data.lanes,
       )
     })
-  }, [data.lanes, draft])
+  }, [data.lanes, data.workers, draft])
+
+  const setTrainingPair = useCallback(
+    (
+      traineeId: string,
+      lock: { mentorId: string; laneId: string } | null,
+    ) => {
+      setDraft((d) => {
+        if (!d || d.signOff?.signedAt) return d
+        const workersById = new Map(data.workers.map((w) => [w.id, w]))
+        const without = (d.trainingPairs ?? []).filter(
+          (pair) => pair.traineeId !== traineeId,
+        )
+        if (!lock) {
+          return {
+            ...d,
+            trainingPairs: without.length ? without : undefined,
+          }
+        }
+        if (!d.presentWorkerIds.includes(traineeId)) return d
+        if (!d.presentWorkerIds.includes(lock.mentorId)) return d
+        if (!d.activeLaneIds.includes(lock.laneId)) return d
+        if (!isTrainee(workersById.get(traineeId))) return d
+        if (!isMentor(workersById.get(lock.mentorId))) return d
+        const next = normalizeTrainingPairs([
+          ...without,
+          {
+            traineeId,
+            mentorId: lock.mentorId,
+            laneId: lock.laneId,
+          },
+        ])
+        return {
+          ...d,
+          trainingPairs: next.length ? next : undefined,
+        }
+      })
+    },
+    [data.workers],
+  )
 
   const addGuestWorkers = useCallback(
     (workerIds: string[]) => {
@@ -2380,22 +2461,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const compute = async (): Promise<ShiftDraft | undefined> => {
       const d = d0
       const guestIds = new Set(d.guestWorkerIds ?? [])
+      const workersById = new Map(data.workers.map((w) => [w.id, w]))
+      const trainingPairs = pruneTrainingPairs(
+        d.trainingPairs,
+        d.presentWorkerIds,
+        d.activeLaneIds,
+        workersById,
+      )
+      const lockedIds = trainingPairLockedIds(trainingPairs)
       if (!usesRounds(d)) {
+        const reservedByLane = new Map<string, number>()
+        for (const pair of trainingPairs) {
+          reservedByLane.set(
+            pair.laneId,
+            (reservedByLane.get(pair.laneId) ?? 0) + 2,
+          )
+        }
         const activeLanes = data.lanes
           .filter(
             (lane) =>
               d.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
           )
-          .map((lane) => ({
-            ...lane,
-            staffingStandard: effectiveStaffingStandard(lane, d.staffingOverrides),
-          }))
+          .flatMap((lane) => {
+            const base = effectiveStaffingStandard(lane, d.staffingOverrides)
+            const reserved = reservedByLane.get(lane.id) ?? 0
+            const remaining = base - reserved
+            if (remaining <= 0) return []
+            const staffingStandard = Math.min(5, remaining) as StaffingStandard
+            return [{ ...lane, staffingStandard }]
+          })
         const presentWorkers = data.workers.filter(
           (worker) =>
             d.presentWorkerIds.includes(worker.id) &&
             worker.id !== d.gateManagerWorkerId &&
             worker.status === 'active' &&
-            !guestIds.has(worker.id),
+            !guestIds.has(worker.id) &&
+            !lockedIds.has(worker.id),
         )
         // Multi-start search with real progress: thousands of board checks,
         // painted through the assigning loader instead of an instant result.
@@ -2413,7 +2514,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             },
           },
         )
-        const filled = placed.assignments.reduce(
+        const mergedAssignments = applyTrainingPairsToAssignments(
+          padAssignments(
+            placed.assignments,
+            data.lanes,
+            d.activeLaneIds,
+            d.staffingOverrides,
+          ),
+          trainingPairs,
+          data.lanes,
+          d.staffingOverrides,
+        )
+        const filled = mergedAssignments.reduce(
           (count, row) => count + row.workerIds.filter(Boolean).length,
           0,
         )
@@ -2429,12 +2541,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...d,
             assignmentMode: 'single',
             rounds: [],
-            assignments: padAssignments(
-              placed.assignments,
-              data.lanes,
-              d.activeLaneIds,
-              d.staffingOverrides,
-            ),
+            trainingPairs: trainingPairs.length ? trainingPairs : undefined,
+            assignments: mergedAssignments,
             warnings: placed.warnings,
             explanations: placed.explanations,
             quality: placed.quality,
@@ -2444,7 +2552,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const present = selectorStaff(
         data.workers,
-        d.presentWorkerIds.filter((id) => !guestIds.has(id)),
+        d.presentWorkerIds.filter(
+          (id) => !guestIds.has(id) && !lockedIds.has(id),
+        ),
         d.gateManagerWorkerId,
       )
       const result = assignSelectorRounds({
@@ -2468,7 +2578,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         date: d.date,
         roster: data.workers,
       })
-      const filled = result.rounds.reduce(
+      const mergedRounds = applyTrainingPairsToRounds(
+        result.rounds,
+        trainingPairs,
+        data.lanes,
+        d.staffingOverrides,
+      )
+      const filled = mergedRounds.reduce(
         (n, r) =>
           n +
           r.assignments.reduce(
@@ -2480,17 +2596,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const durationMs = Date.now() - startedAt
       void postAuditEvent(
         'auto_assign',
-        `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${result.rounds.length} סבבים · ${filled} שיבוצים${
+        `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${mergedRounds.length} סבבים · ${filled} שיבוצים${
           result.warnings[0] ? ` · ${result.warnings[0]}` : ''
         } · durationMs=${durationMs}`,
       )
       return withGateManagerSync(
         {
           ...d,
+          trainingPairs: trainingPairs.length ? trainingPairs : undefined,
           audience: audienceForModule(user?.module),
           assignmentMode: 'rounds',
           assignments: [],
-          rounds: result.rounds,
+          rounds: mergedRounds,
           warnings: result.warnings,
           explanations: result.explanations,
         },
@@ -4236,6 +4353,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyPresentSelection,
       setLaneStaffingStandard,
       toggleWorker,
+      setTrainingPair,
       addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
@@ -4340,6 +4458,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       applyPresentSelection,
       setLaneStaffingStandard,
       toggleWorker,
+      setTrainingPair,
       addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
