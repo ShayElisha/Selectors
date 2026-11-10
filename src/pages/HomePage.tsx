@@ -153,7 +153,6 @@ export function HomePage() {
   const [shiftHealth] = useState<ShiftHealthSnapshot | null>(null)
   const [healthOpen, setHealthOpen] = useState(false)
   const boardKioskRef = useRef<BoardKioskHandle>(null)
-  const selectorKioskRef = useRef<BoardKioskHandle>(null)
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000)
@@ -243,22 +242,8 @@ export function HomePage() {
     return matches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
   }, [data.history, currentCtx.date, currentCtx.shiftType, moduleAudience])
 
-  const selectorShift: ShiftSchedule | null = useMemo(() => {
-    if (module !== 'selectors') return null
-    const matches = data.history.filter(
-      (h) =>
-        h.date === currentCtx.date &&
-        h.shiftType === currentCtx.shiftType &&
-        h.audience === 'selector',
-    )
-    if (matches.length === 0) return null
-    return matches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-  }, [data.history, currentCtx.date, currentCtx.shiftType, module])
-
   const previousShifts = useMemo(() => {
-    const hidden = new Set(
-      [currentShift?.id, selectorShift?.id].filter(Boolean),
-    )
+    const hidden = new Set([currentShift?.id].filter(Boolean))
     return [...data.history]
       .filter((h) => !hidden.has(h.id))
       .sort((a, b) => {
@@ -266,7 +251,7 @@ export function HomePage() {
         return b.updatedAt.localeCompare(a.updatedAt)
       })
       .slice(0, 3)
-  }, [data.history, currentShift?.id, selectorShift?.id])
+  }, [data.history, currentShift?.id])
 
   const currentTableRows = useMemo(() => {
     if (!currentShift) return []
@@ -846,7 +831,7 @@ export function HomePage() {
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-2/3" />
           </div>
-        ) : !currentShift && !selectorShift ? (
+        ) : !currentShift ? (
           <EmptyState
             title="אין שיבוץ שמור למשמרת הנוכחית"
             text={`אין שיבוץ ל${shiftModelLabel(shiftModels, currentCtx.shiftType)} בחלון ${currentCtx.windowLabel}.`}
@@ -871,10 +856,6 @@ export function HomePage() {
               </div>
             }
           />
-        ) : !currentShift ? (
-          <p className="text-[13px] text-ink-soft">
-            אין שיבוץ בודקים למשמרת הזו. שיבוץ הסלקטורים מופיע מתחת.
-          </p>
         ) : (
           <BoardKiosk
             ref={boardKioskRef}
@@ -1047,63 +1028,6 @@ export function HomePage() {
           </BoardKiosk>
         )}
       </SectionCard>
-
-      {module === 'selectors' && selectorShift ? (
-        <SectionCard
-          title={`${MODULE_LABELS.selectors} · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
-          subtitle={
-            <>
-              סבבים של שעתיים · <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
-            </>
-          }
-          actions={
-            <>
-              <BoardKioskEnterButton
-                onClick={() => void selectorKioskRef.current?.enter()}
-              />
-              <button
-                type="button"
-                onClick={() => loadShiftFromHistory(selectorShift.id)}
-                className="ui-btn ui-btn-secondary no-print"
-              >
-                {selectorShift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
-              </button>
-            </>
-          }
-        >
-          <BoardKiosk
-            ref={selectorKioskRef}
-            title={`${MODULE_LABELS.selectors} · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
-            subtitle={
-              <>
-                סבבים של שעתיים · <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
-              </>
-            }
-            canvas={
-              <GateMapKiosk
-                shift={selectorShift}
-                lanes={data.lanes}
-                workers={data.workers}
-              />
-            }
-          >
-            <SelectorRoundTable
-              layout="table"
-              rounds={selectorShift.rounds ?? []}
-              lanes={selectorLanes(data.lanes, selectorShift.activeLaneIds)}
-              workers={data.workers}
-              overrides={selectorShift.staffingOverrides}
-              ramashName={
-                selectorShift.gateManagerWorkerId
-                  ? data.workers.find(
-                      (w) => w.id === selectorShift.gateManagerWorkerId,
-                    )?.fullName ?? ''
-                  : ''
-              }
-            />
-          </BoardKiosk>
-        </SectionCard>
-      ) : null}
 
       {/* Metrics + quick links — RTL order: first card is rightmost */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 no-print">
