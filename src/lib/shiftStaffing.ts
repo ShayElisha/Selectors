@@ -9,6 +9,13 @@ export const DEFAULT_SHIFT_STAFFING = 1 as const
 export type { StaffingStandard }
 export type StaffingOverrides = Record<string, StaffingStandard>
 
+export type PeakHoursConfig = {
+  hours: { start: number; end: number }[]
+  peakStandard: StaffingStandard
+}
+
+export type PeakHoursOverrides = Record<string, PeakHoursConfig>
+
 export function clampStaffingStandard(n: unknown): StaffingStandard {
   const v = Math.trunc(Number(n))
   if (!Number.isFinite(v) || v < 1) return 1
@@ -139,4 +146,81 @@ export function totalHeadcountDeficit(
     (sum, shift) => sum + shiftHeadcountSnapshot(shift).deficit,
     0,
   )
+}
+
+/**
+ * Get the effective peak hours config for a lane, considering shift overrides.
+ * Returns the shift override if present, otherwise the lane's catalog config.
+ */
+export function getEffectivePeakHours(
+  lane: Lane,
+  peakHoursOverrides?: PeakHoursOverrides,
+): PeakHoursConfig | undefined {
+  // Shift override takes precedence
+  if (peakHoursOverrides?.[lane.id]) {
+    return peakHoursOverrides[lane.id]
+  }
+  
+  // Fall back to lane catalog
+  return lane.peakHours
+}
+
+/**
+ * Check if the given time is within peak hours.
+ * Handles overnight peaks (e.g., 23:00-01:00).
+ */
+export function isInPeakHours(
+  peakConfig: PeakHoursConfig | undefined,
+  currentMinutes: number,
+): boolean {
+  if (!peakConfig) return false
+  
+  return peakConfig.hours.some((span) => {
+    let start = span.start
+    let end = span.end
+    let current = currentMinutes
+    
+    // Handle overnight peaks
+    if (end <= start) {
+      end += 24 * 60
+      // If current time is early morning (before noon), it might be part of overnight peak
+      if (current < 12 * 60) {
+        current += 24 * 60
+      }
+    }
+    
+    return current >= start && current < end
+  })
+}
+
+/**
+ * Get the effective staffing standard for a lane at a specific time.
+ * Considers peak hours (with shift overrides) and per-shift תקן overrides.
+ * 
+ * Priority:
+ * 1. Per-shift staffing override (staffingOverrides)
+ * 2. Peak hours (if currentMinutes is in peak hours)
+ * 3. Base staffing standard from lane catalog
+ */
+export function effectiveStaffingStandardAtTime(
+  lane: Lane,
+  currentMinutes: number,
+  options?: {
+    staffingOverrides?: StaffingOverrides
+    peakHoursOverrides?: PeakHoursOverrides
+  },
+): StaffingStandard {
+  // Priority 1: Per-shift staffing override
+  if (options?.staffingOverrides?.[lane.id] != null) {
+    return options.staffingOverrides[lane.id]
+  }
+  
+  // Priority 2: Peak hours
+  const peakConfig = getEffectivePeakHours(lane, options?.peakHoursOverrides)
+  if (isInPeakHours(peakConfig, currentMinutes)) {
+    return peakConfig!.peakStandard
+  }
+  
+  // Priority 3: Base standard from lane catalog
+  return lane.staffingStandard
 }

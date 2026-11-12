@@ -55,6 +55,14 @@ export interface Lane {
    * Several ranges are allowed, e.g. 06:00–08:00 and 10:00–12:00.
    */
   activeHours?: { start: number; end: number }[]
+  /**
+   * Peak hours when this lane requires additional staffing.
+   * During these hours, peakStandard is used instead of staffingStandard.
+   */
+  peakHours?: {
+    hours: { start: number; end: number }[]
+    peakStandard: StaffingStandard
+  }
   /** Exclude this lane from automatic and manual assignment in rounds mode. */
   roundsDisabled?: boolean
 }
@@ -236,6 +244,15 @@ export interface ShiftSchedule {
    * When absent, the shift default is 1.
    */
   staffingOverrides?: Record<string, StaffingStandard>
+  /**
+   * Per-shift peak hours overrides, keyed by lane id.
+   * When present, overrides the lane's catalog peakHours for this shift only.
+   * Useful for special shifts with different peak patterns.
+   */
+  peakHoursOverrides?: Record<string, {
+    hours: { start: number; end: number }[]
+    peakStandard: StaffingStandard
+  }>
   /**
    * Headcount target for the whole shift (not per lane).
    * Used to track how many people are missing vs present.
