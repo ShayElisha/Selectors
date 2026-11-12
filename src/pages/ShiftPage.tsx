@@ -1681,6 +1681,7 @@ export function ShiftPage() {
         <div className="fixed inset-x-0 bottom-16 z-40 border-t border-line/80 bg-card/95 px-3 py-2.5 shadow-[0_-8px_24px_rgb(15_28_46/0.08)] backdrop-blur-md no-print sm:px-4 lg:bottom-0">
           <div className="mx-auto flex max-w-7xl flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                 onClick={() => setFeasibilityOpen((o) => !o)}
@@ -1711,6 +1712,29 @@ export function ShiftPage() {
                   <ChevronUp className="size-3.5" aria-hidden />
                   )}
                 </button>
+                <label className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-ink-soft">
+                    תקן משמרת:
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    inputMode="numeric"
+                    className="ui-field w-16 !py-1 text-center text-[13px] font-semibold"
+                    value={draft.headcountStandard ?? ''}
+                    placeholder="—"
+                    aria-label="תקן משמרת"
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      updateDraftMeta({
+                        headcountStandard:
+                          raw.trim() === '' ? undefined : Number(raw),
+                      })
+                    }}
+                  />
+                </label>
+                </div>
               <p className="text-[12px] text-ink-soft tabular-nums">
                 {draft.headcountStandard != null ? (
                   <>
