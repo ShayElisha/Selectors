@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createFrozenLanes,
+  filterFrozenLanesByActiveHours,
   frozenLaneIds,
   frozenLanesSummary,
   isLaneFrozen,
@@ -215,6 +216,134 @@ describe('frozenLanes', () => {
     })
   })
 
+  describe('filterFrozenLanesByActiveHours', () => {
+    it('includes lanes without activeHours', () => {
+      const frozenLanes: FrozenLane[] = [
+        {
+          laneId: 'lane-a',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+      ]
+
+      const result = filterFrozenLanesByActiveHours(
+        frozenLanes,
+        mockLanes,
+        600, // 10:00
+        120  // 2 hours
+      )
+
+      expect(result).toHaveLength(1)
+    })
+
+    it('includes lanes that are currently in their active hours', () => {
+      const lanesWithHours: Lane[] = [
+        {
+          ...mockLanes[0]!,
+          activeHours: [{ start: 360, end: 720 }], // 06:00-12:00
+        },
+      ]
+
+      const frozenLanes: FrozenLane[] = [
+        {
+          laneId: 'lane-a',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+      ]
+
+      const result = filterFrozenLanesByActiveHours(
+        frozenLanes,
+        lanesWithHours,
+        600, // 10:00 - within active hours
+        120
+      )
+
+      expect(result).toHaveLength(1)
+    })
+
+    it('excludes lanes that are outside their active hours', () => {
+      const lanesWithHours: Lane[] = [
+        {
+          ...mockLanes[0]!,
+          activeHours: [{ start: 360, end: 480 }], // 06:00-08:00
+        },
+      ]
+
+      const frozenLanes: FrozenLane[] = [
+        {
+          laneId: 'lane-a',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+      ]
+
+      const result = filterFrozenLanesByActiveHours(
+        frozenLanes,
+        lanesWithHours,
+        600, // 10:00 - outside active hours (06:00-08:00)
+        120
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('handles multiple active hour ranges', () => {
+      const lanesWithHours: Lane[] = [
+        {
+          ...mockLanes[0]!,
+          activeHours: [
+            { start: 360, end: 480 },   // 06:00-08:00
+            { start: 600, end: 720 },   // 10:00-12:00
+          ],
+        },
+      ]
+
+      const frozenLanes: FrozenLane[] = [
+        {
+          laneId: 'lane-a',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+      ]
+
+      // Test during first range (need to fit entire 2-hour window)
+      let result = filterFrozenLanesByActiveHours(
+        frozenLanes,
+        lanesWithHours,
+        360, // 06:00 - in first range, 2-hour window fits (06:00-08:00)
+        120
+      )
+      expect(result).toHaveLength(1)
+
+      // Test during gap
+      result = filterFrozenLanesByActiveHours(
+        frozenLanes,
+        lanesWithHours,
+        540, // 09:00 - in gap between ranges
+        120
+      )
+      expect(result).toHaveLength(0)
+
+      // Test during second range (need to fit entire 2-hour window)
+      result = filterFrozenLanesByActiveHours(
+        frozenLanes,
+        lanesWithHours,
+        600, // 10:00 - in second range, 2-hour window fits (10:00-12:00)
+        120
+      )
+      expect(result).toHaveLength(1)
+    })
+  })
+
   describe('shouldPromptUnfreeze', () => {
     it('returns false if no frozen lanes', () => {
       const result = shouldPromptUnfreeze({
@@ -348,6 +477,77 @@ describe('frozenLanes', () => {
         currentHeadcount: 16, // +2 from last decision
         requiredStandard: 14,
         newWorkerId: 'worker-1',
+      })
+
+      expect(result).toBe(true)
+    })
+
+    it('returns false if all frozen lanes are outside their active hours', () => {
+      const lanesWithHours: Lane[] = [
+        {
+          ...mockLanes[0]!,
+          activeHours: [{ start: 360, end: 480 }], // 06:00-08:00
+        },
+      ]
+
+      const frozenLanes: FrozenLane[] = [
+        {
+          laneId: 'lane-a',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+      ]
+
+      const result = shouldPromptUnfreeze({
+        frozenLanes,
+        currentHeadcount: 15,
+        requiredStandard: 14,
+        newWorkerId: 'worker-1',
+        lanes: lanesWithHours,
+        currentMinutes: 600, // 10:00 - outside active hours
+      })
+
+      expect(result).toBe(false)
+    })
+
+    it('returns true if at least one frozen lane is in its active hours', () => {
+      const lanesWithHours: Lane[] = [
+        {
+          ...mockLanes[0]!,
+          activeHours: [{ start: 360, end: 840 }], // 06:00-14:00
+        },
+        {
+          ...mockLanes[1]!,
+          activeHours: [{ start: 720, end: 960 }], // 12:00-16:00
+        },
+      ]
+
+      const frozenLanes: FrozenLane[] = [
+        {
+          laneId: 'lane-a',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+        {
+          laneId: 'lane-b',
+          frozenAtMinutes: 225,
+          frozenAt: '2024-01-01T09:45:00Z',
+          reason: 'test',
+          decisionHistory: [],
+        },
+      ]
+
+      const result = shouldPromptUnfreeze({
+        frozenLanes,
+        currentHeadcount: 15,
+        requiredStandard: 14,
+        newWorkerId: 'worker-1',
+        lanes: lanesWithHours,
+        currentMinutes: 600, // 10:00 - lane-a is active (06:00-14:00), lane-b is not (starts at 12:00)
       })
 
       expect(result).toBe(true)

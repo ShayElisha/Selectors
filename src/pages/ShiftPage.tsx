@@ -2678,10 +2678,25 @@ export function ShiftPage() {
                 
                 {unfreezePrompt.frozenLanes.length > 0 ? (
                   <div className="mt-3">
-                    <p className="text-[13px] font-medium text-ink">❄️ נתיבים קפואים:</p>
+                    <p className="text-[13px] font-medium text-ink">❄️ נתיבים קפואים (פעילים כעת):</p>
                     <ul className="mt-1.5 space-y-1">
                       {unfreezePrompt.frozenLanes.map((frozenLane) => {
                         const lane = data.lanes.find((l) => l.id === frozenLane.laneId)
+                        
+                        // Check if lane has active hours and if it's currently active
+                        const now = new Date()
+                        const currentMinutes = now.getHours() * 60 + now.getMinutes()
+                        const isInActiveHours = !lane?.activeHours || lane.activeHours.length === 0 || 
+                          lane.activeHours.some((span) => {
+                            const start = span.start
+                            let end = span.end
+                            if (end <= start) end += 24 * 60
+                            return currentMinutes >= start && currentMinutes < end
+                          })
+                        
+                        // Only show lanes that are currently in their active hours
+                        if (!isInActiveHours) return null
+                        
                         return (
                           <li
                             key={frozenLane.laneId}

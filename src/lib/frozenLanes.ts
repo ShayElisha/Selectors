@@ -1,7 +1,37 @@
 import type { FrozenLane, Lane } from '../types'
+import { laneOpenDuring } from './shiftCatalog'
+
+/**
+ * Filter frozen lanes to only those that are currently in their active hours.
+ * Lanes without activeHours are always considered active.
+ */
+export function filterFrozenLanesByActiveHours(
+  frozenLanes: FrozenLane[],
+  lanes: Lane[],
+  currentMinutes: number,
+  roundMinutes: number = 120
+): FrozenLane[] {
+  const laneMap = new Map(lanes.map((l) => [l.id, l]))
+  
+  return frozenLanes.filter((fl) => {
+    const lane = laneMap.get(fl.laneId)
+    if (!lane) return false
+    
+    // If no activeHours, lane is always active
+    if (!lane.activeHours || lane.activeHours.length === 0) return true
+    
+    // Check if lane is open during the current time window
+    return laneOpenDuring(
+      lane.activeHours,
+      currentMinutes,
+      currentMinutes + roundMinutes
+    )
+  })
+}
 
 /**
  * Check if we should prompt to unfreeze lanes when a worker is added.
+ * Only considers lanes that are currently in their active hours.
  * 
  * @returns true if we should show the unfreeze prompt
  */
@@ -10,8 +40,20 @@ export function shouldPromptUnfreeze(args: {
   currentHeadcount: number
   requiredStandard: number
   newWorkerId: string
+  lanes?: Lane[]
+  currentMinutes?: number
 }): boolean {
-  const { frozenLanes, currentHeadcount, requiredStandard } = args
+  const { currentHeadcount, requiredStandard } = args
+  
+  // Filter to only lanes that are currently active
+  let frozenLanes = args.frozenLanes
+  if (args.lanes && args.currentMinutes != null) {
+    frozenLanes = filterFrozenLanesByActiveHours(
+      args.frozenLanes,
+      args.lanes,
+      args.currentMinutes
+    )
+  }
 
   if (frozenLanes.length === 0) return false
   if (currentHeadcount < requiredStandard) return false
@@ -94,23 +136,34 @@ export function createFrozenLanes(
 
 /**
  * Get a user-friendly summary of frozen lanes.
+ * Optionally filters by current time to show only lanes in their active hours.
  */
 export function frozenLanesSummary(
   frozenLanes: FrozenLane[],
-  lanes: Lane[]
+  lanes: Lane[],
+  currentMinutes?: number
 ): string {
   if (frozenLanes.length === 0) return ''
+  
+  // Filter to only currently active lanes if currentMinutes is provided
+  const activeFrozenLanes = currentMinutes != null
+    ? filterFrozenLanesByActiveHours(frozenLanes, lanes, currentMinutes)
+    : frozenLanes
+
+  if (activeFrozenLanes.length === 0) {
+    return '' // All frozen lanes are currently outside their active hours
+  }
 
   const laneMap = new Map(lanes.map((l) => [l.id, l]))
-  const names = frozenLanes
+  const names = activeFrozenLanes
     .map((fl) => laneMap.get(fl.laneId)?.name || '?')
     .join(', ')
 
-  if (frozenLanes.length === 1) {
+  if (activeFrozenLanes.length === 1) {
     return `נתיב ${names} קפוא`
   }
 
-  return `${frozenLanes.length} נתיבים קפואים: ${names}`
+  return `${activeFrozenLanes.length} נתיבים קפואים: ${names}`
 }
 
 /**

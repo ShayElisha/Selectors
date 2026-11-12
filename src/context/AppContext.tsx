@@ -1971,11 +1971,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             d.guestWorkerIds,
           )
           
+          // Calculate current minutes for activeHours filtering
+          const now = new Date()
+          const currentMinutes = now.getHours() * 60 + now.getMinutes()
+          
           const shouldPrompt = shouldPromptUnfreeze({
             frozenLanes,
             currentHeadcount: feasibility.present,
             requiredStandard: feasibility.totalStandard,
             newWorkerId: workerId,
+            lanes: data.lanes,
+            currentMinutes,
           })
           
           if (shouldPrompt) {
