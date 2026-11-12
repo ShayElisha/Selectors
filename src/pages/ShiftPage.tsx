@@ -1714,23 +1714,18 @@ export function ShiftPage() {
                 </button>
                 </div>
               <p className="text-[12px] text-ink-soft tabular-nums">
+                נוכחים {feasibility.present}
                 {draft.headcountStandard != null ? (
                   <>
-                    נוכחים {feasibility.present} · תקן משמרת{' '}
-                    {draft.headcountStandard}
-                    {missingHeadcount > 0
-                      ? ` · חסרים ${missingHeadcount}`
-                      : ''}
+                    {' · '}תקן משמרת {draft.headcountStandard}
+                    {missingHeadcount > 0 ? ` · חסרים ${missingHeadcount}` : ' · מלא'}
                   </>
-                ) : (
+                ) : null}
+                {feasibility.totalStandard > 0 ? (
                   <>
-                    נוכחים {feasibility.present} · תקן עמדות{' '}
-                    {feasibility.totalStandard}
-                    {deficitMessage(feasibility)
-                      ? ` · ${deficitMessage(feasibility)}`
-                      : ''}
+                    {' · '}תקן עמדות {feasibility.totalStandard}
                   </>
-                )}
+                ) : null}
               </p>
               </div>
             {feasibilityOpen ? (
