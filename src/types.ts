@@ -76,6 +76,15 @@ export interface TrainingPairLock {
   laneId: string
 }
 
+/**
+ * Manually prioritize a worker to a specific lane (set from attendance).
+ * Auto-assign must place this worker on the chosen lane and exclude them from automatic placement.
+ */
+export interface ManualLanePlacement {
+  workerId: string
+  laneId: string
+}
+
 /** Which staff module a shift board belongs to. */
 export type ShiftAudience = 'inspector' | 'selector' | 'security'
 
@@ -182,6 +191,11 @@ export interface ShiftSchedule {
    * Trainee↔mentor locks chosen on the attendance step (who + which lane).
    */
   trainingPairs?: TrainingPairLock[]
+  /**
+   * Manual lane priorities set on the attendance step (worker → lane).
+   * These workers are excluded from automatic assignment and placed on their chosen lane.
+   */
+  manualPlacements?: ManualLanePlacement[]
   assignments: LaneAssignment[]
   /** Selector board: time rounds × lanes. */
   rounds?: SelectorRound[]

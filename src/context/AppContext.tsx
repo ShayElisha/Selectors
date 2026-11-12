@@ -68,6 +68,13 @@ import {
   pruneTrainingPairs,
   trainingPairLockedIds,
 } from '../lib/trainingPairing'
+import {
+  applyManualPlacementsToAssignments,
+  applyManualPlacementsToRounds,
+  manualPlacementLockedIds,
+  normalizeManualPlacements,
+  pruneManualPlacements,
+} from '../lib/manualPlacements'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
@@ -170,6 +177,7 @@ import type {
   CustomsBrokerContact,
   IncidentRecord,
   TrainingPairLock,
+  ManualLanePlacement,
   IncidentKind,
   IncidentSeverity,
   IncidentStatus,
@@ -369,6 +377,8 @@ export interface ShiftDraft {
   gateManagerWorkerId?: string
   /** Trainee locked with mentor + lane from the attendance step. */
   trainingPairs?: TrainingPairLock[]
+  /** Manual lane placements from the attendance step. */
+  manualPlacements?: ManualLanePlacement[]
   assignments: LaneAssignment[]
   /** Selector board: two-hour route rounds */
   rounds: SelectorRound[]
@@ -490,6 +500,11 @@ interface AppContextValue {
     traineeId: string,
     lock: { mentorId: string; laneId: string } | null,
   ) => void
+  /**
+   * Manually assign a worker to a specific lane (attendance step).
+   * Pass null to clear the worker's manual placement.
+   */
+  setManualPlacement: (workerId: string, laneId: string | null) => void
   /** Mark workers from other modules as present guests (manual board only). */
   addGuestWorkers: (workerIds: string[]) => void
   setWorkerWindow: (workerId: string, windowId: string | null) => void
@@ -748,6 +763,7 @@ function restoreDraft(): ShiftDraft | null {
       headcountStandard: normalizeHeadcountStandard(parsed.headcountStandard),
       gateManagerWorkerId: parsed.gateManagerWorkerId?.trim() || undefined,
       trainingPairs: normalizeTrainingPairs(parsed.trainingPairs),
+      manualPlacements: normalizeManualPlacements(parsed.manualPlacements),
     }
   } catch {
     return null
@@ -777,6 +793,7 @@ function snapshotDraft(d: ShiftDraft): string {
     guestWorkerIds: d.guestWorkerIds ?? [],
     gateManagerWorkerId: d.gateManagerWorkerId ?? '',
     trainingPairs: d.trainingPairs ?? [],
+    manualPlacements: d.manualPlacements ?? [],
     assignments: d.assignments.map((a) => ({
       laneId: a.laneId,
       workerIds: a.workerIds,
@@ -1963,6 +1980,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.activeLaneIds,
         workersById,
       )
+      const manualPlacements = pruneManualPlacements(
+        d.manualPlacements,
+        presentWorkerIds,
+        d.activeLaneIds,
+      )
       return withGateManagerSync(
         {
           ...d,
@@ -1970,6 +1992,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           guestWorkerIds: guestWorkerIds.length ? guestWorkerIds : undefined,
           gateManagerWorkerId,
           trainingPairs: trainingPairs.length ? trainingPairs : undefined,
+          manualPlacements: manualPlacements.length ? manualPlacements : undefined,
           assignments,
           rounds: usesRounds(d)
             ? clearWorkerFromRounds(d.rounds ?? [], workerId)
@@ -2017,6 +2040,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     },
     [data.workers],
+  )
+
+  const setManualPlacement = useCallback(
+    (workerId: string, laneId: string | null) => {
+      setDraft((d) => {
+        if (!d || d.signOff?.signedAt) return d
+        const without = (d.manualPlacements ?? []).filter(
+          (placement) => placement.workerId !== workerId,
+        )
+        if (!laneId) {
+          return {
+            ...d,
+            manualPlacements: without.length ? without : undefined,
+          }
+        }
+        if (!d.presentWorkerIds.includes(workerId)) return d
+        if (!d.activeLaneIds.includes(laneId)) return d
+        const next = normalizeManualPlacements([
+          ...without,
+          { workerId, laneId },
+        ])
+        return {
+          ...d,
+          manualPlacements: next.length ? next : undefined,
+        }
+      })
+    },
+    [],
   )
 
   const addGuestWorkers = useCallback(
@@ -2464,7 +2515,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.activeLaneIds,
         workersById,
       )
+      const manualPlacements = pruneManualPlacements(
+        d.manualPlacements,
+        d.presentWorkerIds,
+        d.activeLaneIds,
+      )
       const lockedIds = trainingPairLockedIds(trainingPairs)
+      const manualIds = manualPlacementLockedIds(manualPlacements)
       if (!usesRounds(d)) {
         const reservedByLane = new Map<string, number>()
         for (const pair of trainingPairs) {
@@ -2492,7 +2549,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             worker.id !== d.gateManagerWorkerId &&
             worker.status === 'active' &&
             !guestIds.has(worker.id) &&
-            !lockedIds.has(worker.id),
+            !lockedIds.has(worker.id) &&
+            !manualIds.has(worker.id),
         )
         // Multi-start search with real progress: thousands of board checks,
         // painted through the assigning loader instead of an instant result.
@@ -2510,7 +2568,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             },
           },
         )
-        const mergedAssignments = applyTrainingPairsToAssignments(
+        const withTraining = applyTrainingPairsToAssignments(
           padAssignments(
             placed.assignments,
             data.lanes,
@@ -2518,6 +2576,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             d.staffingOverrides,
           ),
           trainingPairs,
+          data.lanes,
+          d.staffingOverrides,
+        )
+        const mergedAssignments = applyManualPlacementsToAssignments(
+          withTraining,
+          manualPlacements,
           data.lanes,
           d.staffingOverrides,
         )
@@ -2538,6 +2602,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             assignmentMode: 'single',
             rounds: [],
             trainingPairs: trainingPairs.length ? trainingPairs : undefined,
+            manualPlacements: manualPlacements.length ? manualPlacements : undefined,
             assignments: mergedAssignments,
             warnings: placed.warnings,
             explanations: placed.explanations,
@@ -2549,7 +2614,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const present = selectorStaff(
         data.workers,
         d.presentWorkerIds.filter(
-          (id) => !guestIds.has(id) && !lockedIds.has(id),
+          (id) => !guestIds.has(id) && !lockedIds.has(id) && !manualIds.has(id),
         ),
         d.gateManagerWorkerId,
       )
@@ -2574,9 +2639,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         date: d.date,
         roster: data.workers,
       })
-      const mergedRounds = applyTrainingPairsToRounds(
+      const withTrainingRounds = applyTrainingPairsToRounds(
         result.rounds,
         trainingPairs,
+        data.lanes,
+        d.staffingOverrides,
+      )
+      const mergedRounds = applyManualPlacementsToRounds(
+        withTrainingRounds,
+        manualPlacements,
         data.lanes,
         d.staffingOverrides,
       )
@@ -2600,6 +2671,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         {
           ...d,
           trainingPairs: trainingPairs.length ? trainingPairs : undefined,
+          manualPlacements: manualPlacements.length ? manualPlacements : undefined,
           audience: audienceForModule(user?.module),
           assignmentMode: 'rounds',
           assignments: [],
@@ -4350,6 +4422,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLaneStaffingStandard,
       toggleWorker,
       setTrainingPair,
+      setManualPlacement,
       addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
@@ -4455,6 +4528,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLaneStaffingStandard,
       toggleWorker,
       setTrainingPair,
+      setManualPlacement,
       addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
