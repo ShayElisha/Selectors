@@ -1555,6 +1555,51 @@ export function ShiftPage() {
                             </div>
                           </div>
                         ) : null}
+                        {on && !isGate && w.trainingRole !== 'trainee' ? (
+                          <div className="border-t border-line/30 px-2.5 py-2">
+                            <p className="mb-1.5 text-[11px] font-bold text-ink-soft">
+                              תיעדוף ידני לעמדה
+                            </p>
+                            {(() => {
+                              const placement = draft.manualPlacements?.find(
+                                (item) => item.workerId === w.id,
+                              )
+                              const availableLanes = data.lanes.filter(
+                                (lane) =>
+                                  draft.activeLaneIds.includes(lane.id) &&
+                                  !isGateManagerLane(lane),
+                              )
+                              return (
+                                <div>
+                                  <label className="text-[11px] font-semibold text-ink-soft">
+                                    נתיב מועדף
+                                    <select
+                                      className="ui-field mt-0.5 w-full py-1.5 text-[13px]"
+                                      aria-label={`עמדה מועדפת עבור ${w.fullName}`}
+                                      value={placement?.laneId ?? ''}
+                                      onChange={(e) => {
+                                        const laneId = e.target.value || null
+                                        setManualPlacement(w.id, laneId)
+                                      }}
+                                    >
+                                      <option value="">אין תיעדוף (שיבוץ רגיל)</option>
+                                      {availableLanes.map((lane) => (
+                                        <option key={lane.id} value={lane.id}>
+                                          {lane.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  {placement?.laneId ? (
+                                    <p className="mt-1.5 text-[11px] font-semibold text-ok">
+                                      יושבץ בנתיב {data.lanes.find((l) => l.id === placement.laneId)?.name} ללא חלק מהשיבוץ האוטומטי
+                                    </p>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        ) : null}
                         {w.trainingRole === 'trainee' && on && !isGate ? (
                           <div className="border-t border-brand/15 px-2.5 py-2">
                             <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-brand">
