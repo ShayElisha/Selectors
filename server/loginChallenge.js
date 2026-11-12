@@ -93,13 +93,16 @@ export async function createLoginChallenge(
     expiresAt: new Date(now + CHALLENGE_TTL_MS),
   }
 
+  const codeHash = hashCode(challengeId, code).toString('hex')
   console.log('[loginChallenge] Creating challenge:', {
     challengeId,
-    code,
+    code,  // ← הקוד שנשלח במייל
+    codeHash: codeHash.substring(0, 16) + '...',  // חלק מה-hash
     createdAt: challenge.createdAt.toISOString(),
     expiresAt: challenge.expiresAt.toISOString(),
     email: maskEmail(destination),
     ttlMinutes: CHALLENGE_TTL_MS / 60_000,
+    secretUsed: secret().substring(0, 10) + '...',  // חלק מה-SECRET
   })
 
   await collection.insertOne(challenge)
@@ -131,20 +134,6 @@ export async function verifyLoginChallenge(challengeId, code) {
     codeLength: value.length,
     codeFormat: /^\d{6}$/.test(value) ? 'valid' : 'invalid',
   })
-  
-  // 🔧 TEMPORARY DEBUG: Accept "999999" as a bypass code
-  if (value === '999999') {
-    console.log('[loginChallenge] ⚠️ DEBUG BYPASS CODE USED')
-    const collection = await challenges()
-    const challenge = await collection.findOne({ _id: id })
-    if (challenge) {
-      await collection.deleteOne({ _id: id })
-      return {
-        identity: challenge.identity,
-        passwordChanged: Boolean(challenge.passwordChanged),
-      }
-    }
-  }
   
   if (!id || id.length > 64 || !/^\d{6}$/.test(value)) {
     console.error('[loginChallenge] Invalid format:', { id: !!id, codeValid: /^\d{6}$/.test(value) })
@@ -186,8 +175,12 @@ export async function verifyLoginChallenge(challengeId, code) {
   
   console.log('[loginChallenge] Hash comparison:', {
     match: hashMatch,
-    expectedLength: expected.length,
-    storedLength: challenge.codeHash.length,
+    inputCode: value,  // ← מה שהוזן
+    inputCodeLength: value.length,
+    storedHashPreview: challenge.codeHash.substring(0, 16) + '...',
+    computedHashPreview: expected.substring(0, 16) + '...',
+    secretUsed: secret().substring(0, 10) + '...',
+    hashesEqual: challenge.codeHash === expected,
   })
   
   if (!hashMatch) {
