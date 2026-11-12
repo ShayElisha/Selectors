@@ -277,13 +277,13 @@ app.post('/api/login', async (req, res) => {
       res.json(result)
       return
     }
-    const email = await loginEmailForIdentity(result)
-    res.json(
-      await createLoginChallenge(result, {
-        email,
-        passwordChanged: Boolean(req.body?.newPassword),
-      }),
-    )
+    // ✅ SKIP EMAIL VERIFICATION - login directly
+    console.log('[/api/login] Email verification disabled, logging in directly')
+    await recordSuccessfulLogin(result, {
+      passwordChanged: Boolean(req.body?.newPassword),
+    })
+    const token = createSessionToken(result)
+    res.json({ ...result, token })
   } catch (err) {
     sendError(res, err)
   }
