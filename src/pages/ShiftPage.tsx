@@ -155,6 +155,12 @@ export function ShiftPage() {
     dismissSelfHeal,
     healing,
     healPlan,
+    unfreezePrompt,
+    dismissUnfreezePrompt,
+    keepLanesFrozen,
+    unfreezeAndReassign,
+    // manuallyUnfreezeLane, // TODO: add manual unfreeze button in lanes list
+    remindUnfreezeLater,
     assigning,
     assignProgress,
     previewBoardOptions,
@@ -2639,6 +2645,95 @@ export function ShiftPage() {
           </div>
         </div>
       ) : null}
+      {unfreezePrompt?.show
+        ? createPortal(
+            <div className="fixed inset-0 z-[400] flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="unfreeze-prompt-title"
+                className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
+              >
+                <h3 id="unfreeze-prompt-title" className="font-display text-lg font-bold text-ink">
+                  💡 הצעה - פתיחת נתיב קפוא
+                </h3>
+                
+                {unfreezePrompt.triggerWorkerName ? (
+                  <p className="mt-2 text-[13px] leading-relaxed text-ink">
+                    ✅ <span className="font-medium">{unfreezePrompt.triggerWorkerName}</span> הגיע/ה
+                  </p>
+                ) : null}
+                
+                <div className="mt-3 space-y-2 rounded-xl bg-ok-soft/50 px-3 py-2.5 ring-1 ring-ok/20">
+                  <p className="text-[13px] text-ink-soft">
+                    👥 נוכחים עכשיו: <span className="font-semibold text-ink">{unfreezePrompt.currentHeadcount}</span>
+                  </p>
+                  <p className="text-[13px] text-ink-soft">
+                    📊 תקן נתיבים: <span className="font-semibold text-ink">{unfreezePrompt.requiredStandard}</span>
+                    {unfreezePrompt.currentHeadcount >= unfreezePrompt.requiredStandard ? (
+                      <span className="mr-1.5 text-ok">✓ יש מספיק!</span>
+                    ) : null}
+                  </p>
+                </div>
+                
+                {unfreezePrompt.frozenLanes.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="text-[13px] font-medium text-ink">❄️ נתיבים קפואים:</p>
+                    <ul className="mt-1.5 space-y-1">
+                      {unfreezePrompt.frozenLanes.map((frozenLane) => {
+                        const lane = data.lanes.find((l) => l.id === frozenLane.laneId)
+                        return (
+                          <li
+                            key={frozenLane.laneId}
+                            className="rounded-lg bg-warn-soft/60 px-2.5 py-1.5 text-[13px] text-ink ring-1 ring-warn/25"
+                          >
+                            • {lane?.name || '?'} (קפא ב-{new Date(frozenLane.frozenAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+                
+                <p className="mt-4 text-[13px] leading-relaxed text-ink">
+                  ❓ <span className="font-medium">לפתוח את הנתיבים הקפואים ולשבץ מחדש?</span>
+                </p>
+                
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={dismissUnfreezePrompt}
+                    className="ui-btn ui-btn-secondary min-h-10 text-[13px]"
+                  >
+                    ✕ סגור
+                  </button>
+                  <button
+                    type="button"
+                    onClick={remindUnfreezeLater}
+                    className="ui-btn ui-btn-secondary min-h-10 text-[13px]"
+                  >
+                    ⏰ הזכר בעוד 10 דק'
+                  </button>
+                  <button
+                    type="button"
+                    onClick={keepLanesFrozen}
+                    className="ui-btn ui-btn-secondary min-h-10 text-[13px]"
+                  >
+                    ❌ לא, השאר קפוא
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void unfreezeAndReassign()}
+                    className="ui-btn ui-btn-primary min-h-10 text-[13px]"
+                  >
+                    ✅ כן, פתח ושבץ
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

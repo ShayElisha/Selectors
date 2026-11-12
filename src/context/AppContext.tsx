@@ -399,6 +399,8 @@ export interface ShiftDraft {
   /** Set after a formal close. The board is read-only. */
   signOff?: ShiftSignOff
   frozenLaneIds?: string[]
+  /** Frozen lanes with full metadata (when/why frozen, decision history). */
+  frozenLanes?: import('../types').FrozenLane[]
   seatSegments?: SeatSegment[]
   seatSpan?: { startMinutes: number; endMinutes: number }
   isSelfHealed?: boolean
@@ -568,6 +570,18 @@ interface AppContextValue {
   replaceLeavingWorker: (leavingId: string, replacementId: string) => void
   /** Drop a lane from the open shift. People who were on it stay present and become unassigned. */
   removeLaneFromShift: (laneId: string) => void
+  /** Unfreeze prompt state (shown when worker added and lanes can be unfrozen). */
+  unfreezePrompt: import('../types').UnfreezePrompt | null
+  /** Dismiss the unfreeze prompt without taking action. */
+  dismissUnfreezePrompt: () => void
+  /** User chose to keep lanes frozen. */
+  keepLanesFrozen: () => void
+  /** User chose to unfreeze and reassign from current time. */
+  unfreezeAndReassign: () => Promise<void>
+  /** Manually unfreeze a specific lane (from UI button). */
+  manuallyUnfreezeLane: (laneId: string) => Promise<void>
+  /** Remind later (10 minutes). */
+  remindUnfreezeLater: () => void
   updateLaneNotes: (laneId: string, notes: string) => void
   addExtraWorkerToLane: (laneId: string, workerId: string) => void
   addSlotToLane: (laneId: string) => void
@@ -880,6 +894,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     healed: SelfHealPlan
     manual: SelfHealPlan
   } | null>(null)
+  const [unfreezePrompt, setUnfreezePrompt] = useState<import('../types').UnfreezePrompt | null>(null)
   const laneHoursKey = data.lanes
     .map(
       (lane) =>
@@ -1941,6 +1956,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
             workersById,
           ),
         }
+        
+        const frozenLanes = d.frozenLanes ?? []
+        if (frozenLanes.length > 0) {
+          const { shouldPromptUnfreeze } = require('../lib/frozenLanes')
+          const { computeFeasibilityPreview } = require('../lib/feasibility')
+          
+          const feasibility = computeFeasibilityPreview(
+            presentWorkerIds,
+            d.activeLaneIds,
+            d.staffingOverrides,
+            data.workers,
+            data.lanes,
+            d.guestWorkerIds,
+          )
+          
+          const shouldPrompt = shouldPromptUnfreeze({
+            frozenLanes,
+            currentHeadcount: feasibility.present,
+            requiredStandard: feasibility.totalStandard,
+            newWorkerId: workerId,
+          })
+          
+          if (shouldPrompt) {
+            const worker = workersById.get(workerId)
+            setTimeout(() => {
+              setUnfreezePrompt({
+                show: true,
+                triggerWorkerId: workerId,
+                triggerWorkerName: worker?.fullName,
+                currentHeadcount: feasibility.present,
+                requiredStandard: feasibility.totalStandard,
+                frozenLanes,
+              })
+            }, 100)
+          }
+        }
+        
         if (usesRounds(d)) {
           return withGateManagerSync(next, data.lanes)
         }
@@ -2741,6 +2793,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     user?.module,
   ])
 
+  useEffect(() => {
+    unfreezeAndReassignRef.current = runAutoAssign
+  }, [runAutoAssign])
+
   const previewBoardOptions = useCallback(() => {
     if (!draft || draft.signOff?.signedAt || usesRounds(draft)) return null
     const activeLanes = data.lanes
@@ -3455,6 +3511,137 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const dismissSelfHeal = useCallback(() => {
     setHealPlan(null)
   }, [])
+
+  const dismissUnfreezePrompt = useCallback(() => {
+    setUnfreezePrompt(null)
+  }, [])
+
+  const keepLanesFrozen = useCallback(() => {
+    if (!unfreezePrompt || !draft || !user) return
+    
+    const { recordUnfreezeDecision } = 
+      require('../lib/frozenLanes')
+    
+    const model = shiftModelById(
+      resolveShiftModels(data.shiftModels, activeModule(user)),
+      draft.shiftType,
+    )
+    
+    if (!model) {
+      toast.error('לא נמצא מודל משמרת')
+      return
+    }
+    
+    const frozenLanes = draft.frozenLanes ?? []
+    const currentMinutes = removalMinute({
+      shiftDate: draft.date,
+      startMinutes: model.startMinutes,
+      endMinutes: model.endMinutes,
+      now: new Date(),
+    })
+    
+    const updatedFrozenLanes = recordUnfreezeDecision(
+      frozenLanes,
+      'keep_frozen',
+      currentMinutes,
+      unfreezePrompt.currentHeadcount,
+    )
+    
+    setDraft((d) => {
+      if (!d) return d
+      return {
+        ...d,
+        frozenLanes: updatedFrozenLanes,
+      }
+    })
+    
+    setUnfreezePrompt(null)
+    toast.info('הנתיבים הקפואים יישארו קפואים עד סוף המשמרת')
+  }, [unfreezePrompt, draft, data.shiftModels, user])
+
+  const unfreezeAndReassignRef = useRef<(() => Promise<void>) | null>(null)
+  
+  const unfreezeAndReassign = useCallback(async () => {
+    if (!unfreezePrompt || !draft || !user) return
+    
+    const model = shiftModelById(
+      resolveShiftModels(data.shiftModels, activeModule(user)),
+      draft.shiftType,
+    )
+    
+    if (!model) {
+      toast.error('לא נמצא מודל משמרת')
+      return
+    }
+    
+    setDraft((d) => {
+      if (!d) return d
+      return {
+        ...d,
+        frozenLanes: [],
+        frozenLaneIds: [],
+      }
+    })
+    
+    setUnfreezePrompt(null)
+    toast.success('✅ נתיבים קפואים נפתחו! משבץ מחדש...')
+    
+    if (unfreezeAndReassignRef.current) {
+      await unfreezeAndReassignRef.current()
+    }
+  }, [unfreezePrompt, draft, data.shiftModels, user])
+
+  const manuallyUnfreezeLane = useCallback(async (laneId: string) => {
+    if (!draft) return
+    
+    const { frozenLaneIds } = require('../lib/frozenLanes')
+    const frozenLanes = (draft.frozenLanes ?? []).filter(
+      (fl: any) => fl.laneId !== laneId,
+    )
+    const frozenIds = frozenLaneIds(frozenLanes)
+    
+    setDraft((d) => {
+      if (!d) return d
+      return {
+        ...d,
+        frozenLanes,
+        frozenLaneIds: frozenIds.length ? frozenIds : undefined,
+      }
+    })
+    
+    const lane = data.lanes.find((l) => l.id === laneId)
+    toast.success(`🔓 נתיב ${lane?.name || '?'} נפתח ידנית`)
+    
+    if (unfreezeAndReassignRef.current) {
+      await unfreezeAndReassignRef.current()
+    }
+  }, [draft, data.lanes])
+
+  const remindUnfreezeLater = useCallback(() => {
+    if (!unfreezePrompt) return
+    
+    const remindAt = new Date()
+    remindAt.setMinutes(remindAt.getMinutes() + 10)
+    
+    setUnfreezePrompt({
+      ...unfreezePrompt,
+      show: false,
+      remindAt: remindAt.toISOString(),
+    })
+    
+    toast.info('⏰ אזכיר בעוד 10 דקות')
+    
+    setTimeout(() => {
+      setUnfreezePrompt((current) => {
+        if (!current || !current.remindAt) return current
+        return {
+          ...current,
+          show: true,
+          remindAt: undefined,
+        }
+      })
+    }, 10 * 60 * 1000)
+  }, [unfreezePrompt])
 
   const removeLaneFromShift = useCallback(
     (laneId: string) => {
@@ -4448,6 +4635,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dismissSelfHeal,
       healing,
       healPlan,
+      unfreezePrompt,
+      dismissUnfreezePrompt,
+      keepLanesFrozen,
+      unfreezeAndReassign,
+      manuallyUnfreezeLane,
+      remindUnfreezeLater,
       replaceLeavingWorker,
       removeLaneFromShift,
       updateLaneNotes,
@@ -4554,6 +4747,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dismissSelfHeal,
       healing,
       healPlan,
+      unfreezePrompt,
+      dismissUnfreezePrompt,
+      keepLanesFrozen,
+      unfreezeAndReassign,
+      manuallyUnfreezeLane,
+      remindUnfreezeLater,
       replaceLeavingWorker,
       removeLaneFromShift,
       updateLaneNotes,

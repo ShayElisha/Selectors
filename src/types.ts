@@ -85,6 +85,37 @@ export interface ManualLanePlacement {
   laneId: string
 }
 
+/**
+ * A lane frozen due to shortage. Tracks when/why it was frozen and any decisions.
+ */
+export interface FrozenLane {
+  laneId: string
+  frozenAtMinutes: number
+  frozenAt: string
+  reason: string
+  /** Previous decisions: user chose not to unfreeze when prompted */
+  decisionHistory?: {
+    at: string
+    atMinutes: number
+    headcount: number
+    decision: 'keep_frozen' | 'unfrozen'
+  }[]
+}
+
+/**
+ * Prompt to unfreeze lanes when headcount increases.
+ */
+export interface UnfreezePrompt {
+  show: boolean
+  triggerWorkerId?: string
+  triggerWorkerName?: string
+  currentHeadcount: number
+  requiredStandard: number
+  frozenLanes: FrozenLane[]
+  /** If user asked to be reminded later */
+  remindAt?: string
+}
+
 /** Which staff module a shift board belongs to. */
 export type ShiftAudience = 'inspector' | 'selector' | 'security'
 
@@ -260,6 +291,8 @@ export interface ShiftSchedule {
   seatSpan?: { startMinutes: number; endMinutes: number }
   /** Easy lanes left empty because nobody could cover a harder lane. */
   frozenLaneIds?: string[]
+  /** Frozen lanes with full metadata (when/why frozen, decision history). */
+  frozenLanes?: FrozenLane[]
   /** Real-time board changes, newest last. */
   shiftEvents?: ShiftChangeEvent[]
   /** Clock time someone left the shift, keyed by worker id. Load uses the hours until then. */
