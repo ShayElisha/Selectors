@@ -123,6 +123,8 @@ export function LoginPage() {
     setShowPassword(false)
     setShowNewPassword(false)
     setShowConfirm(false)
+    setError(null)
+    setInfo(null)
   }
 
   const beginEmailVerification = (result: {
@@ -622,6 +624,8 @@ export function LoginPage() {
               disabled={busy}
               onClick={() => {
                 setStep('login')
+                setChallengeId('')
+                setEmailHint('')
                 setVerificationCode('')
                 setError(null)
                 setInfo(null)

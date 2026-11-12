@@ -291,6 +291,12 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/login/verify', async (req, res) => {
   try {
+    console.log('[/api/login/verify] Request received:', {
+      challengeId: req.body?.challengeId,
+      codeLength: String(req.body?.code || '').length,
+      serverTime: new Date().toISOString(),
+      serverTimeMs: Date.now(),
+    })
     await assertRateLimit({
       key: `login-code:${clientKey(req)}`,
       limit: 30,
@@ -307,6 +313,7 @@ app.post('/api/login/verify', async (req, res) => {
     const token = createSessionToken(user)
     res.json({ ...user, token })
   } catch (err) {
+    console.error('[/api/login/verify] Error:', err.message)
     sendError(res, err)
   }
 })

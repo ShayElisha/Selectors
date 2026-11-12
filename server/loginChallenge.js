@@ -92,6 +92,15 @@ export async function createLoginChallenge(
     expiresAt: new Date(now + CHALLENGE_TTL_MS),
   }
 
+  console.log('[loginChallenge] Creating challenge:', {
+    challengeId,
+    code,
+    createdAt: challenge.createdAt.toISOString(),
+    expiresAt: challenge.expiresAt.toISOString(),
+    email: maskEmail(destination),
+    ttlMinutes: CHALLENGE_TTL_MS / 60_000,
+  })
+
   await collection.insertOne(challenge)
   try {
     await sendLoginCodeEmail({
@@ -114,12 +123,34 @@ export async function createLoginChallenge(
 export async function verifyLoginChallenge(challengeId, code) {
   const id = typeof challengeId === 'string' ? challengeId : ''
   const value = typeof code === 'string' ? code : ''
+  
+  console.log('[loginChallenge] Verify attempt:', {
+    challengeId: id,
+    code: value,
+    codeLength: value.length,
+    codeFormat: /^\d{6}$/.test(value) ? 'valid' : 'invalid',
+  })
+  
   if (!id || id.length > 64 || !/^\d{6}$/.test(value)) {
+    console.error('[loginChallenge] Invalid format:', { id: !!id, codeValid: /^\d{6}$/.test(value) })
     throw httpError('קוד אימות שגוי או שפג תוקפו', 401)
   }
 
   const collection = await challenges()
   const now = new Date()
+  
+  const existingChallenge = await collection.findOne({ _id: id })
+  console.log('[loginChallenge] Challenge status:', {
+    exists: !!existingChallenge,
+    createdAt: existingChallenge?.createdAt?.toISOString(),
+    expiresAt: existingChallenge?.expiresAt?.toISOString(),
+    now: now.toISOString(),
+    attempts: existingChallenge?.attempts,
+    maxAttempts: MAX_ATTEMPTS,
+    isExpired: existingChallenge ? existingChallenge.expiresAt <= now : null,
+    minutesRemaining: existingChallenge ? Math.round((existingChallenge.expiresAt - now) / 60_000) : null,
+  })
+  
   const challenge = await collection.findOneAndUpdate(
     {
       _id: id,
@@ -129,12 +160,23 @@ export async function verifyLoginChallenge(challengeId, code) {
     { $inc: { attempts: 1 } },
     { returnDocument: 'before' },
   )
+  
   if (!challenge) {
+    console.error('[loginChallenge] Challenge not found or expired')
     throw httpError('קוד אימות שגוי או שפג תוקפו', 401)
   }
 
   const expected = hashCode(id, value).toString('hex')
-  if (!sameHash(challenge.codeHash, expected)) {
+  const hashMatch = sameHash(challenge.codeHash, expected)
+  
+  console.log('[loginChallenge] Hash comparison:', {
+    match: hashMatch,
+    expectedLength: expected.length,
+    storedLength: challenge.codeHash.length,
+  })
+  
+  if (!hashMatch) {
+    console.error('[loginChallenge] Hash mismatch')
     throw httpError('קוד אימות שגוי או שפג תוקפו', 401)
   }
 
@@ -143,10 +185,18 @@ export async function verifyLoginChallenge(challengeId, code) {
     codeHash: challenge.codeHash,
     expiresAt: { $gt: now },
   })
+  
+  console.log('[loginChallenge] Challenge consumed:', {
+    deletedCount: consumed.deletedCount,
+  })
+  
   if (consumed.deletedCount !== 1) {
+    console.error('[loginChallenge] Failed to consume challenge')
     throw httpError('קוד אימות שגוי או שפג תוקפו', 401)
   }
 
+  console.log('[loginChallenge] Verification successful')
+  
   return {
     identity: challenge.identity,
     passwordChanged: Boolean(challenge.passwordChanged),
