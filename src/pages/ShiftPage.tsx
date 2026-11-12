@@ -1464,27 +1464,52 @@ export function ShiftPage() {
                           </button>
                         ) : null}
                         </div>
-                        {module !== 'inspectors' && on && !isGate ? (
+                        {on && !isGate ? (
                           <div className="px-2.5 pb-2">
-                            <select
-                              value={draft.workerWindows?.[w.id] ?? ''}
-                              aria-label={`משמרת של ${w.fullName}`}
-                              onChange={(e) => {
-                                const windowId = e.target.value
-                                if (!windowId) return
-                                setWorkerWindow(w.id, windowId)
-                              }}
-                              className="ui-field w-full py-1.5 text-[13px]"
-                            >
-                              {!draft.workerWindows?.[w.id] ? (
-                                <option value="">בחר משמרת</option>
-                              ) : null}
-                              {WORKER_WINDOWS.map((preset) => (
-                                <option key={preset.id} value={preset.id}>
-                                  {preset.label}
-                                </option>
-                              ))}
-                            </select>
+                            {module !== 'inspectors' ? (
+                              <select
+                                value={draft.workerWindows?.[w.id] ?? ''}
+                                aria-label={`משמרת של ${w.fullName}`}
+                                onChange={(e) => {
+                                  const windowId = e.target.value
+                                  if (!windowId) return
+                                  setWorkerWindow(w.id, windowId)
+                                }}
+                                className="ui-field w-full py-1.5 text-[13px]"
+                              >
+                                {!draft.workerWindows?.[w.id] ? (
+                                  <option value="">בחר משמרת</option>
+                                ) : null}
+                                {WORKER_WINDOWS.map((preset) => (
+                                  <option key={preset.id} value={preset.id}>
+                                    {preset.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : w.trainingRole !== 'trainee' ? (
+                              <select
+                                className="ui-field w-full py-1.5 text-[13px]"
+                                aria-label={`נתיב מועדף עבור ${w.fullName}`}
+                                value={draft.manualPlacements?.find((p) => p.workerId === w.id)?.laneId ?? ''}
+                                onChange={(e) => {
+                                  const laneId = e.target.value || null
+                                  setManualPlacement(w.id, laneId)
+                                }}
+                              >
+                                <option value="">שיבוץ אוטומטי</option>
+                                {data.lanes
+                                  .filter(
+                                    (lane) =>
+                                      draft.activeLaneIds.includes(lane.id) &&
+                                      !isGateManagerLane(lane),
+                                  )
+                                  .map((lane) => (
+                                    <option key={lane.id} value={lane.id}>
+                                      📌 {lane.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            ) : null}
                             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
                               <label className="text-[11px] text-ink-soft">
                                 איחור
@@ -1525,51 +1550,6 @@ export function ShiftPage() {
                                 </select>
                               </label>
                             </div>
-                          </div>
-                        ) : null}
-                        {on && !isGate && w.trainingRole !== 'trainee' ? (
-                          <div className="border-t border-line/30 px-2.5 py-2">
-                            <p className="mb-1.5 text-[11px] font-bold text-ink-soft">
-                              תיעדוף ידני לעמדה
-                            </p>
-                            {(() => {
-                              const placement = draft.manualPlacements?.find(
-                                (item) => item.workerId === w.id,
-                              )
-                              const availableLanes = data.lanes.filter(
-                                (lane) =>
-                                  draft.activeLaneIds.includes(lane.id) &&
-                                  !isGateManagerLane(lane),
-                              )
-                              return (
-                                <div>
-                                  <label className="text-[11px] font-semibold text-ink-soft">
-                                    נתיב מועדף
-                                    <select
-                                      className="ui-field mt-0.5 w-full py-1.5 text-[13px]"
-                                      aria-label={`עמדה מועדפת עבור ${w.fullName}`}
-                                      value={placement?.laneId ?? ''}
-                                      onChange={(e) => {
-                                        const laneId = e.target.value || null
-                                        setManualPlacement(w.id, laneId)
-                                      }}
-                                    >
-                                      <option value="">אין תיעדוף (שיבוץ רגיל)</option>
-                                      {availableLanes.map((lane) => (
-                                        <option key={lane.id} value={lane.id}>
-                                          {lane.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </label>
-                                  {placement?.laneId ? (
-                                    <p className="mt-1.5 text-[11px] font-semibold text-ok">
-                                      יושבץ בנתיב {data.lanes.find((l) => l.id === placement.laneId)?.name} ללא חלק מהשיבוץ האוטומטי
-                                    </p>
-                                  ) : null}
-                                </div>
-                              )
-                            })()}
                           </div>
                         ) : null}
                         {w.trainingRole === 'trainee' && on && !isGate ? (
