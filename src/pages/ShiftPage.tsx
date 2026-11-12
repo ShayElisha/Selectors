@@ -1464,37 +1464,6 @@ export function ShiftPage() {
                           </button>
                         ) : null}
                         </div>
-                        {on && !isGate && w.trainingRole !== 'trainee' && module === 'inspectors' ? (
-                          <div className="border-t border-line/20 px-2.5 py-2">
-                            <label className="flex items-center gap-2">
-                              <span className="shrink-0 text-[11px] font-semibold text-ink-soft">
-                                נתיב מועדף:
-                              </span>
-                              <select
-                                className="ui-field flex-1 py-1.5 text-[12px] font-medium"
-                                aria-label={`נתיב מועדף עבור ${w.fullName}`}
-                                value={draft.manualPlacements?.find((p) => p.workerId === w.id)?.laneId ?? ''}
-                                onChange={(e) => {
-                                  const laneId = e.target.value || null
-                                  setManualPlacement(w.id, laneId)
-                                }}
-                              >
-                                <option value="">שיבוץ רגיל (אוטומטי)</option>
-                                {data.lanes
-                                  .filter(
-                                    (lane) =>
-                                      draft.activeLaneIds.includes(lane.id) &&
-                                      !isGateManagerLane(lane),
-                                  )
-                                  .map((lane) => (
-                                    <option key={lane.id} value={lane.id}>
-                                      📌 {lane.name}
-                                    </option>
-                                  ))}
-                              </select>
-                            </label>
-                          </div>
-                        ) : null}
                         {module !== 'inspectors' && on && !isGate ? (
                           <div className="px-2.5 pb-2">
                             <select
