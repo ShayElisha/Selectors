@@ -1376,6 +1376,18 @@ export function ShiftPage() {
                               {w.trainingRole === 'trainee' ? (
                                 <TraineeBadge />
                               ) : null}
+                              {on && !isGate && w.trainingRole !== 'trainee' ? (
+                                (() => {
+                                  const placement = draft.manualPlacements?.find(
+                                    (item) => item.workerId === w.id,
+                                  )
+                                  return placement?.laneId ? (
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-ok-soft px-1.5 py-0.5 text-[10px] font-bold text-ok ring-1 ring-ok/20">
+                                      📌 {data.lanes.find((l) => l.id === placement.laneId)?.name}
+                                    </span>
+                                  ) : null
+                                })()
+                              ) : null}
                               {guestIdSet.has(w.id) ? (
                                 <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent">
                                   אורח
@@ -1450,6 +1462,34 @@ export function ShiftPage() {
                             <Shield className="size-3.5" aria-hidden />
                             מנהל משמרת
                           </button>
+                        ) : null}
+                        {on && !isGate && w.trainingRole !== 'trainee' ? (
+                          <div className="m-1.5 shrink-0">
+                            <select
+                              className="ui-field h-11 min-w-[140px] py-1.5 text-[11px] font-semibold"
+                              aria-label={`נתיב מועדף עבור ${w.fullName}`}
+                              value={draft.manualPlacements?.find((p) => p.workerId === w.id)?.laneId ?? ''}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                const laneId = e.target.value || null
+                                setManualPlacement(w.id, laneId)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <option value="">בחר נתיב...</option>
+                              {data.lanes
+                                .filter(
+                                  (lane) =>
+                                    draft.activeLaneIds.includes(lane.id) &&
+                                    !isGateManagerLane(lane),
+                                )
+                                .map((lane) => (
+                                  <option key={lane.id} value={lane.id}>
+                                    {lane.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
                         ) : null}
                         </div>
                         {module !== 'inspectors' && on && !isGate ? (
