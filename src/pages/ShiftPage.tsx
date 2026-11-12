@@ -93,7 +93,6 @@ import {
   canAdvanceFromAttendance,
   canAdvanceFromLanes,
   computeFeasibilityPreview,
-  deficitMessage,
   formatSetupDateLine,
   laneSelectionFromShift,
   lanesStepSummary,
