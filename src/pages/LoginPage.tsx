@@ -449,13 +449,21 @@ export function LoginPage() {
                   type="text"
                   value={verificationCode}
                   onChange={(event) => {
-                    setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    const cleaned = event.target.value.replace(/\D/g, '').slice(0, 6)
+                    setVerificationCode(cleaned)
+                    if (error) setError(null)
+                  }}
+                  onPaste={(event) => {
+                    event.preventDefault()
+                    const pasted = event.clipboardData.getData('text')
+                    const cleaned = pasted.replace(/\D/g, '').slice(0, 6)
+                    setVerificationCode(cleaned)
                     if (error) setError(null)
                   }}
                   dir="ltr"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  maxLength={6}
+                  placeholder="000000"
                   pattern="[0-9]{6}"
                   disabled={busy}
                   required
