@@ -8,7 +8,7 @@ import { getDb } from './db.js'
 import { sendLoginCodeEmail } from './mail.js'
 
 const CHALLENGE_TTL_MS = 10 * 60_000
-const MAX_ATTEMPTS = 5
+const MAX_ATTEMPTS = Number(process.env.LOGIN_CODE_MAX_ATTEMPTS) || 100
 
 let indexPromise
 
