@@ -12,10 +12,15 @@ import {
   pickLaneWorkersWithTraining,
   placementAllowedForTraining,
 } from './lib/trainingPairing'
+import {
+  filterManuallyPlacedFromPool,
+  applyManualPlacementsToAssignments,
+} from './lib/manualPlacements'
 import type {
   Intensity,
   Lane,
   LaneAssignment,
+  ManualLanePlacement,
   ShiftSchedule,
   ShiftType,
   Worker,
@@ -98,6 +103,11 @@ export interface AssignmentContext {
    * Used to name whoever sat a lane last, even if they are not present now.
    */
   roster?: Worker[]
+  /**
+   * Manual lane placements from the attendance step.
+   * These workers are excluded from automatic assignment and placed on their chosen lanes.
+   */
+  manualPlacements?: ManualLanePlacement[]
 }
 
 export interface WorkerLaneStats {
@@ -3864,6 +3874,12 @@ function runAssignmentAlgorithmInternal(
 
   const workerById = new Map(presentWorkers.map((w) => [w.id, w]))
 
+  const manualPlacements = ctx?.manualPlacements ?? []
+  const workersForAutoAssign = filterManuallyPlacedFromPool(
+    presentWorkers,
+    manualPlacements,
+  )
+
   const currentDate = ctx?.date ?? '9999-12-31'
   const currentShiftType = ctx?.shiftType ?? 'morning'
   const lookbackDays = Math.max(
@@ -3948,13 +3964,13 @@ function runAssignmentAlgorithmInternal(
 
   const orderedLanes = orderLanesForAssignment(
     activeLanes,
-    presentWorkers,
+    workersForAutoAssign,
     currentShiftType,
   )
 
   const globalAssignments = assignWorkersGlobally(
     orderedLanes,
-    presentWorkers,
+    workersForAutoAssign,
     profiles,
     recoveringIds,
     morningCtx,
@@ -3968,8 +3984,8 @@ function runAssignmentAlgorithmInternal(
     const greedyWarnings: string[] = []
     const greedy = greedyAssignPass(
       orderedLanes,
-      presentWorkers,
-      new Set(presentWorkers.map((worker) => worker.id)),
+      workersForAutoAssign,
+      new Set(workersForAutoAssign.map((worker) => worker.id)),
       workerById,
       profiles,
       recoveringIds,
@@ -4161,7 +4177,13 @@ function runAssignmentAlgorithmInternal(
     profiles,
     currentShiftType,
   )
-  const finalEvaluation = evaluateBoard(finalAssignments, {
+  const assignmentsWithManual = applyManualPlacementsToAssignments(
+    finalAssignments,
+    manualPlacements,
+    activeLanes,
+  )
+
+  const finalEvaluation = evaluateBoard(assignmentsWithManual, {
     lanes: activeLanes,
     workersById: workerById,
     profiles,
@@ -4175,7 +4197,7 @@ function runAssignmentAlgorithmInternal(
   })
 
   return {
-    assignments: finalAssignments,
+    assignments: assignmentsWithManual,
     unassignedWorkerIds: unassigned,
     understaffedLaneIds,
     warnings: [...new Set(warnings)],
