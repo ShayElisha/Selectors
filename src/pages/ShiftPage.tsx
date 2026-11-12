@@ -1712,28 +1712,6 @@ export function ShiftPage() {
                   <ChevronUp className="size-3.5" aria-hidden />
                   )}
                 </button>
-                <label className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-ink-soft">
-                    תקן משמרת:
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
-                    inputMode="numeric"
-                    className="ui-field w-16 !py-1 text-center text-[13px] font-semibold"
-                    value={draft.headcountStandard ?? ''}
-                    placeholder="—"
-                    aria-label="תקן משמרת"
-                    onChange={(e) => {
-                      const raw = e.target.value
-                      updateDraftMeta({
-                        headcountStandard:
-                          raw.trim() === '' ? undefined : Number(raw),
-                      })
-                    }}
-                  />
-                </label>
                 </div>
               <p className="text-[12px] text-ink-soft tabular-nums">
                 {draft.headcountStandard != null ? (
