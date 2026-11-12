@@ -247,7 +247,13 @@ export function LoginPage() {
     try {
       await verifyLoginCode(challengeId, verificationCode)
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'אימות הקוד נכשל')
+      const message = err instanceof Error ? err.message : 'אימות הקוד נכשל'
+      if (message.includes('שגוי או שפג תוקפו')) {
+        setError('הקוד שגוי, פג תוקפו, או נוצל כבר. נסה לבקש קוד חדש.')
+      } else {
+        setError(message)
+      }
+      notify.error(message)
     } finally {
       setBusy(false)
     }
@@ -442,10 +448,12 @@ export function LoginPage() {
                 </p>
               </div>
               <div>
-                <FieldLabel htmlFor="login-verification-code">קוד אימות</FieldLabel>
+                <FieldLabel htmlFor="login-verification-code">
+                  קוד אימות (6 ספרות)
+                </FieldLabel>
                 <input
                   id="login-verification-code"
-                  className="ui-field text-center font-mono text-lg tracking-[0.35em]"
+                  className="ui-field text-center font-mono text-2xl tracking-widest"
                   type="text"
                   value={verificationCode}
                   onChange={(event) => {
@@ -460,14 +468,19 @@ export function LoginPage() {
                     setVerificationCode(cleaned)
                     if (error) setError(null)
                   }}
+                  onFocus={(event) => event.target.select()}
                   dir="ltr"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  placeholder="000000"
+                  placeholder="●●●●●●"
                   pattern="[0-9]{6}"
                   disabled={busy}
                   required
+                  aria-describedby="code-hint"
                 />
+                <p id="code-hint" className="mt-1.5 text-xs text-ink-soft">
+                  ניתן להדביק את הקוד ישירות מהמייל
+                </p>
               </div>
             </>
           )}
@@ -602,7 +615,23 @@ export function LoginPage() {
             </button>
           )}
 
-          {step !== 'phone' && step !== 'reset_sent' && (
+          {step === 'verify_email' && (
+            <button
+              type="button"
+              className="ui-btn ui-btn-ghost w-full text-xs"
+              disabled={busy}
+              onClick={() => {
+                setStep('login')
+                setVerificationCode('')
+                setError(null)
+                setInfo(null)
+              }}
+            >
+              בקש קוד חדש
+            </button>
+          )}
+
+          {step !== 'phone' && step !== 'reset_sent' && step !== 'verify_email' && (
             <button
               type="button"
               className="ui-btn ui-btn-ghost w-full text-xs"
