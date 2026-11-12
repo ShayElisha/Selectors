@@ -1213,6 +1213,30 @@ app.post('/api/mail-test', async (req, res) => {
   }
 })
 
+app.get('/api/debug/challenges', async (req, res) => {
+  try {
+    const db = await getDb()
+    const collection = db.collection('login_challenges')
+    const challenges = await collection.find({}).sort({ createdAt: -1 }).limit(10).toArray()
+    const now = new Date()
+    res.json({
+      serverTime: now.toISOString(),
+      serverTimeMs: Date.now(),
+      count: challenges.length,
+      challenges: challenges.map(c => ({
+        id: c._id,
+        createdAt: c.createdAt?.toISOString(),
+        expiresAt: c.expiresAt?.toISOString(),
+        attempts: c.attempts,
+        isExpired: c.expiresAt ? c.expiresAt <= now : null,
+        minutesRemaining: c.expiresAt ? Math.round((c.expiresAt - now) / 60000) : null,
+      }))
+    })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
 async function start() {
   await getDb('selectors')
   await ensureOrgIndexes()

