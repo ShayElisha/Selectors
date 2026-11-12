@@ -394,6 +394,8 @@ export interface ShiftDraft {
   staggerRounds: boolean
   /** Per-shift תקן (1…5); falls back to lane catalog when absent */
   staffingOverrides: StaffingOverrides
+  /** Per-shift peak hours overrides (flexible for special shifts). */
+  peakHoursOverrides?: import('../lib/shiftStaffing').PeakHoursOverrides
   /** Whole-shift headcount target (not per lane). */
   headcountStandard?: number
   /** Set after a formal close. The board is read-only. */
@@ -912,6 +914,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data.lanes,
         current.warnings,
         current.staffingOverrides,
+        current.peakHoursOverrides,
       )
       if (!applied.changed) return current
       return {
@@ -2320,6 +2323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         activeLaneIds: d.activeLaneIds,
         workers: present,
         overrides: d.staffingOverrides,
+        peakHoursOverrides: d.peakHoursOverrides,
         workerWindows: d.workerWindows,
         history: data.history,
         date: d.date,
@@ -2692,6 +2696,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         activeLaneIds: d.activeLaneIds,
         workers: present,
         overrides: d.staffingOverrides,
+        peakHoursOverrides: d.peakHoursOverrides,
         workerWindows: d.workerWindows,
         history: data.history,
         date: d.date,

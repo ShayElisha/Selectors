@@ -27,6 +27,8 @@ import {
 } from './shiftCatalog'
 import {
   effectiveStaffingStandard,
+  effectiveStaffingStandardAtTime,
+  type PeakHoursOverrides,
   type StaffingOverrides,
 } from './shiftStaffing'
 
@@ -319,6 +321,8 @@ export function assignSelectorRounds(args: {
   activeLaneIds: string[]
   workers: Worker[]
   overrides?: StaffingOverrides | null
+  /** Per-shift peak hours overrides (flexible for special shifts). */
+  peakHoursOverrides?: PeakHoursOverrides | null
   /** workerId → personal window preset id */
   workerWindows?: Record<string, string>
   /**
@@ -433,7 +437,12 @@ export function assignSelectorRounds(args: {
         w.startMinutes,
         w.endMinutes,
       )
-      const std = open ? effectiveStaffingStandard(lane, args.overrides) : 0
+      const std = open
+        ? effectiveStaffingStandardAtTime(lane, w.startMinutes, {
+            staffingOverrides: args.overrides ?? undefined,
+            peakHoursOverrides: args.peakHoursOverrides ?? undefined,
+          })
+        : 0
       const workerIds: string[] = []
       for (let slot = 0; slot < std; slot++) {
         const eligible = pool.filter((worker) => {
@@ -565,6 +574,7 @@ export function applyLaneActivityHours(
   lanes: Lane[],
   warnings: string[],
   overrides?: StaffingOverrides | null,
+  peakHoursOverrides?: PeakHoursOverrides | null,
 ): { rounds: SelectorRound[]; warnings: string[]; changed: boolean } {
   const byId = new Map(lanes.map((lane) => [lane.id, lane]))
   let cleared = false
@@ -588,7 +598,10 @@ export function applyLaneActivityHours(
         return assignment
       }
       if (!lane || lane.roundsDisabled) return assignment
-      const standard = effectiveStaffingStandard(lane, overrides)
+      const standard = effectiveStaffingStandardAtTime(lane, round.startMinutes, {
+        staffingOverrides: overrides ?? undefined,
+        peakHoursOverrides: peakHoursOverrides ?? undefined,
+      })
       const filled = assignment.workerIds.filter(Boolean).length
       if (filled < standard) emptySeats += standard - filled
       return assignment
