@@ -79,6 +79,7 @@ const emptyForm = (): Omit<Lane, 'id'> => ({
   intensity: 'medium',
   afternoonHandoff: false,
   activeHours: [],
+  peakHours: undefined,
   roundsDisabled: false,
 })
 
@@ -103,6 +104,15 @@ function formatActiveHours(hours: Lane['activeHours']): string {
   return hours
     .map((span) => `${minutesToInput(span.start)}–${minutesToInput(span.end)}`)
     .join(' · ')
+}
+
+function formatPeakHours(peakHours: Lane['peakHours']): string {
+  if (!peakHours) return ''
+  const hoursStr = peakHours.hours
+    .map((span) => `${minutesToInput(span.start)}–${minutesToInput(span.end)}`)
+    .join(', ')
+  const standardStr = peakHours.peakStandard === 1 ? 'בודק 1' : `${peakHours.peakStandard} בודקים`
+  return `🔥 ${hoursStr} → ${standardStr}`
 }
 
 function ConfirmDialog({
@@ -529,6 +539,176 @@ function LaneForm({
               ))}
             </ul>
           )}
+        </div>
+
+        {/* Peak Hours Section */}
+        <div className={`sm:col-span-2 ${advancedOpen ? '' : 'hidden'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn-soft/30 px-3 py-2.5">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                <span className="text-base">🔥</span>
+                שעות עומס
+              </p>
+              <p className="mt-1 text-[13px] text-ink-soft">
+                בשעות עומס, הנתיב ידרוש יותר אנשים. למשל: תקן רגיל 2, בעומס 4.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-label="הגדרת שעות עומס"
+              aria-checked={Boolean(form.peakHours)}
+              onClick={() =>
+                setForm((f) => ({
+                  ...f,
+                  peakHours: f.peakHours
+                    ? undefined
+                    : {
+                        hours: [{ start: 8 * 60, end: 10 * 60 }],
+                        peakStandard: clampStaffingStandard(f.staffingStandard + 1),
+                      },
+                }))
+              }
+              className={`relative h-8 w-14 shrink-0 rounded-full transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${form.peakHours ? 'bg-warn' : 'bg-line'}`}
+            >
+              <span className={`absolute top-1 size-6 rounded-full bg-card shadow transition-all ${form.peakHours ? 'start-7' : 'start-1'}`} />
+            </button>
+          </div>
+
+          {form.peakHours ? (
+            <div className="mt-3 space-y-3 rounded-xl border border-warn/30 bg-card px-3 py-3">
+              <div>
+                <div className="mb-1.5">
+                  <FieldLabel>תקן בשעות עומס</FieldLabel>
+                </div>
+                <select
+                  value={form.peakHours.peakStandard}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      peakHours: f.peakHours
+                        ? {
+                            ...f.peakHours,
+                            peakStandard: clampStaffingStandard(e.target.value),
+                          }
+                        : undefined,
+                    }))
+                  }
+                  className="ui-field !w-auto !py-1.5 !text-sm"
+                >
+                  {Array.from({ length: MAX_LANE_STAFFING }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n === 1 ? 'בודק אחד' : `${n} בודקים`}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[12px] text-ink-soft">
+                  תקן רגיל: {form.staffingStandard === 1 ? 'בודק אחד' : `${form.staffingStandard} בודקים`}
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <FieldLabel>טווחי שעות עומס</FieldLabel>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        peakHours: f.peakHours
+                          ? {
+                              ...f.peakHours,
+                              hours: [
+                                ...f.peakHours.hours,
+                                { start: 14 * 60, end: 16 * 60 },
+                              ],
+                            }
+                          : undefined,
+                      }))
+                    }
+                    className="ui-btn ui-btn-secondary !py-1 text-xs"
+                  >
+                    <Plus className="size-3" aria-hidden />
+                    הוסף טווח
+                  </button>
+                </div>
+
+                {form.peakHours.hours.length === 0 ? (
+                  <p className="text-[13px] font-medium text-ink-soft">אין טווחי עומס</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {form.peakHours.hours.map((span, index) => (
+                      <li key={`peak-${span.start}-${span.end}-${index}`} className="flex flex-wrap items-center gap-2">
+                        <label className="text-[12px] text-ink-soft">
+                          מ־
+                          <input
+                            type="time"
+                            value={minutesToInput(span.start)}
+                            onChange={(e) => {
+                              const start = inputToMinutes(e.target.value)
+                              if (start == null) return
+                              setForm((f) => ({
+                                ...f,
+                                peakHours: f.peakHours
+                                  ? {
+                                      ...f.peakHours,
+                                      hours: f.peakHours.hours.map((row, i) =>
+                                        i === index ? { ...row, start } : row,
+                                      ),
+                                    }
+                                  : undefined,
+                              }))
+                            }}
+                            className="ui-field ms-1 !w-auto !py-1.5 !text-xs"
+                          />
+                        </label>
+                        <label className="text-[12px] text-ink-soft">
+                          עד
+                          <input
+                            type="time"
+                            value={minutesToInput(span.end)}
+                            onChange={(e) => {
+                              const end = inputToMinutes(e.target.value)
+                              if (end == null) return
+                              setForm((f) => ({
+                                ...f,
+                                peakHours: f.peakHours
+                                  ? {
+                                      ...f.peakHours,
+                                      hours: f.peakHours.hours.map((row, i) =>
+                                        i === index ? { ...row, end } : row,
+                                      ),
+                                    }
+                                  : undefined,
+                              }))
+                            }}
+                            className="ui-field ms-1 !w-auto !py-1.5 !text-xs"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setForm((f) => ({
+                              ...f,
+                              peakHours: f.peakHours
+                                ? {
+                                    ...f.peakHours,
+                                    hours: f.peakHours.hours.filter((_, i) => i !== index),
+                                  }
+                                : undefined,
+                            }))
+                          }
+                          className="ui-btn ui-btn-ghost !py-1.5 text-xs"
+                        >
+                          הסרה
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {showRoundsOption ? (
@@ -1065,6 +1245,12 @@ export function LanesPage() {
         intensity: l.intensity,
         afternoonHandoff: Boolean(l.afternoonHandoff),
         activeHours: (l.activeHours ?? []).map((span) => ({ ...span })),
+        peakHours: l.peakHours
+          ? {
+              hours: l.peakHours.hours.map((span) => ({ ...span })),
+              peakStandard: l.peakHours.peakStandard,
+            }
+          : undefined,
         roundsDisabled: Boolean(l.roundsDisabled),
       }
       setForm(next)
@@ -1094,11 +1280,19 @@ export function LanesPage() {
     const activeHours = (form.activeHours ?? []).filter(
       (span) => span.end > span.start,
     )
+    const peakHours = form.peakHours
+      ? {
+          hours: form.peakHours.hours.filter((span) => span.end > span.start),
+          peakStandard: form.peakHours.peakStandard,
+        }
+      : undefined
     const payload = {
       ...form,
       name: form.name.trim(),
       afternoonHandoff: Boolean(form.afternoonHandoff) || undefined,
       activeHours: activeHours.length > 0 ? activeHours : undefined,
+      peakHours:
+        peakHours && peakHours.hours.length > 0 ? peakHours : undefined,
       roundsDisabled: Boolean(form.roundsDisabled) || undefined,
     }
     if (editingLane) {
@@ -1358,6 +1552,11 @@ export function LanesPage() {
                                 <p className="mt-0.5 text-[11px] font-medium text-ink-soft">
                                   {formatActiveHours(l.activeHours)}
                                 </p>
+                                {l.peakHours ? (
+                                  <p className="mt-0.5 text-[11px] font-medium text-warn">
+                                    {formatPeakHours(l.peakHours)}
+                                  </p>
+                                ) : null}
                               </td>
                               <td className="px-2 py-1.5">
                                 <IntensityBadge intensity={l.intensity} />
@@ -1467,6 +1666,11 @@ export function LanesPage() {
                                   <p className="mt-1 text-[12px] font-medium text-ink-soft">
                                     {formatActiveHours(l.activeHours)}
                                   </p>
+                                  {l.peakHours ? (
+                                    <p className="mt-0.5 text-[12px] font-medium text-warn">
+                                      {formatPeakHours(l.peakHours)}
+                                    </p>
+                                  ) : null}
                                   <p className="mt-1 text-[13px] text-ink-soft tabular-nums">
                                     תקן מקס׳:{' '}
                                     {l.staffingStandard === 1
