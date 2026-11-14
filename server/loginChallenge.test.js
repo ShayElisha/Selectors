@@ -24,6 +24,7 @@ const identity = {
   module: 'selectors',
   isOrgManager: true,
   staffKind: 'selector',
+  tokenVersion: 3,
 }
 
 let documents
@@ -91,6 +92,7 @@ describe('email login challenges', () => {
     expect(saved.codeHash).toMatch(/^[a-f\d]{64}$/)
     expect(saved.identity).not.toHaveProperty('phone')
     expect(saved.identity).not.toHaveProperty('fullName')
+    expect(saved.identity.tokenVersion).toBe(3)
     expect(saved.expiresAt.getTime()).toBeGreaterThan(Date.now())
     expect(
       await verifyLoginChallenge(result.challengeId, sentCode),
@@ -100,12 +102,22 @@ describe('email login challenges', () => {
         role: 'org_manager',
         orgId: 'org-1',
         module: 'selectors',
+        tokenVersion: 3,
       },
       passwordChanged: true,
     })
     await expect(
       verifyLoginChallenge(result.challengeId, sentCode),
     ).rejects.toMatchObject({ status: 401 })
+  })
+
+  it('preserves bumped tokenVersion after first-login password change', async () => {
+    const afterPasswordChange = { ...identity, tokenVersion: 4 }
+    const result = await createLoginChallenge(afterPasswordChange, {
+      email: 'manager@example.com',
+      passwordChanged: true,
+    })
+    expect(documents.get(result.challengeId).identity.tokenVersion).toBe(4)
   })
 
   it('invalidates the challenge after five incorrect attempts', async () => {
@@ -147,5 +159,12 @@ describe('email login challenges', () => {
       createLoginChallenge(identity, { email: 'manager@example.com' }),
     ).rejects.toThrow('SMTP unavailable')
     expect(documents.size).toBe(0)
+  })
+
+  it('rejects when SESSION_SECRET is missing', async () => {
+    vi.stubEnv('SESSION_SECRET', '')
+    await expect(
+      createLoginChallenge(identity, { email: 'manager@example.com' }),
+    ).rejects.toMatchObject({ status: 503 })
   })
 })

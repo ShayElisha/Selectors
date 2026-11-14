@@ -277,13 +277,13 @@ app.post('/api/login', async (req, res) => {
       res.json(result)
       return
     }
-    // ✅ SKIP EMAIL VERIFICATION - login directly
-    console.log('[/api/login] Email verification disabled, logging in directly')
-    await recordSuccessfulLogin(result, {
-      passwordChanged: Boolean(req.body?.newPassword),
-    })
-    const token = createSessionToken(result)
-    res.json({ ...result, token })
+    const email = await loginEmailForIdentity(result)
+    res.json(
+      await createLoginChallenge(result, {
+        email,
+        passwordChanged: Boolean(req.body?.newPassword),
+      }),
+    )
   } catch (err) {
     sendError(res, err)
   }
@@ -291,12 +291,6 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/login/verify', async (req, res) => {
   try {
-    console.log('[/api/login/verify] Request received:', {
-      challengeId: req.body?.challengeId,
-      codeLength: String(req.body?.code || '').length,
-      serverTime: new Date().toISOString(),
-      serverTimeMs: Date.now(),
-    })
     await assertRateLimit({
       key: `login-code:${clientKey(req)}`,
       limit: 30,
@@ -313,7 +307,6 @@ app.post('/api/login/verify', async (req, res) => {
     const token = createSessionToken(user)
     res.json({ ...user, token })
   } catch (err) {
-    console.error('[/api/login/verify] Error:', err.message)
     sendError(res, err)
   }
 })
