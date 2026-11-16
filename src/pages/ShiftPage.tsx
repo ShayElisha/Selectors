@@ -2159,6 +2159,17 @@ export function ShiftPage() {
                             <Lock className="size-4" aria-hidden />
                             סגירת משמרת
                           </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-hard hover:bg-hard-soft"
+                            onClick={() => {
+                              setRoundsMoreOpen(false)
+                              setDiscardOpen(true)
+                            }}
+                          >
+                            ביטול טיוטה
+                          </button>
                         </>
                       ) : null}
                     </div>,
