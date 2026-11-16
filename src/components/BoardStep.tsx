@@ -279,14 +279,15 @@ export function BoardStep({
   }, [explainModalOpen, onExplainModalOpenChange])
 
   useEffect(() => {
+    const dirty = boardDirty || draftDirty
+    if (!dirty || locked) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!boardDirty) return
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [boardDirty])
+  }, [boardDirty, draftDirty, locked])
 
   useEffect(() => {
     if (!shareOpen && !summaryMenuOpen && !laneActionMenu) return
@@ -796,7 +797,7 @@ export function BoardStep({
 
   return (
     <section className="board-print-root space-y-4 touch-pan-y sm:space-y-5">
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line/60 bg-card/80 px-3 py-2.5 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-4">
+      <div className="sticky top-0 z-30 -mx-1 flex flex-wrap items-center gap-2 border-b border-line/70 bg-bg/95 px-1 py-2 backdrop-blur-md no-print sm:px-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-brand px-2.5 py-1 text-[12px] font-bold text-white">
             {SHIFT_TYPE_LABELS[draft.shiftType]}

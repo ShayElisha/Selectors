@@ -78,6 +78,8 @@ import {
   type ExportRoundCell,
 } from '../lib/export'
 import { exportBlockedReason } from '../lib/exportGate'
+import { buildShiftCloseSummary } from '../lib/shiftCloseSummary'
+import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
 import {
   fetchGuestWorkersRemote,
   postAuditEvent,
@@ -246,6 +248,13 @@ export function ShiftPage() {
       draftDirty,
     })
   }, [draft, data.history, draftDirty])
+
+  useUnsavedChangesGuard(Boolean(draft && draftDirty && !draft.signOff?.signedAt))
+
+  const closeSummary = useMemo(() => {
+    if (!draft) return null
+    return buildShiftCloseSummary(draft, data.lanes, data.workers)
+  }, [draft, data.lanes, data.workers])
 
   const qualityVsHistory = useMemo(() => {
     if (!draft?.quality?.score || draft.quality.legal === false) return null
@@ -2840,6 +2849,7 @@ export function ShiftPage() {
         <ShiftSignOffDialog
           accountName={user?.fullName ?? ''}
           busy={signBusy}
+          summary={closeSummary}
           onClose={() => {
             if (!signBusy) setSignOpen(false)
           }}

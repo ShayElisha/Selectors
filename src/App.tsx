@@ -117,7 +117,11 @@ function ProtectedShell() {
   }
   const hasData = data.workers.length > 0 || data.lanes.length > 0
   if (loading && !hasData) {
-    return <PageLoader fullScreen label="טוען נתונים…" />
+    return (
+      <Shell>
+        <PageLoader skeleton label="טוען נתונים…" />
+      </Shell>
+    )
   }
   return (
     <Shell>
