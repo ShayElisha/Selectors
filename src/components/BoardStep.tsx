@@ -28,6 +28,8 @@ import {
   UserX,
   X,
   Lock,
+  LayoutList,
+  Table2,
 } from 'lucide-react'
 import {
   afternoonHandoffTier,
@@ -219,6 +221,7 @@ export function BoardStep({
   const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
   const [addPicker, setAddPicker] = useState<'lane' | 'worker' | null>(null)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
+  const [boardLayout, setBoardLayout] = useState<'cards' | 'table'>('cards')
   const [laneActionMenu, setLaneActionMenu] = useState<string | null>(null)
   const [laneActionPos, setLaneActionPos] = useState<{ top: number; left: number } | null>(null)
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set())
@@ -480,6 +483,33 @@ export function BoardStep({
   const hasBoardErrors = boardIssues.some((i) => i.severity === 'error')
   const locked = Boolean(draft.signOff?.signedAt)
   const gateLane = findGateManagerLane(data.lanes)
+  const orderedActiveLaneIds = useMemo(
+    () =>
+      [...draft.activeLaneIds].sort((a, b) => {
+        const ia = data.lanes.findIndex((l) => l.id === a)
+        const ib = data.lanes.findIndex((l) => l.id === b)
+        if (ia < 0 || ib < 0) return a.localeCompare(b)
+        return ia - ib
+      }),
+    [draft.activeLaneIds, data.lanes],
+  )
+  const tableSeatCount = useMemo(() => {
+    let max = 1
+    for (const laneId of orderedActiveLaneIds) {
+      const lane = data.lanes.find((l) => l.id === laneId)
+      if (!lane) continue
+      const std = effectiveStaffingStandard(lane, draft.staffingOverrides)
+      const assignment = draft.assignments.find((a) => a.laneId === laneId)
+      const filled = (assignment?.workerIds ?? []).filter(Boolean).length
+      max = Math.max(max, std, filled)
+    }
+    return Math.min(5, max)
+  }, [
+    orderedActiveLaneIds,
+    data.lanes,
+    draft.staffingOverrides,
+    draft.assignments,
+  ])
   const shiftManagers = useMemo(
     () =>
       data.workers
@@ -904,6 +934,40 @@ export function BoardStep({
             </span>
           ) : null}
         </div>
+        <div
+          className="inline-flex shrink-0 rounded-xl border border-line/80 bg-card p-0.5 no-print"
+          role="group"
+          aria-label="סוג תצוגה"
+        >
+          <button
+            type="button"
+            onClick={() => setBoardLayout('cards')}
+            className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              boardLayout === 'cards'
+                ? 'bg-brand/10 text-brand'
+                : 'text-ink-soft hover:text-ink'
+            }`}
+            aria-pressed={boardLayout === 'cards'}
+            title="תצוגת רשימה"
+          >
+            <LayoutList className="size-4" aria-hidden />
+            <span className="hidden sm:inline">רשימה</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setBoardLayout('table')}
+            className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              boardLayout === 'table'
+                ? 'bg-brand/10 text-brand'
+                : 'text-ink-soft hover:text-ink'
+            }`}
+            aria-pressed={boardLayout === 'table'}
+            title="תצוגת טבלה"
+          >
+            <Table2 className="size-4" aria-hidden />
+            <span className="hidden sm:inline">טבלה</span>
+          </button>
+        </div>
         {!locked ? (
         <div className="relative" ref={summaryMenuRef}>
           <button
@@ -1146,6 +1210,173 @@ export function BoardStep({
           </p>
         </div>
 
+        {boardLayout === 'table' ? (
+          <div className="max-w-full overflow-hidden rounded-2xl border border-line/70 bg-card shadow-[var(--shadow-panel)]">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-max min-w-full border-collapse text-right text-[13px]">
+                <thead>
+                  <tr className="border-b border-line/70 bg-gradient-to-l from-brand/[0.07] via-surface to-surface">
+                    <th className="sticky right-0 z-10 bg-surface/95 px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft">
+                      נתיב
+                    </th>
+                    <th className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft">
+                      סטטוס
+                    </th>
+                    {Array.from({ length: tableSeatCount }, (_, i) => (
+                      <th
+                        key={i}
+                        className="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-ink-soft tabular-nums"
+                      >
+                        {i + 1}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line/60">
+                  {gateLane && !draft.activeLaneIds.includes(gateLane.id) ? (
+                    <tr className="bg-card">
+                      <th className="sticky right-0 z-10 whitespace-nowrap bg-card px-3 py-2.5 text-start font-semibold text-ink">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Shield className="size-3.5 text-brand" aria-hidden />
+                          מנהל שער
+                        </span>
+                      </th>
+                      <td className="px-3 py-2 text-ink-soft">—</td>
+                      <td
+                        className="px-3 py-2"
+                        colSpan={tableSeatCount}
+                      >
+                        {gateManagerSelect}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {orderedActiveLaneIds.map((laneId) => {
+                    const lane = data.lanes.find((l) => l.id === laneId)
+                    if (!lane) return null
+                    const isGateLane = isGateManagerLane(lane)
+                    const std = effectiveStaffingStandard(
+                      lane,
+                      draft.staffingOverrides,
+                    )
+                    const assignment = draft.assignments.find(
+                      (a) => a.laneId === laneId,
+                    )
+                    const slots = [...(assignment?.workerIds ?? [])]
+                    while (slots.length < Math.max(std, tableSeatCount)) {
+                      slots.push('')
+                    }
+                    const filled = slots.filter(Boolean).length
+                    const chipKind = staffingChipKind(filled, std)
+                    return (
+                      <tr key={laneId} className="bg-card align-top">
+                        <th className="sticky right-0 z-10 min-w-[8.5rem] bg-card px-3 py-2.5 text-start font-semibold text-ink">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="inline-flex items-center gap-1.5">
+                              {isGateLane ? (
+                                <Shield
+                                  className="size-3.5 text-brand"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              {lane.name}
+                            </span>
+                            {isGateLane ? null : (
+                              <IntensityBadge intensity={lane.intensity} />
+                            )}
+                          </div>
+                        </th>
+                        <td className="px-3 py-2">
+                          {isGateLane ? (
+                            <span className="text-xs font-semibold text-ok">
+                              מאויש
+                            </span>
+                          ) : (
+                            <LaneStaffingControl
+                              lane={lane}
+                              value={std}
+                              filled={filled}
+                              chipKind={chipKind}
+                              editable={!locked}
+                              onChange={(standard) =>
+                                runWithUndo('עודכן תקן נתיב', () =>
+                                  setLaneStaffingStandard(lane.id, standard),
+                                )
+                              }
+                            />
+                          )}
+                        </td>
+                        {Array.from({ length: tableSeatCount }, (_, slotIndex) => {
+                          const workerId = slots[slotIndex] ?? ''
+                          const inStandard = slotIndex < std || Boolean(workerId)
+                          if (!inStandard) {
+                            return (
+                              <td
+                                key={slotIndex}
+                                className="bg-surface/40 px-3 py-2 text-ink-soft"
+                              >
+                                —
+                              </td>
+                            )
+                          }
+                          return (
+                            <td
+                              key={slotIndex}
+                              className="min-w-[11rem] px-2 py-2"
+                            >
+                              {isGateLane ? (
+                                gateManagerSelect
+                              ) : (
+                                <div className="flex min-w-0 items-start gap-1">
+                                  {renderWorkerSelect(
+                                    lane,
+                                    laneId,
+                                    slotIndex,
+                                    workerId,
+                                    std,
+                                  )}
+                                  {workerId && !locked ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSwapTarget({
+                                          laneId,
+                                          slotIndex,
+                                          workerId,
+                                        })
+                                      }
+                                      className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-[10px] text-brand transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
+                                      title="החלפה"
+                                      aria-label={`החלפה ל${data.workers.find((worker) => worker.id === workerId)?.fullName ?? people.singular}`}
+                                    >
+                                      <ArrowLeftRight
+                                        className="size-3.5"
+                                        aria-hidden
+                                      />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                  {orderedActiveLaneIds.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={2 + tableSeatCount}
+                        className="px-3 py-8 text-center text-sm text-ink-soft"
+                      >
+                        אין נתיבים במשמרת. חזרו לבחירת נתיבים כדי להוסיף.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
         <div className="grid touch-pan-y grid-cols-1 gap-4 p-4 min-[900px]:grid-cols-2">
           {gateLane && !draft.activeLaneIds.includes(gateLane.id) ? (
             <div className="board-lane-card board-lane-card--gate relative rounded-2xl border border-line bg-card p-4 shadow-sm">
@@ -1159,13 +1390,7 @@ export function BoardStep({
               </p>
             </div>
           ) : null}
-          {[...draft.activeLaneIds]
-            .sort((a, b) => {
-              const ia = data.lanes.findIndex((l) => l.id === a)
-              const ib = data.lanes.findIndex((l) => l.id === b)
-              if (ia < 0 || ib < 0) return a.localeCompare(b)
-              return ia - ib
-            })
+          {orderedActiveLaneIds
             .map((laneId, laneIndex) => {
             const lane = data.lanes.find((l) => l.id === laneId)
             if (!lane) return null
@@ -1484,12 +1709,13 @@ export function BoardStep({
               </div>
             )
           })}
-          {draft.activeLaneIds.length === 0 ? (
+          {orderedActiveLaneIds.length === 0 ? (
             <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-sm text-ink-soft min-[900px]:col-span-2">
               אין נתיבים במשמרת. חזרו לבחירת נתיבים כדי להוסיף.
             </p>
           ) : null}
         </div>
+        )}
 
         {draft.unassignedWorkerIds.length > 0 ? (
           <div className="rounded-b-[1.5rem] border-t border-line/70 bg-surface/40 px-3 py-3 sm:px-5">
