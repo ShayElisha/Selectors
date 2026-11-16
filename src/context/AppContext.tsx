@@ -52,6 +52,7 @@ import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
 } from '../lib/boardQualityAlert'
+import { ensureBoardQualityNotice } from '../lib/managerNotifications'
 import {
   assignmentFixKind,
   assignmentFixTag,
@@ -1077,6 +1078,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await persistFlightRef.current
       return
     }
+    // Nothing queued — skip the syncing spinner and empty work loop.
+    if (!pendingSaveRef.current) return
     persistInFlightRef.current = true
     let resolveFlight: () => void = () => undefined
     let rejectFlight: (err: unknown) => void = () => undefined
@@ -2937,10 +2940,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             beforeDate: applied.date,
           })
           const alert = assessBoardQualityAlert(score, historyScores)
-          if (alert?.level === 'bad') {
-            notify.error('איכות שיבוץ חריגה', alert.message)
-          } else if (alert?.level === 'warn') {
-            notify.warning('איכות שיבוץ נמוכה', alert.message)
+          if (alert?.level === 'bad' || alert?.level === 'warn') {
+            ensureBoardQualityNotice({
+              shiftId: applied.id,
+              level: alert.level,
+              message: alert.message,
+            })
+            if (alert.level === 'bad') {
+              notify.error('איכות שיבוץ חריגה', alert.message)
+            } else {
+              notify.warning('איכות שיבוץ נמוכה', alert.message)
+            }
           }
         }
       }
@@ -3913,11 +3923,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const saved = await runWithFreshRevision((revision) =>
         saveShiftRemote(schedule, revision),
       )
+      const prev = dataRef.current
+      const nextHistory = (() => {
+        const idx = prev.history.findIndex((item) => item.id === saved.shift.id)
+        if (idx === -1) return [saved.shift, ...prev.history]
+        return prev.history.map((item, i) =>
+          i === idx ? saved.shift : item,
+        )
+      })()
+      const next = {
+        ...prev,
+        revision: saved.revision,
+        history: nextHistory,
+      }
       skipNextSync.current = true
-      dataRef.current = saved
-      persistedDataRef.current = saved
-      setData(saved)
-      saveAppDataCache(saved)
+      dataRef.current = next
+      persistedDataRef.current = next
+      setData(next)
+      saveAppDataCache(next)
       draftBaselineRef.current = snapshotDraft(synced)
       setDraftDirty(false)
       clearDraftStorage()
@@ -3978,16 +4001,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const saved = await runWithFreshRevision((revision) =>
           saveShiftRemote(schedule, revision),
         )
-        const stored = saved.history.find((shift) => shift.id === pending.id)
         const closed: ShiftDraft = {
           ...pending,
-          signOff: normalizeSignOff(stored?.signOff) ?? pending.signOff,
+          signOff: normalizeSignOff(saved.shift.signOff) ?? pending.signOff,
+        }
+        const prev = dataRef.current
+        const nextHistory = (() => {
+          const idx = prev.history.findIndex((item) => item.id === saved.shift.id)
+          if (idx === -1) return [saved.shift, ...prev.history]
+          return prev.history.map((item, i) =>
+            i === idx ? saved.shift : item,
+          )
+        })()
+        const next = {
+          ...prev,
+          revision: saved.revision,
+          history: nextHistory,
         }
         skipNextSync.current = true
-        dataRef.current = saved
-        persistedDataRef.current = saved
-        setData(saved)
-        saveAppDataCache(saved)
+        dataRef.current = next
+        persistedDataRef.current = next
+        setData(next)
+        saveAppDataCache(next)
         draftBaselineRef.current = snapshotDraft(closed)
         setDraft(closed)
         setDraftDirty(false)
