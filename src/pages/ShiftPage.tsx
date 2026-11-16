@@ -78,6 +78,8 @@ import {
   type ExportRoundCell,
 } from '../lib/export'
 import { exportBlockedReason } from '../lib/exportGate'
+import { buildShiftCloseSummary } from '../lib/shiftCloseSummary'
+import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
 import {
   fetchGuestWorkersRemote,
   postAuditEvent,
@@ -246,6 +248,13 @@ export function ShiftPage() {
       draftDirty,
     })
   }, [draft, data.history, draftDirty])
+
+  useUnsavedChangesGuard(Boolean(draft && draftDirty && !draft.signOff?.signedAt))
+
+  const closeSummary = useMemo(() => {
+    if (!draft) return null
+    return buildShiftCloseSummary(draft, data.lanes, data.workers)
+  }, [draft, data.lanes, data.workers])
 
   const qualityVsHistory = useMemo(() => {
     if (!draft?.quality?.score || draft.quality.legal === false) return null
@@ -597,10 +606,6 @@ export function ShiftPage() {
 
   const handleAutoAssign = async () => {
     if (assigning) return
-    if (!draft?.gateManagerWorkerId) {
-      notify.error('לא ניתן לשבץ', 'בחרו מנהל משמרת לפני שיבוץ אוטומטי')
-      return
-    }
     setExtraAskedOnce(false)
     setExtraFlow('closed')
     setSaveFlash(false)
@@ -691,11 +696,6 @@ export function ShiftPage() {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return
     }
-    if (!draft.gateManagerWorkerId) {
-      setSaveFlash(false)
-      notify.error('לא ניתן לשמור', 'בחרו מנהל משמרת לפני השמירה')
-      return
-    }
     if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
       setSaveFlash(false)
       notify.error(
@@ -720,10 +720,6 @@ export function ShiftPage() {
     if (!draft || draft.signOff?.signedAt) return
     if (slotConflict) {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
-      return
-    }
-    if (!draft.gateManagerWorkerId) {
-      notify.error('לא ניתן לסגור', 'בחרו מנהל משמרת לפני סגירת המשמרת')
       return
     }
     if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
@@ -2319,8 +2315,9 @@ export function ShiftPage() {
               draft.gateManagerWorkerId,
             )}
             overrides={draft.staffingOverrides}
+            windowAdjustments={draft.windowAdjustments}
+            earlyLeaveAt={draft.earlyLeaveAt}
             layout={roundsLayout}
-            managerRequired
             stickyOffsetClass="top-14"
             ramashName={
               draft.gateManagerWorkerId
@@ -2840,6 +2837,7 @@ export function ShiftPage() {
         <ShiftSignOffDialog
           accountName={user?.fullName ?? ''}
           busy={signBusy}
+          summary={closeSummary}
           onClose={() => {
             if (!signBusy) setSignOpen(false)
           }}

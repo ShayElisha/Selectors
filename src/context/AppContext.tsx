@@ -47,6 +47,7 @@ import {
   type LoginNextStep,
 } from '../api'
 import { notify } from '../lib/notify'
+import { allowLeaveUnsaved } from '../lib/unsavedLeaveRegistry'
 import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
@@ -488,7 +489,7 @@ interface AppContextValue {
   draft: ShiftDraft | null
   /** True only after the in-memory shift differs from its clean baseline (and thus is persisted). */
   draftDirty: boolean
-  /** Restore a previous board snapshot (used by the 3s undo toast). */
+  /** Restore a previous board snapshot (used by the undo toast). */
   restoreDraftSnapshot: (snapshot: ShiftDraft) => void
   startShift: (audience?: ShiftAudience) => void
   /** Discard in-progress shift draft and return home */
@@ -1009,9 +1010,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setView = useCallback(
     (v: View) => {
+      if (
+        draftDirty &&
+        !window.confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')
+      ) {
+        return
+      }
+      if (!allowLeaveUnsaved()) return
       navigate(pathForView(v))
     },
-    [navigate],
+    [draftDirty, navigate],
   )
 
   const setShiftStep = useCallback((s: ShiftStep) => {

@@ -38,6 +38,44 @@ function AuditChangeList({ details }: { details: string }) {
   )
 }
 
+function AuditBeforeAfter({
+  before,
+  after,
+}: {
+  before?: unknown
+  after?: unknown
+}) {
+  if (before == null && after == null) return null
+  const fmt = (value: unknown) => {
+    try {
+      return JSON.stringify(value, null, 0)
+    } catch {
+      return String(value)
+    }
+  }
+  return (
+    <details className="mt-1 rounded-lg border border-line/70 bg-surface/60 px-2 py-1.5">
+      <summary className="cursor-pointer text-[11px] font-semibold text-brand">
+        לפני / אחרי
+      </summary>
+      <div className="mt-1 grid gap-1 text-[11px] leading-relaxed text-ink-soft">
+        {before != null ? (
+          <p>
+            <span className="font-semibold text-ink">לפני: </span>
+            {fmt(before)}
+          </p>
+        ) : null}
+        {after != null ? (
+          <p>
+            <span className="font-semibold text-ink">אחרי: </span>
+            {fmt(after)}
+          </p>
+        ) : null}
+      </div>
+    </details>
+  )
+}
+
 function formatWhen(iso: string): string {
   try {
     const date = new Date(iso)
@@ -438,6 +476,7 @@ export function AuditPage() {
                       <AuditChangeList details={row.details} />
                     </div>
                   )}
+                  <AuditBeforeAfter before={row.before} after={row.after} />
                 </li>
               ))}
             </ul>
@@ -490,6 +529,7 @@ export function AuditPage() {
                           ) : (
                             '—'
                           )}
+                          <AuditBeforeAfter before={row.before} after={row.after} />
                         </td>
                       </tr>
                     ))}

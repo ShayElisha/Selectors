@@ -550,6 +550,8 @@ export interface AuditLogEntry {
   action: string
   actor: { id: string; fullName: string; phone: string } | null
   details: string
+  before?: unknown
+  after?: unknown
 }
 
 export function fetchAuditLogs(limit = 150): Promise<AuditLogEntry[]> {

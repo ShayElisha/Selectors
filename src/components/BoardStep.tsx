@@ -39,7 +39,11 @@ import {
   AssignmentExplainDialog,
   groupExplanations,
 } from './AssignmentExplainDialog'
-import { IntensityBadge, Ltr } from './ui'
+import { IntensityBadge, Ltr, TimingBadges } from './ui'
+import {
+  timingBadgesForWorker,
+} from '../lib/shiftTimingBadges'
+import { explainWhyNotSelected } from '../lib/whyNotSelected'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { PeopleLabels } from '../auth'
 import type { ShiftDraft } from '../context/AppContext'
@@ -279,14 +283,15 @@ export function BoardStep({
   }, [explainModalOpen, onExplainModalOpenChange])
 
   useEffect(() => {
+    const dirty = boardDirty || draftDirty
+    if (!dirty || draft.signOff?.signedAt) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!boardDirty) return
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [boardDirty])
+  }, [boardDirty, draftDirty, draft.signOff?.signedAt])
 
   useEffect(() => {
     if (!shareOpen && !summaryMenuOpen && !laneActionMenu) return
@@ -372,6 +377,41 @@ export function BoardStep({
     [draft.explanations, data.lanes, data.workers],
   )
 
+  const whyNotByLane = useMemo(() => {
+    const present = data.workers.filter((w) =>
+      draft.presentWorkerIds.includes(w.id),
+    )
+    return managedLanes(data.lanes)
+      .filter((lane) => draft.activeLaneIds.includes(lane.id))
+      .map((lane) => {
+      const selected =
+        draft.assignments.find((a) => a.laneId === lane.id)?.workerIds ?? []
+      const ranking = (draft.explanations ?? []).find(
+        (row) => row.laneId === lane.id && row.candidateRanking?.length,
+      )?.candidateRanking
+      const people = explainWhyNotSelected({
+        lane,
+        presentWorkers: present,
+        selectedWorkerIds: selected,
+        windowAdjustments: draft.windowAdjustments,
+        candidateRanking: ranking,
+        limit: 6,
+      }).map((row) => ({
+        workerName: row.workerName,
+        reasons: row.reasons,
+      }))
+      return { laneId: lane.id, laneName: lane.name, people }
+    })
+  }, [
+    data.lanes,
+    data.workers,
+    draft.activeLaneIds,
+    draft.assignments,
+    draft.explanations,
+    draft.presentWorkerIds,
+    draft.windowAdjustments,
+  ])
+
   const partitioned = useMemo(
     () => partitionWarnings(draft.warnings),
     [draft.warnings],
@@ -424,12 +464,6 @@ export function BoardStep({
         message: shiftSlotConflictMessage(draft.date, draft.shiftType),
       })
     }
-    if (!draft.gateManagerWorkerId) {
-      items.push({
-        severity: 'warning',
-        message: 'לא נבחר מנהל משמרת. אפשר לבחור אותו כאן בלוח, בלי לחזור אחורה.',
-      })
-    }
     return items
   }, [
     partitioned,
@@ -437,7 +471,6 @@ export function BoardStep({
     slotConflict,
     draft.date,
     draft.shiftType,
-    draft.gateManagerWorkerId,
   ])
 
   const hasBoardErrors = boardIssues.some((i) => i.severity === 'error')
@@ -464,9 +497,9 @@ export function BoardStep({
       placeholder={
         shiftManagers.length === 0
           ? `אין מנהל שהוא גם ${people.singular}`
-          : 'בחרו מנהל משמרת'
+          : 'מנהל משמרת (אופציונלי)'
       }
-      ariaLabel="בחירת מנהל משמרת"
+      ariaLabel="בחירת מנהל משמרת (אופציונלי)"
       searchNoun={people.singular}
       disabled={locked || shiftManagers.length === 0}
       onChange={(workerId) => chooseGateManager(workerId ?? '')}
@@ -475,12 +508,9 @@ export function BoardStep({
   const saveBlocked =
     Boolean(slotConflict) ||
     draft.unassignedWorkerIds.length > 0 ||
-    hasBoardErrors ||
-    !draft.gateManagerWorkerId
+    hasBoardErrors
   const saveBlockedReason = slotConflict
     ? 'כבר קיים שיבוץ לאותו תאריך ומשמרת'
-    : !draft.gateManagerWorkerId
-      ? 'בחרו מנהל משמרת לפני השמירה'
     : draft.unassignedWorkerIds.length > 0
       ? `יש ${draft.unassignedWorkerIds.length} ${people.plural} שלא שובצו — שבצו את כולם לפני השמירה`
       : hasBoardErrors
@@ -747,8 +777,22 @@ export function BoardStep({
       if (w.trainingRole === 'trainee') {
         details.unshift('מתלמד')
       }
+      const timing = timingBadgesForWorker({
+        workerId: w.id,
+        windowAdjustments: draft.windowAdjustments,
+        earlyLeaveAt: draft.earlyLeaveAt,
+      })
+      for (const badge of timing) details.push(badge.shortLabel)
       return details.join(' · ')
     }
+
+    const selectedTiming = workerId
+      ? timingBadgesForWorker({
+          workerId,
+          windowAdjustments: draft.windowAdjustments,
+          earlyLeaveAt: draft.earlyLeaveAt,
+        })
+      : []
 
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -766,7 +810,17 @@ export function BoardStep({
             onChange={() => undefined}
           />
         ) : (
-          <div className={selectedLacksCert ? 'rounded-xl ring-1 ring-warn/40' : isExtra ? 'rounded-xl ring-1 ring-accent/30' : ''}>
+          <div
+            className={
+              selectedLacksCert
+                ? 'rounded-xl ring-1 ring-warn/40'
+                : selectedTiming.length
+                  ? 'rounded-xl ring-1 ring-warn/30'
+                  : isExtra
+                    ? 'rounded-xl ring-1 ring-accent/30'
+                    : ''
+            }
+          >
             <WorkerCombobox
               options={workers.map((worker) => ({
                 worker,
@@ -782,6 +836,7 @@ export function BoardStep({
             />
           </div>
         )}
+        {selectedTiming.length ? <TimingBadges badges={selectedTiming} /> : null}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -796,7 +851,7 @@ export function BoardStep({
 
   return (
     <section className="board-print-root space-y-4 touch-pan-y sm:space-y-5">
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line/60 bg-card/80 px-3 py-2.5 shadow-[var(--shadow-panel)] backdrop-blur-sm no-print sm:px-4">
+      <div className="sticky top-0 z-30 -mx-1 flex flex-wrap items-center gap-2 border-b border-line/70 bg-bg/95 px-1 py-2 backdrop-blur-md no-print sm:px-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-brand px-2.5 py-1 text-[12px] font-bold text-white">
             {SHIFT_TYPE_LABELS[draft.shiftType]}
@@ -1764,6 +1819,7 @@ export function BoardStep({
         date={draft.date}
         shiftType={draft.shiftType}
         groups={explanationGroups}
+        whyNotByLane={whyNotByLane}
         returnFocusRef={explainTriggerRef}
       />
       {dropWorkerId

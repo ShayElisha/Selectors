@@ -399,6 +399,7 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
+  min-height: 44px;
   border-radius: var(--radius-control);
   padding: 0.55rem 0.95rem;
   font-size: 0.8125rem;
@@ -754,7 +755,7 @@ summary:focus-visible {
 
 /* Undo toast — countdown bar (RTL: shrinks toward the end). */
 .undo-toast {
-  --undo-ms: 3s;
+  --undo-ms: 5s;
   position: relative !important;
   overflow: hidden !important;
 }
@@ -1344,7 +1345,7 @@ html.kiosk-immersive body {
 
 .gate-map__beam {
   position: absolute;
-  left: 50%;
+  inset-inline-start: 50%;
   top: -8%;
   width: 42%;
   height: 120%;

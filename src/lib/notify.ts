@@ -1,8 +1,8 @@
 import { toast } from 'sonner'
 
 const DEFAULT_DURATION = 3200
-/** Short undo window for small edits. */
-export const UNDO_TOAST_MS = 3000
+/** Default undo for medium edits (slot change, notes, add lane). */
+export const UNDO_TOAST_MS = 5000
 /** Longer undo for destructive / structure-changing board actions. */
 export const UNDO_TOAST_MAJOR_MS = 8000
 

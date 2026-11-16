@@ -73,7 +73,7 @@ import {
   markAllWorkerNoticesRead,
   markWorkerNoticeRead,
 } from './workerNotices.js'
-import { assertRateLimit, clientKey } from './rateLimit.js'
+import { assertRateLimit, clearRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { assertSessionSecretConfigured, createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
 
@@ -95,6 +95,7 @@ app.use(
   helmet({
     xFrameOptions: { action: 'deny' },
     contentSecurityPolicy: {
+      useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
@@ -102,12 +103,20 @@ app.use(
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
-        frameSrc: ["'self'", 'https://vercel.live'],
+        frameSrc:
+          process.env.NODE_ENV === 'production'
+            ? ["'none'"]
+            : ["'self'", 'https://vercel.live'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         objectSrc: ["'none'"],
-        scriptSrc: ["'self'", 'https://vercel.live'],
+        scriptSrc:
+          process.env.NODE_ENV === 'production'
+            ? ["'self'"]
+            : ["'self'", 'https://vercel.live'],
+        scriptSrcAttr: ["'none'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         workerSrc: ["'self'", 'blob:'],
+        manifestSrc: ["'self'"],
         upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
       },
     },
@@ -273,6 +282,9 @@ app.post('/api/login', async (req, res) => {
       newPasswordConfirm: req.body?.newPasswordConfirm,
       deferLoginAudit: true,
     })
+    // Successful password step → clear IP+phone counters so a typo streak
+    // does not punish a real manager after they finally get in.
+    await clearRateLimit(`login:${clientKey(req)}:${phone.replace(/\D/g, '') || 'empty'}`)
     if (result.next) {
       res.json(result)
       return

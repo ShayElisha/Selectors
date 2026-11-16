@@ -15,9 +15,17 @@ const ALLOWED_CLIENT_ACTIONS = new Set([
 ])
 
 /**
- * @param {{ action: string, actor?: AuditActor, details?: string, orgId?: string, module?: string }} entry
+ * @param {{ action: string, actor?: AuditActor, details?: string, orgId?: string, module?: string, before?: unknown, after?: unknown }} entry
  */
-export async function appendAuditLog({ action, actor, details, orgId, module }) {
+export async function appendAuditLog({
+  action,
+  actor,
+  details,
+  orgId,
+  module,
+  before,
+  after,
+}) {
   const col = await getAuditCollection(mongoTarget(module))
   const doc = {
     id: randomUUID(),
@@ -31,6 +39,8 @@ export async function appendAuditLog({ action, actor, details, orgId, module }) 
         }
       : null,
     details: String(details || ''),
+    ...(before !== undefined ? { before } : {}),
+    ...(after !== undefined ? { after } : {}),
     ...(orgId ? { orgId: String(orgId) } : {}),
     ...(module ? { module: String(module) } : {}),
   }
@@ -41,6 +51,8 @@ export async function appendAuditLog({ action, actor, details, orgId, module }) 
     action: doc.action,
     actor: doc.actor,
     details: doc.details,
+    ...(doc.before !== undefined ? { before: doc.before } : {}),
+    ...(doc.after !== undefined ? { after: doc.after } : {}),
   }
 }
 
@@ -60,6 +72,8 @@ export async function listAuditLogs(opts = {}) {
     action: d.action,
     actor: d.actor ?? null,
     details: d.details || '',
+    ...(d.before !== undefined ? { before: d.before } : {}),
+    ...(d.after !== undefined ? { after: d.after } : {}),
   }))
 }
 
@@ -229,11 +243,11 @@ export function shiftAuditHeader(schedule) {
 }
 
 /**
- * Detailed worker cert / lane requirement change events (+ residual data_update).
- * @returns {{ action: string, details: string }[]}
+ * Detailed worker cert / lane / permission change events (+ residual data_update).
+ * @returns {{ action: string, details: string, before?: unknown, after?: unknown }[]}
  */
 export function diffAppDataAuditEvents(prev, next) {
-  /** @type {{ action: string, details: string }[]} */
+  /** @type {{ action: string, details: string, before?: unknown, after?: unknown }[]} */
   const events = []
   const pw = prev?.workers ?? []
   const nw = next?.workers ?? []
@@ -246,6 +260,7 @@ export function diffAppDataAuditEvents(prev, next) {
       events.push({
         action: 'data_update',
         details: `נוסף בודק: ${w.fullName || w.id}`,
+        after: { id: w.id, fullName: w.fullName, phone: w.phone },
       })
       continue
     }
@@ -262,6 +277,45 @@ export function diffAppDataAuditEvents(prev, next) {
       events.push({
         action: 'worker_cert_change',
         details: `${w.fullName || w.id}: ${bits.join(' · ') || 'עודכנו הסמכות'}`,
+        before: { certifications: beforeCerts },
+        after: { certifications: afterCerts },
+      })
+    }
+    const permBefore = {
+      isManager: Boolean(o.isManager),
+      isOrgManager: Boolean(o.isOrgManager),
+      canLogin: Boolean(o.canLogin),
+      status: o.status || 'active',
+    }
+    const permAfter = {
+      isManager: Boolean(w.isManager),
+      isOrgManager: Boolean(w.isOrgManager),
+      canLogin: Boolean(w.canLogin),
+      status: w.status || 'active',
+    }
+    if (JSON.stringify(permBefore) !== JSON.stringify(permAfter)) {
+      const bits = []
+      if (permBefore.isManager !== permAfter.isManager) {
+        bits.push(`מנהל ${permBefore.isManager ? 'כן' : 'לא'}→${permAfter.isManager ? 'כן' : 'לא'}`)
+      }
+      if (permBefore.isOrgManager !== permAfter.isOrgManager) {
+        bits.push(
+          `מנהל ארגון ${permBefore.isOrgManager ? 'כן' : 'לא'}→${permAfter.isOrgManager ? 'כן' : 'לא'}`,
+        )
+      }
+      if (permBefore.canLogin !== permAfter.canLogin) {
+        bits.push(
+          `גישת התחברות ${permBefore.canLogin ? 'כן' : 'לא'}→${permAfter.canLogin ? 'כן' : 'לא'}`,
+        )
+      }
+      if (permBefore.status !== permAfter.status) {
+        bits.push(`סטטוס ${permBefore.status}→${permAfter.status}`)
+      }
+      events.push({
+        action: 'permission_change',
+        details: `${w.fullName || w.id}: ${bits.join(' · ')}`,
+        before: permBefore,
+        after: permAfter,
       })
     }
   }

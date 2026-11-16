@@ -474,3 +474,4 @@ export type View =
   | 'stationMap'
   | 'pay'
   | 'equipment'
+  | 'reports'

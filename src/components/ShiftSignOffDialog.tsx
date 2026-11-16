@@ -34,11 +34,21 @@ export function ShiftSignOffDialog({
   busy,
   onClose,
   onConfirm,
+  summary,
 }: {
   accountName: string
   busy: boolean
   onClose: () => void
   onConfirm: (signature: string) => void
+  summary?: {
+    managerName: string | null
+    managerMissing: boolean
+    filledSlots: number
+    requiredSlots: number
+    missingSlots: number
+    unassignedCount: number
+    understaffedLanes: { name: string; filled: number; standard: number }[]
+  } | null
 }) {
   const titleId = useId()
   const [signature, setSignature] = useState('')
@@ -59,7 +69,7 @@ export function ShiftSignOffDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md animate-fade-up rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
+        className="max-h-[90vh] w-full max-w-md animate-fade-up overflow-y-auto rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
       >
         <div className="mb-3 flex items-start gap-2">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
@@ -74,6 +84,55 @@ export function ShiftSignOffDialog({
             </p>
           </div>
         </div>
+        {summary ? (
+          <div
+            className="mb-4 rounded-xl border border-line bg-surface/70 px-3 py-2.5 text-[13px]"
+            aria-label="סיכום לפני סגירה"
+          >
+            <p className="font-semibold text-ink">סיכום לפני סגירה</p>
+            <ul className="mt-1.5 space-y-1 text-ink-soft">
+              <li>
+                מנהל משמרת:{' '}
+                <span className="font-semibold text-ink">
+                  {summary.managerMissing
+                    ? 'לא נבחר'
+                    : summary.managerName || '—'}
+                </span>
+              </li>
+              <li>
+                מאוישים:{' '}
+                <Ltr className="font-semibold text-ink">
+                  {summary.filledSlots}/{summary.requiredSlots}
+                </Ltr>
+                {summary.missingSlots > 0 ? (
+                  <span className="font-semibold text-warn">
+                    {' '}
+                    · חסרים {summary.missingSlots}
+                  </span>
+                ) : (
+                  <span className="font-semibold text-ok"> · מלא</span>
+                )}
+              </li>
+              {summary.unassignedCount > 0 ? (
+                <li className="font-semibold text-warn">
+                  {summary.unassignedCount} לא שובצו לעמדה
+                </li>
+              ) : null}
+            </ul>
+            {summary.understaffedLanes.length > 0 ? (
+              <ul className="mt-2 space-y-0.5 border-t border-line/70 pt-2 text-[12px] text-warn">
+                {summary.understaffedLanes.map((lane) => (
+                  <li key={lane.name}>
+                    {lane.name}:{' '}
+                    <Ltr>
+                      {lane.filled}/{lane.standard}
+                    </Ltr>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         <label className="block text-[13px] font-medium text-ink">
           חתימה — הקלידו את השם המלא שלכם
           <input

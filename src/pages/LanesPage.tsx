@@ -40,6 +40,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { AnchoredMenu } from '../components/AnchoredMenu'
 import { notify } from '../lib/notify'
+import { usePageLeaveGuard } from '../lib/useUnsavedChangesGuard'
 import {
   EmptyState,
   FieldError,
@@ -1259,15 +1260,7 @@ export function LanesPage() {
     })
   }
 
-  useEffect(() => {
-    if (!dirty || !(creating || editingId)) return
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [dirty, creating, editingId])
+  usePageLeaveGuard(Boolean(dirty && (creating || editingId)))
 
   const save = () => {
     if (!form.name.trim()) return

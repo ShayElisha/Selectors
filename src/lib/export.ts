@@ -48,7 +48,7 @@ function buildExportNode(
   root.setAttribute('dir', 'rtl')
   root.style.cssText = [
     'position:fixed',
-    'left:-10000px',
+    'inset-inline-start:-10000px',
     'top:0',
     'width:794px',
     'background:#ffffff',
@@ -320,6 +320,17 @@ export async function shareBoardImage(
   return 'text'
 }
 
+function formatWhatsAppLaneNote(raw: string): string {
+  const lines = raw
+    .trim()
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return ''
+  if (lines.length === 1) return `\n   📝 *הערה לנתיב:* ${lines[0]}`
+  return `\n   📝 *הערה לנתיב:*\n${lines.map((line) => `      • ${line}`).join('\n')}`
+}
+
 export function buildWhatsAppText(
   date: string,
   shiftType: ShiftType,
@@ -333,13 +344,7 @@ export function buildWhatsAppText(
   const body = scheduleLines(lines)
     .map((l) => {
       const names = l.workers.length ? l.workers.join(', ') : '—'
-      const note = l.notes?.trim()
-        ? `\n   _הערה:_ ${l.notes
-            .trim()
-            .split('\n')
-            .map((line, i) => (i === 0 ? line : `   ${line}`))
-            .join('\n')}`
-        : ''
+      const note = l.notes?.trim() ? formatWhatsAppLaneNote(l.notes) : ''
       return `• *${l.laneName}:* ${names}${note}`
     })
     .join('\n')
@@ -368,7 +373,7 @@ function buildRoundsExportNode(
   root.setAttribute('dir', 'rtl')
   root.style.cssText = [
     'position:fixed',
-    'left:-10000px',
+    'inset-inline-start:-10000px',
     'top:0',
     'width:1100px',
     'background:#ffffff',

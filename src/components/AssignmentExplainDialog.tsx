@@ -64,6 +64,7 @@ export function AssignmentExplainDialog({
   date,
   shiftType,
   groups,
+  whyNotByLane = [],
   returnFocusRef,
 }: {
   open: boolean
@@ -71,6 +72,12 @@ export function AssignmentExplainDialog({
   date: string
   shiftType: ShiftType
   groups: ExplainGroup[]
+  /** Per-lane list of people who were present but not seated here, with plain reasons. */
+  whyNotByLane?: {
+    laneId: string
+    laneName: string
+    people: { workerName: string; reasons: string[] }[]
+  }[]
   returnFocusRef?: RefObject<HTMLButtonElement | null>
 }) {
   const modalRef = useRef<HTMLDivElement | null>(null)
@@ -189,6 +196,35 @@ export function AssignmentExplainDialog({
               </div>
             ))
           )}
+          {whyNotByLane.some((lane) => lane.people.length > 0) ? (
+            <div className="mt-4 space-y-3 border-t border-line/80 pt-3">
+              <h4 className="text-sm font-bold text-ink">למה מישהו לא נבחר?</h4>
+              {whyNotByLane.map((lane) =>
+                lane.people.length ? (
+                  <div
+                    key={`why-${lane.laneId}`}
+                    className="rounded-xl border border-warn/20 bg-warn-soft/40 px-3 py-2.5"
+                  >
+                    <p className="text-xs font-bold text-warn">{lane.laneName}</p>
+                    <ul className="mt-1.5 space-y-1.5">
+                      {lane.people.map((person) => (
+                        <li key={`${lane.laneId}-${person.workerName}`}>
+                          <p className="text-xs font-semibold text-ink">
+                            {person.workerName}
+                          </p>
+                          <ul className="mt-0.5 list-inside list-disc text-[11px] leading-relaxed text-ink-soft">
+                            {person.reasons.map((reason, index) => (
+                              <li key={index}>{reason}</li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null,
+              )}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 border-t border-line px-4 py-3 sm:px-5">

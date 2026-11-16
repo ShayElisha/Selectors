@@ -197,6 +197,33 @@ export function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`ui-skeleton ${className}`} aria-hidden />
 }
 
+export function TimingBadges({
+  badges,
+}: {
+  badges: { kind: 'late' | 'early' | 'left'; label: string; shortLabel: string }[]
+}) {
+  if (!badges.length) return null
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {badges.map((badge) => (
+        <span
+          key={`${badge.kind}-${badge.shortLabel}`}
+          title={badge.label}
+          className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold ring-1 ${
+            badge.kind === 'late'
+              ? 'bg-warn-soft text-warn ring-warn/25'
+              : badge.kind === 'left'
+                ? 'bg-hard-soft text-hard ring-hard/25'
+                : 'bg-accent-soft text-accent ring-accent/25'
+          }`}
+        >
+          {badge.shortLabel}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function FieldLabel({
   children,
   htmlFor,

@@ -36,6 +36,7 @@ import {
   Skeleton,
 } from '../components/ui'
 import { pluralizeHe } from '../lib/hebrew'
+import { usePageLeaveGuard } from '../lib/useUnsavedChangesGuard'
 import {
   RARE_CERT_HOLDER_THRESHOLD,
   certHolderCounts,
@@ -1144,15 +1145,7 @@ export function WorkersPage() {
     })
   }
 
-  useEffect(() => {
-    if (!dirty || !(creating || editingId)) return
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [dirty, creating, editingId])
+  usePageLeaveGuard(Boolean(dirty && (creating || editingId)))
 
   const commitSave = (payload: Omit<Worker, 'id'>) => {
     const normalized: Omit<Worker, 'id'> = {

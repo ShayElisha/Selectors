@@ -32,7 +32,9 @@ import {
   Wallet,
   Camera,
   Package,
+  FileSpreadsheet,
 } from 'lucide-react'
+import { ManagerBell } from './ManagerBell'
 import { audienceForModule, MODULE_LABELS } from '../auth'
 import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
@@ -66,6 +68,7 @@ const OPERATIONS: NavItem[] = [
 ]
 
 const REPORTS: NavItem[] = [
+  { id: 'reports', label: 'מרכז דוחות', icon: FileSpreadsheet },
   { id: 'analytics', label: 'סטטיסטיקות ואנליזה', icon: BarChart3 },
   { id: 'history', label: 'היסטוריה', icon: History },
   { id: 'pay', label: 'שכר', icon: Wallet },
@@ -94,6 +97,7 @@ const MOBILE_MORE: View[] = [
   'certs',
   'shiftModels',
   'tracking',
+  'reports',
   'analytics',
   'pay',
   'audit',
@@ -474,6 +478,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="font-medium">{statusText}</span>
           </div>
 
+          <ManagerBell />
           <ThemeToggle className="shrink-0" />
 
           {user && (

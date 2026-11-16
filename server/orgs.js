@@ -999,10 +999,23 @@ export async function requestAccountPasswordReset(phoneRaw) {
     ok: true,
     message: 'אם המספר רשום במערכת, נשלח קוד איפוס למייל המשויך.',
   }
-  if (superAdminIdentity(phone)) return generic
+  const started = Date.now()
+  const padResponse = async () => {
+    // Keep response timing similar whether or not the phone exists.
+    const elapsed = Date.now() - started
+    const minMs = 400
+    if (elapsed < minMs) {
+      await new Promise((resolve) => setTimeout(resolve, minMs - elapsed))
+    }
+  }
+  if (superAdminIdentity(phone)) {
+    await padResponse()
+    return generic
+  }
 
   const account = await findAccountByPhone(phone)
   if (!account || account.status === 'inactive' || !isValidEmail(account.email)) {
+    await padResponse()
     return generic
   }
 
@@ -1015,13 +1028,10 @@ export async function requestAccountPasswordReset(phoneRaw) {
       reason: 'reset',
     })
   } catch (e) {
+    // Same generic 200 as "unknown phone" — never reveal that the account exists.
     console.error('password reset mail failed', e)
-    throw httpError(
-      e instanceof Error && e.status === 503
-        ? e.message
-        : 'שליחת מייל האיפוס נכשלה. נסו שוב מאוחר יותר.',
-      e?.status || 502,
-    )
+    await padResponse()
+    return generic
   }
 
   // Keep the current password intact until the emailed one-time code is used.
@@ -1045,8 +1055,10 @@ export async function requestAccountPasswordReset(phoneRaw) {
       phone: account.phone,
     },
     orgId: account.orgId,
-    details: `קוד איפוס סיסמה נשלח אל ${account.email}`,
+    // Do not include the mailbox address — prevents enumeration via audit leaks.
+    details: 'קוד איפוס סיסמה נשלח למייל המשויך לחשבון',
   })
+  await padResponse()
   return generic
 }
 

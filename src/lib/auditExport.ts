@@ -24,6 +24,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   export_board: 'ייצוא / שיתוף',
   worker_cert_change: 'שינוי הסמכת בודק',
   lane_req_change: 'שינוי דרישות נתיב',
+  permission_change: 'שינוי הרשאות',
   data_update: 'עדכון נתונים',
   data_reset: 'איפוס נתונים',
   manager_invite: 'שליחת סיסמה זמנית',
