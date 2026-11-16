@@ -52,6 +52,7 @@ import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
 } from '../lib/boardQualityAlert'
+import { ensureBoardQualityNotice } from '../lib/managerNotifications'
 import {
   assignmentFixKind,
   assignmentFixTag,
@@ -2939,10 +2940,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             beforeDate: applied.date,
           })
           const alert = assessBoardQualityAlert(score, historyScores)
-          if (alert?.level === 'bad') {
-            notify.error('איכות שיבוץ חריגה', alert.message)
-          } else if (alert?.level === 'warn') {
-            notify.warning('איכות שיבוץ נמוכה', alert.message)
+          if (alert?.level === 'bad' || alert?.level === 'warn') {
+            ensureBoardQualityNotice({
+              shiftId: applied.id,
+              level: alert.level,
+              message: alert.message,
+            })
+            if (alert.level === 'bad') {
+              notify.error('איכות שיבוץ חריגה', alert.message)
+            } else {
+              notify.warning('איכות שיבוץ נמוכה', alert.message)
+            }
           }
         }
       }

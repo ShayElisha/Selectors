@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Bell, CheckCheck } from 'lucide-react'
+import { fetchManagerEquipmentRequestsRemote } from '../api'
 import { useApp } from '../context/AppContext'
 import {
+  ensurePendingEquipmentNotices,
+  ensurePendingFaultNotices,
   ensureShiftEndNotice,
+  ensureShiftOverdueNotice,
+  isActingGateManager,
   listManagerNotices,
   markAllManagerNoticesRead,
   markManagerNoticeRead,
   unreadManagerNoticeCount,
   type ManagerNotice,
 } from '../lib/managerNotifications'
+import type { View } from '../types'
 
 function formatWhen(iso: string): string {
   try {
@@ -24,35 +30,74 @@ function formatWhen(iso: string): string {
   }
 }
 
+function openShiftCandidates(
+  draft: ReturnType<typeof useApp>['draft'],
+  history: ReturnType<typeof useApp>['data']['history'],
+) {
+  const byId = new Map<string, (typeof history)[number] | NonNullable<typeof draft>>()
+  for (const shift of history) {
+    if (shift.signOff?.signedAt) continue
+    byId.set(shift.id, shift)
+  }
+  if (draft && !draft.signOff?.signedAt) {
+    byId.set(draft.id, draft)
+  }
+  return [...byId.values()]
+}
+
 export function ManagerBell() {
-  const { draft, setView } = useApp()
+  const { draft, data, user, setView } = useApp()
   const [open, setOpen] = useState(false)
   const [notices, setNotices] = useState<ManagerNotice[]>(() => listManagerNotices())
   const btnRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
-  const refresh = () => setNotices(listManagerNotices())
+  const refresh = useCallback(() => setNotices(listManagerNotices()), [])
+
+  const syncNotices = useCallback(async () => {
+    const shifts = openShiftCandidates(draft, data.history)
+    for (const shift of shifts) {
+      const viewerIsGateManager = isActingGateManager({
+        userId: user?.id,
+        userPhone: user?.phone,
+        gateManagerWorkerId: shift.gateManagerWorkerId,
+        workers: data.workers,
+      })
+      ensureShiftEndNotice({
+        shiftId: shift.id,
+        date: shift.date,
+        shiftType: shift.shiftType,
+        signedOff: Boolean(shift.signOff?.signedAt),
+        viewerIsGateManager,
+      })
+      ensureShiftOverdueNotice({
+        shiftId: shift.id,
+        date: shift.date,
+        shiftType: shift.shiftType,
+        signedOff: Boolean(shift.signOff?.signedAt),
+        viewerIsGateManager,
+      })
+    }
+
+    ensurePendingFaultNotices(data.incidents)
+
+    try {
+      const equipment = await fetchManagerEquipmentRequestsRemote('pending')
+      ensurePendingEquipmentNotices(equipment.requests)
+    } catch {
+      /* offline / unauthorized — keep existing notices */
+    }
+
+    refresh()
+  }, [draft, data.history, data.workers, data.incidents, user?.id, user?.phone, refresh])
 
   useEffect(() => {
-    if (!draft || draft.signOff?.signedAt) return
-    ensureShiftEndNotice({
-      shiftId: draft.id,
-      date: draft.date,
-      shiftType: draft.shiftType,
-      signedOff: Boolean(draft.signOff?.signedAt),
-    })
-    refresh()
+    void syncNotices()
     const timer = window.setInterval(() => {
-      ensureShiftEndNotice({
-        shiftId: draft.id,
-        date: draft.date,
-        shiftType: draft.shiftType,
-        signedOff: Boolean(draft.signOff?.signedAt),
-      })
-      refresh()
+      void syncNotices()
     }, 60_000)
     return () => window.clearInterval(timer)
-  }, [draft])
+  }, [syncNotices])
 
   useEffect(() => {
     if (!open) return
@@ -79,6 +124,25 @@ export function ManagerBell() {
     [notices],
   )
 
+  const openNotice = (notice: ManagerNotice) => {
+    markManagerNoticeRead(notice.id)
+    refresh()
+    const view = (notice.view ||
+      (notice.kind === 'fault'
+        ? 'incidents'
+        : notice.kind === 'equipment'
+          ? 'equipment'
+          : notice.kind === 'shift_end' ||
+              notice.kind === 'shift_overdue' ||
+              notice.kind === 'board_quality'
+            ? 'shift'
+            : null)) as View | null
+    if (view) {
+      setOpen(false)
+      setView(view)
+    }
+  }
+
   return (
     <div className="relative">
       <button
@@ -88,7 +152,7 @@ export function ManagerBell() {
         aria-label={unread ? `התראות מנהל, ${unread} שלא נקראו` : 'התראות מנהל'}
         aria-expanded={open}
         onClick={() => {
-          refresh()
+          void syncNotices()
           setOpen((v) => !v)
         }}
       >
@@ -134,14 +198,7 @@ export function ManagerBell() {
                         className={`w-full px-3 py-2.5 text-start transition hover:bg-surface ${
                           notice.read ? '' : 'bg-brand/[0.04]'
                         }`}
-                        onClick={() => {
-                          markManagerNoticeRead(notice.id)
-                          refresh()
-                          if (notice.kind === 'shift_end') {
-                            setOpen(false)
-                            setView('shift')
-                          }
-                        }}
+                        onClick={() => openNotice(notice)}
                       >
                         <p className="text-[13px] font-bold text-ink">{notice.title}</p>
                         <p className="mt-0.5 text-[12px] leading-relaxed text-ink-soft">
