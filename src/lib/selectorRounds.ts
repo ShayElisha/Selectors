@@ -431,6 +431,13 @@ export function assignSelectorRounds(args: {
     const nextPrev = new Map<string, string>()
     const pool =
       w.startMinutes < earlyCutoff ? [...workers, ...partners] : workers
+    
+    // Count available workers and active lanes for peak hours check
+    const availableWorkers = pool.length
+    const activeLanesCount = active.filter((lane) => 
+      laneOpenDuring(lane.activeHours, w.startMinutes, w.endMinutes)
+    ).length
+    
     const assignments = active.map((lane) => {
       const open = laneOpenDuring(
         lane.activeHours,
@@ -441,6 +448,8 @@ export function assignSelectorRounds(args: {
         ? effectiveStaffingStandardAtTime(lane, w.startMinutes, {
             staffingOverrides: args.overrides ?? undefined,
             peakHoursOverrides: args.peakHoursOverrides ?? undefined,
+            availableWorkers,
+            totalLanes: activeLanesCount,
           })
         : 0
       const workerIds: string[] = []
@@ -575,6 +584,7 @@ export function applyLaneActivityHours(
   warnings: string[],
   overrides?: StaffingOverrides | null,
   peakHoursOverrides?: PeakHoursOverrides | null,
+  availableWorkers?: number,
 ): { rounds: SelectorRound[]; warnings: string[]; changed: boolean } {
   const byId = new Map(lanes.map((lane) => [lane.id, lane]))
   let cleared = false
@@ -598,9 +608,18 @@ export function applyLaneActivityHours(
         return assignment
       }
       if (!lane || lane.roundsDisabled) return assignment
+      
+      // Count active lanes for this round
+      const activeLanesInRound = round.assignments.filter((a) => {
+        const l = byId.get(a.laneId)
+        return l && !l.roundsDisabled && laneOpenDuring(l.activeHours, round.startMinutes, round.endMinutes)
+      }).length
+      
       const standard = effectiveStaffingStandardAtTime(lane, round.startMinutes, {
         staffingOverrides: overrides ?? undefined,
         peakHoursOverrides: peakHoursOverrides ?? undefined,
+        availableWorkers,
+        totalLanes: activeLanesInRound,
       })
       const filled = assignment.workerIds.filter(Boolean).length
       if (filled < standard) emptySeats += standard - filled

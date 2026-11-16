@@ -909,12 +909,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setDraft((current) => {
       if (!current?.rounds?.length) return current
+      // Count available workers for peak hours check
+      const availableWorkers = (current.presentWorkerIds ?? []).filter(Boolean).length
       const applied = applyLaneActivityHours(
         current.rounds,
         data.lanes,
         current.warnings,
         current.staffingOverrides,
         current.peakHoursOverrides,
+        availableWorkers,
       )
       if (!applied.changed) return current
       return {
