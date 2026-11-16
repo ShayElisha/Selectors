@@ -2361,6 +2361,12 @@ export function ShiftPage() {
                 () => setGateManager(workerId),
               )
             }
+            onLateChange={(workerId, lateMinutes) =>
+              setWindowAdjustment(workerId, { lateMinutes })
+            }
+            onDefaultLateChange={(lateMinutes) =>
+              setDefaultLateMinutes(lateMinutes, true)
+            }
             editable={!draft.signOff?.signedAt}
             onChange={(...args) =>
               runWithUndo('השיבוץ בסבב עודכן', () => updateSelectorCell(...args))

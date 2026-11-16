@@ -22,6 +22,8 @@ export function SelectorRoundTable({
   managerOptions,
   managerId,
   onManagerChange,
+  onLateChange,
+  onDefaultLateChange,
   editable = false,
   onChange,
   onRemoveLane,
@@ -43,6 +45,10 @@ export function SelectorRoundTable({
   managerOptions?: { id: string; fullName: string }[]
   managerId?: string
   onManagerChange?: (workerId: string | null) => void
+  /** Edit per-worker late minutes from the board. */
+  onLateChange?: (workerId: string, lateMinutes: number) => void
+  /** Edit shift-wide late default from the board. */
+  onDefaultLateChange?: (lateMinutes: number) => void
   editable?: boolean
   onChange?: (
     roundIndex: number,
@@ -105,18 +111,37 @@ export function SelectorRoundTable({
 
   return (
     <div className={compact ? 'space-y-3' : 'space-y-4'}>
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
-        <span className="font-semibold text-ink">מקרא:</span>
-        <span className="inline-flex items-center gap-1">
-          <span className="size-2 rounded-full bg-ok" aria-hidden />
-          מאויש
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <CircleDashed className="size-3 text-warn" aria-hidden />
-          חסר בתקן
-        </span>
-        <span>פס צד = עומס הנתיב (קל / בינוני / קשה)</span>
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-ink-soft">
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-semibold text-ink">מקרא:</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="size-2 rounded-full bg-ok" aria-hidden />
+            מאויש
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <CircleDashed className="size-3 text-warn" aria-hidden />
+            חסר בתקן
+          </span>
+          <span>פס צד = עומס הנתיב (קל / בינוני / קשה)</span>
+        </p>
+        {editable && onDefaultLateChange ? (
+          <label className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 font-medium text-ink-soft ring-1 ring-line/80">
+            <span className="font-semibold text-ink">איחור כללי</span>
+            <select
+              className="bg-transparent text-[12px] font-semibold text-ink outline-none"
+              aria-label="איחור כללי למשמרת"
+              value={defaultLateMinutes ?? 0}
+              onChange={(e) => onDefaultLateChange(Number(e.target.value))}
+            >
+              <option value={0}>בזמן</option>
+              <option value={15}>15 דק׳</option>
+              <option value={30}>30 דק׳</option>
+              <option value={45}>45 דק׳</option>
+              <option value={60}>שעה</option>
+            </select>
+          </label>
+        ) : null}
+      </div>
       {ramashName !== undefined ? (
         <div
           className={`rounded-2xl border bg-card px-4 py-3 text-[13px] font-semibold text-ink shadow-sm ${
@@ -299,7 +324,29 @@ export function SelectorRoundTable({
                                 onChange?.(roundIndex, lane.id, slotIndex, nextId)
                               }
                             />
-                            {workerId ? (
+                            {workerId && editable && onLateChange ? (
+                              <label className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-soft">
+                                <span className="font-semibold">איחור</span>
+                                <select
+                                  className="ui-field w-auto min-w-[6.5rem] py-1 text-[12px]"
+                                  aria-label={`איחור של משבצת ${lane.name}`}
+                                  value={
+                                    windowAdjustments?.[workerId]?.lateMinutes ??
+                                    defaultLateMinutes ??
+                                    0
+                                  }
+                                  onChange={(e) =>
+                                    onLateChange(workerId, Number(e.target.value))
+                                  }
+                                >
+                                  <option value={0}>בזמן</option>
+                                  <option value={15}>15 דק׳</option>
+                                  <option value={30}>30 דק׳</option>
+                                  <option value={45}>45 דק׳</option>
+                                  <option value={60}>שעה</option>
+                                </select>
+                              </label>
+                            ) : workerId ? (
                               <TimingBadges
                                 badges={timingBadgesForWorker({
                                   workerId,

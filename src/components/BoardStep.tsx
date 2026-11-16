@@ -181,6 +181,8 @@ export function BoardStep({
     addSlotToLane,
     updateLaneNotes,
     setGateManager,
+    setWindowAdjustment,
+    setDefaultLateMinutes,
     user,
     draftDirty,
     restoreDraftSnapshot,
@@ -838,7 +840,33 @@ export function BoardStep({
             />
           </div>
         )}
-        {selectedTiming.length ? <TimingBadges badges={selectedTiming} /> : null}
+        {workerId && !locked ? (
+          <label className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-soft">
+            <span className="font-semibold">איחור</span>
+            <select
+              className="ui-field w-auto min-w-[6.5rem] py-1 text-[12px]"
+              aria-label={`איחור של ${selectedWorker?.fullName || people.singular}`}
+              value={
+                draft.windowAdjustments?.[workerId]?.lateMinutes ??
+                draft.defaultLateMinutes ??
+                0
+              }
+              onChange={(e) =>
+                setWindowAdjustment(workerId, {
+                  lateMinutes: Number(e.target.value),
+                })
+              }
+            >
+              <option value={0}>בזמן</option>
+              <option value={15}>15 דק׳</option>
+              <option value={30}>30 דק׳</option>
+              <option value={45}>45 דק׳</option>
+              <option value={60}>שעה</option>
+            </select>
+          </label>
+        ) : selectedTiming.length ? (
+          <TimingBadges badges={selectedTiming} />
+        ) : null}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -883,6 +911,25 @@ export function BoardStep({
               <Shield className="size-3.5" aria-hidden />
               {gateManagerName}
             </span>
+          ) : null}
+          {!locked ? (
+            <label className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] font-medium text-ink-soft ring-1 ring-line/80">
+              <span className="font-semibold text-ink">איחור כללי</span>
+              <select
+                className="bg-transparent text-[12px] font-semibold text-ink outline-none"
+                aria-label="איחור כללי למשמרת"
+                value={draft.defaultLateMinutes ?? 0}
+                onChange={(e) =>
+                  setDefaultLateMinutes(Number(e.target.value), true)
+                }
+              >
+                <option value={0}>בזמן</option>
+                <option value={15}>15 דק׳</option>
+                <option value={30}>30 דק׳</option>
+                <option value={45}>45 דק׳</option>
+                <option value={60}>שעה</option>
+              </select>
+            </label>
           ) : null}
         </div>
         {!locked ? (
