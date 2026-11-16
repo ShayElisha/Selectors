@@ -1051,14 +1051,17 @@ app.put('/api/shifts/:id', async (req, res) => {
     const body = req.body || {}
     const expectedRevision = body.expectedRevision
     delete body.expectedRevision
+    const compact = String(req.query.compact || '') === '1'
     const saved = await upsertShift(req.params.id, body, actor, {
       scope,
+      compact,
       expectedRevision:
         expectedRevision === undefined ? undefined : Number(expectedRevision),
     })
     // compact=1 → only revision + the saved shift (keeps save responses small).
-    if (String(req.query.compact || '') === '1') {
+    if (compact) {
       const shift =
+        saved.shift ||
         (saved.history || []).find((item) => item.id === req.params.id) ||
         body
       res.json({

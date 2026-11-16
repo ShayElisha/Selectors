@@ -393,6 +393,30 @@ describe('state and shift persistence', () => {
     })
   })
 
+  it('compact upsert returns only revision + shift', async () => {
+    const saved = await upsertShift(
+      'shift-compact',
+      {
+        date: '2026-10-13',
+        shiftType: 'morning',
+        assignmentMode: 'single',
+        assignments: [],
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope, compact: true },
+    )
+
+    expect(saved.history).toBeUndefined()
+    expect(saved).toMatchObject({
+      revision: expect.any(Number),
+      shift: {
+        id: 'shift-compact',
+        date: '2026-10-13',
+        shiftType: 'morning',
+      },
+    })
+  })
+
   it('locks many open shifts in one revision bump', async () => {
     seedState({
       revision: 4,

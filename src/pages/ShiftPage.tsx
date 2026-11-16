@@ -2379,6 +2379,11 @@ export function ShiftPage() {
             onLateChange={(workerId, lateMinutes) =>
               setWindowAdjustment(workerId, { lateMinutes })
             }
+            onStaffingChange={(laneId, standard) =>
+              runWithUndo('עודכן תקן נתיב', () =>
+                setLaneStaffingStandard(laneId, standard),
+              )
+            }
             editable={!draft.signOff?.signedAt}
             onChange={(...args) =>
               runWithUndo('השיבוץ בסבב עודכן', () => updateSelectorCell(...args))
