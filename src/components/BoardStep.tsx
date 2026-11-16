@@ -183,7 +183,6 @@ export function BoardStep({
     updateLaneNotes,
     setGateManager,
     setWindowAdjustment,
-    setDefaultLateMinutes,
     user,
     draftDirty,
     restoreDraftSnapshot,
@@ -901,15 +900,6 @@ export function BoardStep({
               <Shield className="size-3.5" aria-hidden />
               {gateManagerName}
             </span>
-          ) : null}
-          {!locked ? (
-            <LateMinutesControl
-              variant="bar"
-              className="w-full sm:w-auto"
-              hint="חל על כל הנוכחים · אפשר לשנות לאדם"
-              value={draft.defaultLateMinutes ?? 0}
-              onChange={(minutes) => setDefaultLateMinutes(minutes, true)}
-            />
           ) : null}
         </div>
         {!locked ? (
