@@ -221,6 +221,104 @@ function cloneRounds(rounds: SelectorRound[]): SelectorRound[] {
   }))
 }
 
+function roundOverlapMinutes(
+  a: { startMinutes: number; endMinutes: number },
+  b: { startMinutes: number; endMinutes: number },
+): number {
+  return Math.max(
+    0,
+    Math.min(a.endMinutes, b.endMinutes) - Math.max(a.startMinutes, b.startMinutes),
+  )
+}
+
+function roundsStructureKey(rounds: SelectorRound[]): string {
+  return rounds
+    .map(
+      (round) =>
+        `${round.cohort ?? ''}:${round.startMinutes}-${round.endMinutes}`,
+    )
+    .join('|')
+}
+
+/**
+ * Rebuild round windows from current org settings while copying placements
+ * from overlapping old rounds (same cohort preferred).
+ */
+export function rebuildRoundsPreservingPlacements(args: {
+  existing: SelectorRound[]
+  shiftType: ShiftType
+  lanes: Lane[]
+  activeLaneIds: string[]
+  workers?: Worker[]
+  overrides?: StaffingOverrides | null
+  workerWindows?: Record<string, string>
+  bounds?: { start: number; end: number }
+  roundMinutes?: number
+  stagger?: boolean
+  customBoundaries?: number[] | null
+}): { rounds: SelectorRound[]; changed: boolean } {
+  const active = selectorLanes(args.lanes, args.activeLaneIds)
+  const windows = buildAssignmentWindows({
+    shiftType: args.shiftType,
+    workers: args.workers ?? [],
+    workerWindows: args.workerWindows,
+    bounds: args.bounds,
+    roundMinutes: args.roundMinutes,
+    stagger: args.stagger,
+    customBoundaries: args.customBoundaries,
+  })
+  const next: SelectorRound[] = windows.map((window) => ({
+    ...window,
+    assignments: emptyAssignments(active, args.overrides),
+  }))
+
+  for (const round of next) {
+    const seatedInRound = new Set<string>()
+    const candidates = args.existing.filter((old) => {
+      if (round.cohort || old.cohort) return round.cohort === old.cohort
+      return true
+    })
+    const pool = candidates.length > 0 ? candidates : args.existing
+    let best: SelectorRound | null = null
+    let bestOverlap = 0
+    for (const old of pool) {
+      const overlap = roundOverlapMinutes(round, old)
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap
+        best = old
+      }
+    }
+    if (!best || bestOverlap <= 0) continue
+    for (const row of round.assignments) {
+      const source = best.assignments.find((item) => item.laneId === row.laneId)
+      if (!source) continue
+      if (source.notes?.trim()) row.notes = source.notes
+      const slots = row.workerIds.length
+      const filled: string[] = []
+      for (const workerId of source.workerIds) {
+        if (filled.length >= slots) break
+        if (!workerId) {
+          filled.push('')
+          continue
+        }
+        if (seatedInRound.has(workerId)) {
+          filled.push('')
+          continue
+        }
+        seatedInRound.add(workerId)
+        filled.push(workerId)
+      }
+      while (filled.length < slots) filled.push('')
+      row.workerIds = filled
+    }
+  }
+
+  return {
+    rounds: next,
+    changed: roundsStructureKey(args.existing) !== roundsStructureKey(next),
+  }
+}
+
 export function setSelectorCell(
   rounds: SelectorRound[],
   roundIndex: number,

@@ -6,6 +6,7 @@ import {
   assignSelectorRounds,
   assignSelectorRoundsWithProgress,
   buildRoundWindows,
+  rebuildRoundsPreservingPlacements,
   selectorLanes,
   setSelectorCell,
 } from './selectorRounds'
@@ -85,6 +86,50 @@ describe('buildRoundWindows', () => {
         [6 * 60, 9 * 60, 12 * 60, 15 * 60],
       ).map((w) => w.label),
     ).toEqual(['06:00–09:00', '09:00–12:00', '12:00–15:00'])
+  })
+})
+
+describe('rebuildRoundsPreservingPlacements', () => {
+  it('rebuilds windows and copies overlapping lane placements', () => {
+    const lanes = [lane('a', 'נתיב 1'), lane('b', 'נתיב 2')]
+    const existing = [
+      {
+        startMinutes: 6 * 60,
+        endMinutes: 8 * 60,
+        label: '06:00–08:00',
+        assignments: [
+          { laneId: 'a', workerIds: ['w1'] },
+          { laneId: 'b', workerIds: ['w2'] },
+        ],
+      },
+      {
+        startMinutes: 8 * 60,
+        endMinutes: 10 * 60,
+        label: '08:00–10:00',
+        assignments: [
+          { laneId: 'a', workerIds: ['w2'] },
+          { laneId: 'b', workerIds: ['w1'] },
+        ],
+      },
+    ]
+    const { rounds, changed } = rebuildRoundsPreservingPlacements({
+      existing,
+      shiftType: 'morning',
+      lanes,
+      activeLaneIds: ['a', 'b'],
+      bounds: { start: 6 * 60, end: 15 * 60 },
+      roundMinutes: 120,
+      customBoundaries: [6 * 60, 9 * 60, 12 * 60, 15 * 60],
+    })
+    expect(changed).toBe(true)
+    expect(rounds.map((r) => r.label)).toEqual([
+      '06:00–09:00',
+      '09:00–12:00',
+      '12:00–15:00',
+    ])
+    expect(rounds[0]?.assignments.find((a) => a.laneId === 'a')?.workerIds).toEqual([
+      'w1',
+    ])
   })
 })
 

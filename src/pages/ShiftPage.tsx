@@ -143,6 +143,7 @@ export function ShiftPage() {
     setAllActiveWorkers,
     runAutoAssign,
     commitSelectorBoard,
+    rebuildRoundsFromSettings,
     startManualAssign,
     updateSelectorCell,
     removeLaneFromShift,
@@ -2178,6 +2179,43 @@ export function ShiftPage() {
                           >
                             <Lock className="size-4" aria-hidden />
                             סגירת משמרת
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
+                            onClick={() => {
+                              setRoundsMoreOpen(false)
+                              const snapshot = draft
+                                ? (JSON.parse(JSON.stringify(draft)) as typeof draft)
+                                : null
+                              const result = rebuildRoundsFromSettings()
+                              if (!result) {
+                                notify.error('לא ניתן לעדכן סבבים')
+                                return
+                              }
+                              if (!result.changed) {
+                                notify.info(
+                                  'הסבבים כבר תואמים להגדרות',
+                                  'אין שינוי בשעות הסבבים',
+                                )
+                                return
+                              }
+                              if (snapshot) {
+                                notify.undoable(
+                                  'עודכנו סבבים לפי ההגדרות',
+                                  () => restoreDraftSnapshot(snapshot),
+                                  'השיבוצים הועברו לסבבים החופפים ככל האפשר',
+                                )
+                              } else {
+                                notify.success(
+                                  'הסבבים עודכנו',
+                                  'השיבוצים הועברו לסבבים החופפים ככל האפשר',
+                                )
+                              }
+                            }}
+                          >
+                            עדכון סבבים לפי ההגדרות
                           </button>
                           <button
                             type="button"

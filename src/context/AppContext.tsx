@@ -136,6 +136,7 @@ import {
   applyLaneActivityHours,
   clearWorkerFromRounds,
   emptySelectorRounds,
+  rebuildRoundsPreservingPlacements,
   setSelectorCell,
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
@@ -550,6 +551,11 @@ interface AppContextValue {
   applyBoardOption: (placed: AssignmentResult, label: string) => void
   /** Turn the open inspector board into a full-shift selector round table. */
   commitSelectorBoard: () => void
+  /**
+   * Rebuild open rounds from current org round-hour settings, keeping
+   * placements from overlapping windows when possible.
+   */
+  rebuildRoundsFromSettings: () => { changed: boolean } | null
   /** Open an empty board so managers can place present workers by hand. */
   startManualAssign: () => void
   updateAssignment: (laneId: string, slotIndex: number, workerId: string | null) => void
@@ -2396,6 +2402,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
     })
   }, [data.history, data.lanes, data.shiftModels, data.workers, user?.module])
+
+  const rebuildRoundsFromSettings = useCallback((): { changed: boolean } | null => {
+    let outcome: { changed: boolean } | null = null
+    setDraft((d) => {
+      if (!d || d.signOff?.signedAt || !usesRounds(d)) {
+        outcome = null
+        return d
+      }
+      const moduleKey = activeModule(user)
+      const bounds = selectorRoundBounds(d.shiftType, data.shiftModels, moduleKey)
+      const present = selectorStaff(
+        data.workers,
+        d.presentWorkerIds,
+        d.gateManagerWorkerId,
+      )
+      const rebuilt = rebuildRoundsPreservingPlacements({
+        existing: d.rounds ?? [],
+        shiftType: d.shiftType,
+        lanes: data.lanes,
+        activeLaneIds: d.activeLaneIds,
+        workers: present,
+        overrides: d.staffingOverrides,
+        workerWindows: d.workerWindows,
+        bounds,
+        roundMinutes: roundMinutesRef.current[moduleKey],
+        stagger: staggerRef.current[moduleKey],
+        customBoundaries: selectorCustomBoundaries(
+          d.shiftType,
+          data.shiftModels,
+          moduleKey,
+          selectorRoundHoursRef.current,
+        ),
+      })
+      outcome = { changed: rebuilt.changed }
+      if (!rebuilt.changed) return d
+      return withGateManagerSync(
+        {
+          ...d,
+          audience: audienceForModule(user?.module),
+          assignmentMode: 'rounds',
+          assignments: [],
+          rounds: rebuilt.rounds,
+          quality: undefined,
+        },
+        data.lanes,
+      )
+    })
+    return outcome
+  }, [data.lanes, data.shiftModels, data.workers, user?.module])
 
   const setWorkerWindow = useCallback(
     (workerId: string, windowId: string | null) => {
@@ -4713,6 +4768,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       previewBoardOptions,
       applyBoardOption,
       commitSelectorBoard,
+      rebuildRoundsFromSettings,
       startManualAssign,
       updateAssignment,
       updateSelectorCell,
@@ -4827,6 +4883,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       previewBoardOptions,
       applyBoardOption,
       commitSelectorBoard,
+      rebuildRoundsFromSettings,
       startManualAssign,
       updateAssignment,
       updateSelectorCell,
