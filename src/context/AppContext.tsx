@@ -52,7 +52,10 @@ import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
 } from '../lib/boardQualityAlert'
-import { ensureBoardQualityNotice } from '../lib/managerNotifications'
+import {
+  ensureBoardQualityNotice,
+  ensureCrossModuleConflictFromMessage,
+} from '../lib/managerNotifications'
 import {
   assignmentFixKind,
   assignmentFixTag,
@@ -3946,7 +3949,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearDraftStorage()
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
-        setError(e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה')
+        const message = e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה'
+        setError(message)
+        ensureCrossModuleConflictFromMessage(message, { shiftId: synced.id })
       }
       throw e
     } finally {

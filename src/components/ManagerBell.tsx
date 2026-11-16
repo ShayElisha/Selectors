@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Bell, CheckCheck } from 'lucide-react'
-import { fetchManagerEquipmentRequestsRemote } from '../api'
+import {
+  checkCrossModuleConflictsRemote,
+  fetchManagerEquipmentRequestsRemote,
+} from '../api'
 import { useApp } from '../context/AppContext'
 import {
+  ensureCrossModuleConflictNotices,
   ensurePendingEquipmentNotices,
   ensurePendingFaultNotices,
   ensureShiftEndNotice,
@@ -110,6 +114,25 @@ export function ManagerBell() {
       /* offline / unauthorized — keep existing notices */
     }
 
+    const crossTargets = draft && !draft.signOff?.signedAt ? [draft] : []
+    for (const shift of crossTargets) {
+      try {
+        const result = await checkCrossModuleConflictsRemote({
+          id: shift.id,
+          date: shift.date,
+          shiftType: shift.shiftType,
+          presentWorkerIds: shift.presentWorkerIds,
+          assignments: shift.assignments,
+          rounds: shift.rounds,
+        })
+        ensureCrossModuleConflictNotices(result.conflicts, {
+          shiftId: shift.id,
+        })
+      } catch {
+        /* ignore check failures */
+      }
+    }
+
     refresh()
   }, [draft, data.history, data.workers, data.incidents, user?.id, user?.phone, refresh])
 
@@ -171,7 +194,8 @@ export function ManagerBell() {
           ? 'equipment'
           : notice.kind === 'shift_end' ||
               notice.kind === 'shift_overdue' ||
-              notice.kind === 'board_quality'
+              notice.kind === 'board_quality' ||
+              notice.kind === 'cross_module'
             ? 'shift'
             : null)) as View | null
     if (view) {

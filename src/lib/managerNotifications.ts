@@ -7,6 +7,7 @@ export type ManagerNoticeKind =
   | 'fault'
   | 'equipment'
   | 'board_quality'
+  | 'cross_module'
   | 'info'
 
 export type ManagerNotice = {
@@ -298,6 +299,69 @@ export function ensureBoardQualityNotice(opts: {
     kind: 'board_quality',
     read: false,
     shiftId: opts.shiftId,
+    view: 'shift',
+  })
+}
+
+export type CrossModuleNoticeInput = {
+  workerId: string
+  workerName: string
+  otherModule: string
+  otherShiftId?: string
+  date: string
+  shiftType: string
+}
+
+/** Someone on this board is already present/assigned in another module. */
+export function ensureCrossModuleConflictNotices(
+  conflicts: CrossModuleNoticeInput[] | null | undefined,
+  opts?: { shiftId?: string; now?: Date },
+): ManagerNotice[] {
+  const created: ManagerNotice[] = []
+  const now = opts?.now ?? new Date()
+  for (const row of conflicts || []) {
+    if (!row.workerId || !row.otherModule) continue
+    const who = String(row.workerName || '').trim() || 'עובד'
+    created.push(
+      upsertNotice({
+        id: noticeId(
+          'cross_module',
+          `${opts?.shiftId || row.date}:${row.workerId}:${row.otherModule}`,
+        ),
+        at: now.toISOString(),
+        title: 'שיבוץ כפול בין מודולים',
+        body: `${who} כבר משובץ/נוכח במודול ${row.otherModule} באותו תאריך ומשמרת.`,
+        kind: 'cross_module',
+        read: false,
+        shiftId: opts?.shiftId,
+        date: row.date,
+        shiftType: row.shiftType as ShiftType,
+        entityId: row.workerId,
+        view: 'shift',
+      }),
+    )
+  }
+  return created
+}
+
+/** When save fails with the server cross-module message, keep a bell copy. */
+export function ensureCrossModuleConflictFromMessage(
+  message: string,
+  opts?: { shiftId?: string; now?: Date },
+): ManagerNotice | null {
+  const text = String(message || '')
+  if (!/בין מודולים|כבר משובץ/.test(text)) return null
+  return upsertNotice({
+    id: noticeId(
+      'cross_module',
+      `msg:${opts?.shiftId || 'shift'}:${text.slice(0, 80)}`,
+    ),
+    at: (opts?.now ?? new Date()).toISOString(),
+    title: 'שיבוץ כפול בין מודולים',
+    body: text,
+    kind: 'cross_module',
+    read: false,
+    shiftId: opts?.shiftId,
     view: 'shift',
   })
 }

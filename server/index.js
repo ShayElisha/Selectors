@@ -19,6 +19,7 @@ import {
   listHistoryPage,
   listShiftVersions,
   listGuestWorkers,
+  listCrossModuleConflictsForShift,
   listShiftHandoffs,
   createShiftHandoff,
   updateShiftHandoff,
@@ -1180,6 +1181,15 @@ app.get('/api/guest-workers', async (req, res) => {
   try {
     const { scope } = await scopeForRequest(req)
     res.json(await listGuestWorkers(scope))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shifts/cross-module-check', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    res.json(await listCrossModuleConflictsForShift(req.body || {}, scope))
   } catch (err) {
     sendError(res, err)
   }
