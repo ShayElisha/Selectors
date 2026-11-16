@@ -137,8 +137,9 @@ describe('shiftStaffing', () => {
       peakStandard: 3,
     }
 
+    // Catalog max must be high enough to allow peakStandard (3+)
     const laneWithPeaks: Lane = {
-      ...lane('peak-lane', 2),
+      ...lane('peak-lane', 5),
       peakHours: peakConfig,
     }
 
@@ -175,99 +176,134 @@ describe('shiftStaffing', () => {
       expect(result).toBeUndefined()
     })
 
-    it('effectiveStaffingStandardAtTime uses peak standard during peak hours', () => {
-      // Before peak - use base standard
-      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 420)).toBe(2)
-      
-      // During first peak - use peak standard
-      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 480)).toBe(3)
-      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 540)).toBe(3)
-      
-      // Between peaks - use base standard
-      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 720)).toBe(2)
-      
-      // During second peak - use peak standard
-      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 900)).toBe(3)
-      
-      // After peaks - use base standard
-      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 1020)).toBe(2)
-    })
-
-    it('effectiveStaffingStandardAtTime respects staffing overrides over peaks', () => {
-      // Staffing override takes priority even during peak hours
+    it('defaults to shift תקן 1, never catalog max', () => {
+      // Catalog max is 2, but without an override the shift base is 1
+      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 420)).toBe(1)
+      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 540)).toBe(1)
       expect(
-        effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
-          staffingOverrides: { 'peak-lane': 1 },
-        })
+        effectiveStaffingStandardAtTime(lane('security', 2), 540),
       ).toBe(1)
     })
 
-    it('effectiveStaffingStandardAtTime uses shift peak override', () => {
+    it('uses peak standard only with surplus staff', () => {
+      const withSurplus = {
+        availableWorkers: 12,
+        totalLanes: 5,
+      }
+
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 420, withSurplus),
+      ).toBe(1)
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 540, withSurplus),
+      ).toBe(3)
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 720, withSurplus),
+      ).toBe(1)
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 900, withSurplus),
+      ).toBe(3)
+    })
+
+    it('skips peak hours when staff is tight or missing headcount context', () => {
+      // No availability info → never boost
+      expect(effectiveStaffingStandardAtTime(laneWithPeaks, 540)).toBe(1)
+
+      // Exactly base requirement → no surplus → no peak
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
+          availableWorkers: 5,
+          totalLanes: 5,
+        }),
+      ).toBe(1)
+    })
+
+    it('respects staffing overrides over peaks', () => {
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
+          staffingOverrides: { 'peak-lane': 1 },
+          availableWorkers: 20,
+          totalLanes: 5,
+        }),
+      ).toBe(1)
+      expect(
+        effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
+          staffingOverrides: { 'peak-lane': 2 },
+          availableWorkers: 20,
+          totalLanes: 5,
+        }),
+      ).toBe(2)
+    })
+
+    it('uses shift peak override only with surplus staff', () => {
       const overrideConfig: PeakHoursConfig = {
         hours: [{ start: 600, end: 720 }],
         peakStandard: 4,
       }
-      
-      // Original peak time - should not be peak anymore
+      const withSurplus = {
+        peakHoursOverrides: { 'peak-lane': overrideConfig },
+        availableWorkers: 20,
+        totalLanes: 5,
+      }
+
       expect(
-        effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
-          peakHoursOverrides: { 'peak-lane': overrideConfig },
-        })
-      ).toBe(2)
-      
-      // New peak time - should use override peak standard
+        effectiveStaffingStandardAtTime(laneWithPeaks, 540, withSurplus),
+      ).toBe(1)
       expect(
-        effectiveStaffingStandardAtTime(laneWithPeaks, 660, {
-          peakHoursOverrides: { 'peak-lane': overrideConfig },
-        })
+        effectiveStaffingStandardAtTime(laneWithPeaks, 660, withSurplus),
       ).toBe(4)
     })
 
-    it('effectiveStaffingStandardAtTime handles overnight peaks', () => {
+    it('handles overnight peaks with surplus staff', () => {
       const overnightLane: Lane = {
-        ...lane('overnight-lane', 2),
+        ...lane('overnight-lane', 5),
         peakHours: {
           hours: [{ start: 1380, end: 60 }], // 23:00-01:00
           peakStandard: 3,
         },
       }
-      
-      expect(effectiveStaffingStandardAtTime(overnightLane, 1400)).toBe(3)  // 23:20 - peak
-      expect(effectiveStaffingStandardAtTime(overnightLane, 1440)).toBe(3)  // 24:00 - peak
-      expect(effectiveStaffingStandardAtTime(overnightLane, 30)).toBe(3)    // 00:30 - peak
-      expect(effectiveStaffingStandardAtTime(overnightLane, 120)).toBe(2)   // 02:00 - normal
+      const withSurplus = { availableWorkers: 10, totalLanes: 4 }
+
+      expect(
+        effectiveStaffingStandardAtTime(overnightLane, 1400, withSurplus),
+      ).toBe(3)
+      expect(
+        effectiveStaffingStandardAtTime(overnightLane, 30, withSurplus),
+      ).toBe(3)
+      expect(
+        effectiveStaffingStandardAtTime(overnightLane, 120, withSurplus),
+      ).toBe(1)
     })
 
-    it('effectiveStaffingStandardAtTime priority order is correct', () => {
+    it('priority order: override > peak(with surplus) > shift base 1', () => {
       const overrideConfig: PeakHoursConfig = {
         hours: [{ start: 540, end: 600 }],
         peakStandard: 5,
       }
-      
-      // Priority 1: staffingOverrides (even during peak, even with peak override)
+      const surplus = { availableWorkers: 20, totalLanes: 5 }
+
       expect(
         effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
           staffingOverrides: { 'peak-lane': 1 },
           peakHoursOverrides: { 'peak-lane': overrideConfig },
-        })
+          ...surplus,
+        }),
       ).toBe(1)
-      
-      // Priority 2: peakHoursOverrides (when no staffing override)
+
       expect(
         effectiveStaffingStandardAtTime(laneWithPeaks, 540, {
           peakHoursOverrides: { 'peak-lane': overrideConfig },
-        })
+          ...surplus,
+        }),
       ).toBe(5)
-      
-      // Priority 3: lane catalog peak (when no overrides)
+
       expect(
-        effectiveStaffingStandardAtTime(laneWithPeaks, 540)
+        effectiveStaffingStandardAtTime(laneWithPeaks, 540, surplus),
       ).toBe(3)
-      
-      // Priority 4: base standard (when not in peak)
+
       expect(
-        effectiveStaffingStandardAtTime(laneWithPeaks, 420)
-      ).toBe(2)
+        effectiveStaffingStandardAtTime(laneWithPeaks, 420, surplus),
+      ).toBe(1)
     })
   })
 })

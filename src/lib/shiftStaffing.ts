@@ -195,16 +195,14 @@ export function isInPeakHours(
 
 /**
  * Get the effective staffing standard for a lane at a specific time.
- * Considers peak hours (with shift overrides) and per-shift תקן overrides.
- * 
+ *
  * Priority:
- * 1. Per-shift staffing override (staffingOverrides)
- * 2. Peak hours (ONLY if configured AND enough staff available)
- * 3. Base staffing standard from lane catalog
- * 
- * Peak hours are ONLY applied when:
- * - Explicitly configured in lane.peakHours OR peakHoursOverrides
- * - AND sufficient staff is available (not in shortage mode)
+ * 1. Explicit per-shift תקן override (staffingOverrides) — always wins
+ * 2. Peak hours — ONLY if explicitly configured AND surplus staff exists
+ * 3. Shift base תקן (default 1), NEVER the catalog maximum
+ *
+ * Important: selecting תקן 1 does not store an override entry. Falling back to
+ * lane.staffingStandard (catalog max) was wrongly filling 2–3 seats.
  */
 export function effectiveStaffingStandardAtTime(
   lane: Lane,
@@ -212,65 +210,54 @@ export function effectiveStaffingStandardAtTime(
   options?: {
     staffingOverrides?: StaffingOverrides
     peakHoursOverrides?: PeakHoursOverrides
-    availableWorkers?: number  // ← NEW: total available staff
-    totalLanes?: number        // ← NEW: total active lanes
+    availableWorkers?: number
+    totalLanes?: number
   },
 ): StaffingStandard {
-  // Priority 1: Per-shift staffing override (always respected)
+  const base = effectiveStaffingStandard(lane, options?.staffingOverrides)
+
+  // Explicit shift override always wins (including when user picked 1 and no
+  // override key exists — base already resolves to DEFAULT_SHIFT_STAFFING).
   if (options?.staffingOverrides?.[lane.id] != null) {
-    return options.staffingOverrides[lane.id]
+    return base
   }
-  
-  // Priority 2: Peak hours (ONLY if configured AND not in shortage)
+
   const peakConfig = getEffectivePeakHours(lane, options?.peakHoursOverrides)
-  
-  // Check if peak hours are configured
   const hasPeakConfig = Boolean(
-    peakConfig && 
-    peakConfig.hours.length > 0 && 
-    peakConfig.peakStandard > 0
+    peakConfig &&
+      peakConfig.hours.length > 0 &&
+      peakConfig.peakStandard > base,
   )
-  
-  if (hasPeakConfig && isInPeakHours(peakConfig, currentMinutes)) {
-    // Check if we have enough staff to support peak hours
-    const hasEnoughStaff = checkSufficientStaffForPeak(
-      lane,
-      peakConfig!.peakStandard,
-      options,
-    )
-    
-    if (hasEnoughStaff) {
-      return peakConfig!.peakStandard
-    }
-    // Fall through to base standard if not enough staff
+
+  if (
+    hasPeakConfig &&
+    isInPeakHours(peakConfig, currentMinutes) &&
+    checkSufficientStaffForPeak(base, options)
+  ) {
+    const max = laneMaxStaffing(lane)
+    const peak = peakConfig!.peakStandard
+    return peak > max ? max : peak
   }
-  
-  // Priority 3: Base standard from lane catalog
-  return lane.staffingStandard
+
+  return base
 }
 
 /**
- * Check if there's sufficient staff to apply peak hours staffing.
- * Peak hours should NOT be applied during manpower shortages.
+ * Peak hours only when every active lane can still meet its shift base תקן.
  */
 function checkSufficientStaffForPeak(
-  lane: Lane,
-  _peakStandard: StaffingStandard,
+  baseStandard: StaffingStandard,
   options?: {
     availableWorkers?: number
     totalLanes?: number
   },
 ): boolean {
-  // If no availability info provided, allow peak hours (backward compatible)
   if (options?.availableWorkers == null || options?.totalLanes == null) {
-    return true
+    // Without headcount context, do NOT boost — avoid silent overstaffing.
+    return false
   }
-  
+
   const { availableWorkers, totalLanes } = options
-  
-  // Need at least base staffing for all lanes first
-  const baseRequirement = totalLanes * lane.staffingStandard
-  
-  // Only apply peak if we have surplus beyond base requirements
-  return availableWorkers >= baseRequirement
+  const baseRequirement = totalLanes * baseStandard
+  return availableWorkers > baseRequirement
 }
