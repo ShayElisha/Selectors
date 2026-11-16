@@ -20,6 +20,10 @@ import {
   Download,
   MessageCircle,
   Lock,
+  MoreHorizontal,
+  Save,
+  Rows3,
+  LayoutGrid,
 } from 'lucide-react'
 import {
   isQualified,
@@ -179,6 +183,40 @@ export function ShiftPage() {
 
   const draftRef = useRef(draft)
   draftRef.current = draft
+  const [roundsMoreOpen, setRoundsMoreOpen] = useState(false)
+  const [roundsWarningsOpen, setRoundsWarningsOpen] = useState(false)
+  const [roundsWarningsDismissed, setRoundsWarningsDismissed] = useState(false)
+  const [roundsCompact, setRoundsCompact] = useState(false)
+  const [assignPreview, setAssignPreview] = useState<{
+    before: NonNullable<typeof draft>
+  } | null>(null)
+  const roundsMoreRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!roundsMoreOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setRoundsMoreOpen(false)
+    }
+    const onPointer = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null
+      if (target && roundsMoreRef.current?.contains(target)) return
+      // Bottom-sheet portal is outside the ref; ignore that case via role=menu parent check.
+      if (target instanceof Element && target.closest('[role="menu"]')) return
+      setRoundsMoreOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onPointer)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onPointer)
+    }
+  }, [roundsMoreOpen])
+
+  useEffect(() => {
+    setRoundsWarningsDismissed(false)
+    setRoundsWarningsOpen(false)
+  }, [draft?.warnings?.join('|')])
+
   const runWithUndo = useCallback(
     (message: string, action: () => void) => {
       const current = draftRef.current
@@ -552,15 +590,22 @@ export function ShiftPage() {
 
   const handleAutoAssign = async () => {
     if (assigning) return
-    if (
-      (draft && usesRounds(draft)
-        ? selectorRoundsHavePlacements(draft.rounds ?? [])
-        : draft?.assignments.some((a) => a.workerIds.some(Boolean))) &&
-      !window.confirm(
-        'כבר יש שיבוץ בלוח. שיבוץ אוטומטי יחליף את כל השיבוצים הקיימים. להמשיך?',
-      )
-    ) {
+    if (!draft?.gateManagerWorkerId) {
+      notify.error('לא ניתן לשבץ', 'בחרו מנהל משמרת לפני שיבוץ אוטומטי')
       return
+    }
+    const hasPlacements = draft && usesRounds(draft)
+      ? selectorRoundsHavePlacements(draft.rounds ?? [])
+      : draft?.assignments.some((a) => a.workerIds.some(Boolean))
+    // Rounds board uses a preview dialog instead of window.confirm.
+    if (hasPlacements && !(draft && usesRounds(draft))) {
+      if (
+        !window.confirm(
+          'כבר יש שיבוץ בלוח. שיבוץ אוטומטי יחליף את כל השיבוצים הקיימים. להמשיך?',
+        )
+      ) {
+        return
+      }
     }
     setExtraAskedOnce(false)
     setExtraFlow('closed')
@@ -570,9 +615,12 @@ export function ShiftPage() {
       preAssign && !preAssign.signOff?.signedAt
         ? (JSON.parse(JSON.stringify(preAssign)) as typeof preAssign)
         : null
-    // The multi-start search runs behind the assigning loader; undo toast and
-    // the explanations modal only appear once the new board actually landed.
     await runAutoAssign()
+    if (snapshot && usesRounds(snapshot)) {
+      setAssignPreview({ before: snapshot })
+      setBoardBaselineKey((k) => k + 1)
+      return
+    }
     if (snapshot) {
       notify.undoable('שיבוץ אוטומטי', () => restoreDraftSnapshot(snapshot))
     }
@@ -647,6 +695,11 @@ export function ShiftPage() {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return
     }
+    if (!draft.gateManagerWorkerId) {
+      setSaveFlash(false)
+      notify.error('לא ניתן לשמור', 'בחרו מנהל משמרת לפני השמירה')
+      return
+    }
     if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
       setSaveFlash(false)
       notify.error(
@@ -671,6 +724,10 @@ export function ShiftPage() {
     if (!draft || draft.signOff?.signedAt) return
     if (slotConflict) {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
+      return
+    }
+    if (!draft.gateManagerWorkerId) {
+      notify.error('לא ניתן לסגור', 'בחרו מנהל משמרת לפני סגירת המשמרת')
       return
     }
     if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
@@ -1979,102 +2036,195 @@ export function ShiftPage() {
       ) : null}
 
       {shiftStep === 'board' && usesRounds(draft) ? (
-        <div className="space-y-3">
-          <div className="rounded-2xl border border-line/70 bg-card px-4 py-4 shadow-[var(--shadow-panel)] sm:px-5">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold tracking-[0.22em] text-brand/70">
-                GATE OUT
-              </p>
-              <h2 className="mt-1 font-display text-xl font-bold text-ink">
-                שיבוץ {roleName}
-              </h2>
-              <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-soft">
-                כל סבב מוצג בכרטיסי נתיב. שעות הסבב, שעות העובדים ושעות הפעילות של הנתיב נשארות כמו שהיו.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {draft.signOff?.signedAt ? null : (
+        <div className="space-y-3 pb-28">
+          <header className="sticky top-0 z-30 -mx-1 flex items-center gap-2 border-b border-line/70 bg-bg/95 px-1 py-2 backdrop-blur-md">
+            {!draft.signOff?.signedAt ? (
               <button
                 type="button"
                 onClick={() => setShiftStep('attendance')}
-                className="ui-btn ui-btn-ghost"
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                aria-label="חזרה לנוכחות"
+                title="חזרה לנוכחות"
               >
-                חזרה לנוכחות
+                <ChevronRight className="size-5" aria-hidden />
               </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void exportSelectorBoard('whatsapp')}
-                title={exportBlock ?? undefined}
-                className="ui-btn ui-btn-secondary gap-2"
-              >
-                <MessageCircle className="size-4" aria-hidden />
-                וואטסאפ
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportSelectorBoard('download')}
-                title={exportBlock ?? undefined}
-                className="ui-btn ui-btn-secondary gap-2"
-              >
-                <Download className="size-4" aria-hidden />
-                ייצוא
-              </button>
-              {draft.signOff?.signedAt ? null : (
-                <>
-              <button
-                type="button"
-                onClick={() => setAddPicker('lane')}
-                className="ui-btn ui-btn-danger-ghost"
-              >
-                הוספת נתיב
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddPicker('worker')}
-                className="ui-btn ui-btn-secondary"
-              >
-                הוספת {people.singular}
-              </button>
-              <button
-                type="button"
-                disabled={assigning}
-                onClick={handleAutoAssign}
-                className="ui-btn ui-btn-secondary gap-2"
-              >
-                <Sparkles className="size-4" aria-hidden />
-                שיבוץ אוטומטי
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                className="ui-btn ui-btn-primary"
-              >
-                שמירה
-              </button>
-              <button
-                type="button"
-                onClick={openSignOff}
-                className="ui-btn ui-btn-secondary gap-2"
-              >
-                <Lock className="size-4" aria-hidden />
-                סגירת משמרת
-              </button>
-                </>
-              )}
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold tracking-[0.2em] text-brand/70">
+                GATE OUT
+              </p>
+              <h2 className="truncate font-display text-lg font-bold text-ink sm:text-xl">
+                שיבוץ {roleName}
+              </h2>
             </div>
-          </div>
-          </div>
-          {draft.warnings.length > 0 ? (
-            <ul className="list-disc space-y-1 rounded-xl border border-warn/25 bg-warn-soft/80 px-4 py-2.5 text-[13px] text-warn pe-8">
-              {draft.warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
+            <button
+              type="button"
+              onClick={() => setRoundsCompact((v) => !v)}
+              className="inline-flex size-11 items-center justify-center rounded-xl text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              aria-label={roundsCompact ? 'תצוגה רגילה' : 'תצוגה מרוכזת'}
+              title={roundsCompact ? 'תצוגה רגילה' : 'תצוגה מרוכזת'}
+              aria-pressed={roundsCompact}
+            >
+              {roundsCompact ? (
+                <LayoutGrid className="size-5" aria-hidden />
+              ) : (
+                <Rows3 className="size-5" aria-hidden />
+              )}
+            </button>
+            <div className="relative" ref={roundsMoreRef}>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={roundsMoreOpen}
+                aria-label="עוד פעולות"
+                onClick={() => setRoundsMoreOpen((o) => !o)}
+                className="inline-flex size-11 items-center justify-center rounded-xl text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              >
+                <MoreHorizontal className="size-5" aria-hidden />
+              </button>
+              {roundsMoreOpen
+                ? createPortal(
+                    <div
+                      role="menu"
+                      className="fixed inset-x-0 bottom-0 z-[60] animate-fade-up rounded-t-2xl border border-line bg-card p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-panel-hover)] sm:inset-x-auto sm:bottom-auto sm:start-auto sm:end-4 sm:top-16 sm:w-64 sm:rounded-2xl sm:pb-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between sm:hidden">
+                        <h3 className="text-sm font-bold text-ink">עוד</h3>
+                        <button
+                          type="button"
+                          className="ui-btn ui-btn-ghost !p-2"
+                          aria-label="סגור"
+                          onClick={() => setRoundsMoreOpen(false)}
+                        >
+                          <X className="size-4" aria-hidden />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
+                        onClick={() => {
+                          setRoundsMoreOpen(false)
+                          void exportSelectorBoard('whatsapp')
+                        }}
+                      >
+                        <MessageCircle className="size-4" aria-hidden />
+                        וואטסאפ
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
+                        onClick={() => {
+                          setRoundsMoreOpen(false)
+                          void exportSelectorBoard('download')
+                        }}
+                      >
+                        <Download className="size-4" aria-hidden />
+                        ייצוא
+                      </button>
+                      {!draft.signOff?.signedAt ? (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
+                            onClick={() => {
+                              setRoundsMoreOpen(false)
+                              setAddPicker('lane')
+                            }}
+                          >
+                            הוספת נתיב
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
+                            onClick={() => {
+                              setRoundsMoreOpen(false)
+                              setAddPicker('worker')
+                            }}
+                          >
+                            הוספת {people.singular}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
+                            onClick={() => {
+                              setRoundsMoreOpen(false)
+                              openSignOff()
+                            }}
+                          >
+                            <Lock className="size-4" aria-hidden />
+                            סגירת משמרת
+                          </button>
+                        </>
+                      ) : null}
+                    </div>,
+                    document.body,
+                  )
+                : null}
+            </div>
+          </header>
+
+          {!draft.signOff?.signedAt ? (
+            <button
+              type="button"
+              onClick={() => setAddPicker('lane')}
+              className="ui-btn ui-btn-secondary gap-2"
+            >
+              הוספת נתיב
+            </button>
           ) : null}
+
+          {draft.warnings.length > 0 && !roundsWarningsDismissed ? (
+            <div
+              className="rounded-xl border border-warn/25 bg-warn-soft/80 px-3 py-2.5 text-[13px] text-warn"
+              role="status"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {draft.warnings.length === 1
+                      ? draft.warnings[0]
+                      : `${draft.warnings.length} התראות בשיבוץ`}
+                  </p>
+                  {draft.warnings.length > 1 && !roundsWarningsOpen ? (
+                    <button
+                      type="button"
+                      className="mt-1 text-xs font-bold underline underline-offset-2"
+                      onClick={() => setRoundsWarningsOpen(true)}
+                    >
+                      הצג פירוט
+                    </button>
+                  ) : null}
+                  {roundsWarningsOpen || draft.warnings.length === 1 ? (
+                    <ul className="mt-1.5 list-disc space-y-0.5 pe-4 text-xs">
+                      {draft.warnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-warn/10"
+                  aria-label="סגור התראות"
+                  onClick={() => setRoundsWarningsDismissed(true)}
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {draft.quality ? (
-            <section className="rounded-xl border border-brand/20 bg-brand/5 px-4 py-3" aria-label="מדדי איכות השיבוץ">
+            <section
+              className="rounded-xl border border-brand/20 bg-brand/5 px-4 py-3"
+              aria-label="מדדי איכות השיבוץ"
+            >
               {qualityVsHistory && qualityVsHistory.level !== 'ok' ? (
                 <div
                   className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
@@ -2089,18 +2239,26 @@ export function ShiftPage() {
               ) : null}
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-sm font-bold text-ink">מדדי איכות לשיבוץ האוטומטי</h3>
-                <span className="font-display text-xl font-bold tabular-nums text-brand">{Math.round(draft.quality.score)}/100</span>
+                <span className="font-display text-xl font-bold tabular-nums text-brand">
+                  {Math.round(draft.quality.score)}/100
+                </span>
               </div>
-              <p className="mt-1 text-xs leading-relaxed text-ink-soft">הציון מחושב מסכום כל מדד כפול משקלו, עם קנס על תקנים חסרים. אחוז המשקל מוצג ליד כל מדד. הסמכה, נוכחות ומניעת שיבוץ כפול הם אילוצים קשיחים; הם חייבים להתקיים ואינם חלק מהציון.</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {Object.entries(draft.quality.components).map(([key, value]) => (
-                  <span key={key} className="rounded-lg bg-card px-2 py-1 text-xs text-ink-soft ring-1 ring-line/70">{QUALITY_LABELS[key] ?? key}: <b className="tabular-nums text-ink">{Math.round(value)}</b> · משקל {Math.round((draft.quality?.weights[key as keyof NonNullable<typeof draft.quality>['weights']] ?? 0) * 100)}%</span>
-                ))}
+                {Object.entries(draft.quality.components)
+                  .slice(0, 4)
+                  .map(([key, value]) => (
+                    <span
+                      key={key}
+                      className="rounded-lg bg-card px-2 py-1 text-xs text-ink-soft ring-1 ring-line/70"
+                    >
+                      {QUALITY_LABELS[key] ?? key}:{' '}
+                      <b className="tabular-nums text-ink">{Math.round(value)}</b>
+                    </span>
+                  ))}
               </div>
-              {draft.quality.understaffedSlots > 0 ? <p className="mt-2 text-xs font-semibold text-hard">הגורם המרכזי לשיפור: חסרים {draft.quality.understaffedSlots} תקנים. בדקו אם יש עובדים מוסמכים נוספים או התאימו את כיסוי הנתיבים.</p> : null}
-              {Object.entries(draft.quality.components).some(([key, value]) => key !== 'staffing' && value < 70) ? <p className="mt-2 text-xs text-ink-soft">המדדים הנמוכים ביותר מצביעים על נקודות לשיפור. אפשר לבדוק חלופה להשוואה או לשנות את הלוח ידנית; שינוי ידני יסתיר את ציון האלגוריתם כדי לא להציג ציון מיושן.</p> : null}
             </section>
           ) : null}
+
           {draft.signOff ? <ShiftClosedBanner signOff={draft.signOff} /> : null}
           <SelectorRoundTable
             rounds={draft.rounds ?? []}
@@ -2111,6 +2269,9 @@ export function ShiftPage() {
               draft.gateManagerWorkerId,
             )}
             overrides={draft.staffingOverrides}
+            compact={roundsCompact}
+            managerRequired
+            stickyOffsetClass="top-14"
             ramashName={
               draft.gateManagerWorkerId
                 ? data.workers.find((w) => w.id === draft.gateManagerWorkerId)
@@ -2171,6 +2332,137 @@ export function ShiftPage() {
             workers={data.workers}
             onUndo={undoShiftDrop}
           />
+
+          {!draft.signOff?.signedAt ? (
+            <div className="fixed inset-x-3 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto flex max-w-[760px] items-center gap-2 rounded-2xl border border-line/80 bg-card/90 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print sm:inset-x-4">
+              <div
+                className={`flex shrink-0 items-center gap-1.5 ${
+                  draftDirty ? 'text-warn' : 'text-ok'
+                }`}
+                role="status"
+                aria-label={draftDirty ? 'יש שינויים שלא נשמרו' : 'הכל שמור'}
+              >
+                {draftDirty ? (
+                  <span className="size-2 rounded-full bg-warn" aria-hidden />
+                ) : (
+                  <CheckCircle2 className="size-4" aria-hidden />
+                )}
+                <span className="hidden text-[11px] font-semibold sm:inline">
+                  {draftDirty ? 'לא נשמר' : 'נשמר'}
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={!draftDirty}
+                onClick={() => void handleSave()}
+                className={`ui-btn ui-btn-primary !h-11 flex-1 gap-2 ${
+                  !draftDirty ? 'cursor-not-allowed opacity-40' : ''
+                }`}
+              >
+                <Save className="size-4" aria-hidden />
+                שמירה
+              </button>
+              <button
+                type="button"
+                disabled={assigning}
+                onClick={() => void handleAutoAssign()}
+                className="ui-btn !h-11 shrink-0 gap-2 !bg-brand-soft !font-semibold !text-brand hover:!bg-brand/15"
+                aria-label="שיבוץ אוטומטי"
+              >
+                <Sparkles className="size-4" aria-hidden />
+                <span className="hidden sm:inline">שיבוץ אוטומטי</span>
+              </button>
+            </div>
+          ) : null}
+
+          {assignPreview && draft
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[70] flex items-end justify-center bg-ink/40 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="תצוגה מקדימה לשיבוץ אוטומטי"
+                >
+                  <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-panel-hover)]">
+                    <h3 className="font-display text-lg font-bold text-ink">
+                      תצוגה מקדימה — שיבוץ אוטומטי
+                    </h3>
+                    <p className="mt-1 text-sm text-ink-soft">
+                      זה השיבוץ המוצע. אפשר לאשר או לבטל ולחזור ללוח הקודם.
+                    </p>
+                    <ul className="mt-3 max-h-56 space-y-1.5 overflow-y-auto text-sm">
+                      {(draft.rounds ?? []).flatMap((round) =>
+                        round.assignments.flatMap((row) => {
+                          const laneName =
+                            data.lanes.find((l) => l.id === row.laneId)?.name ??
+                            row.laneId
+                          const beforeRow = assignPreview.before.rounds
+                            ?.find(
+                              (r) =>
+                                r.label === round.label &&
+                                r.cohort === round.cohort,
+                            )
+                            ?.assignments.find((a) => a.laneId === row.laneId)
+                          const beforeIds = (beforeRow?.workerIds ?? [])
+                            .filter(Boolean)
+                            .join(',')
+                          const afterIds = row.workerIds.filter(Boolean).join(',')
+                          if (beforeIds === afterIds) return []
+                          const names = row.workerIds
+                            .filter(Boolean)
+                            .map(
+                              (id) =>
+                                data.workers.find((w) => w.id === id)?.fullName ??
+                                id,
+                            )
+                            .join(' · ')
+                          return [
+                            <li
+                              key={`${round.label}-${row.laneId}`}
+                              className="rounded-lg bg-surface px-2.5 py-2"
+                            >
+                              <span className="font-semibold text-ink">
+                                {round.label} · {laneName}
+                              </span>
+                              <span className="mt-0.5 block text-ink-soft">
+                                {names || 'פנוי'}
+                              </span>
+                            </li>,
+                          ]
+                        }),
+                      )}
+                    </ul>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-ghost flex-1"
+                        onClick={() => {
+                          restoreDraftSnapshot(assignPreview.before)
+                          setAssignPreview(null)
+                        }}
+                      >
+                        ביטול
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-primary flex-1"
+                        onClick={() => {
+                          const before = assignPreview.before
+                          setAssignPreview(null)
+                          notify.undoable('שיבוץ אוטומטי', () =>
+                            restoreDraftSnapshot(before),
+                          )
+                          setRequestExplainModal(true)
+                        }}
+                      >
+                        אישור
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
         </div>
       ) : null}
 
