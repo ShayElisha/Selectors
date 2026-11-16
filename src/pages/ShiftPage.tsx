@@ -1442,12 +1442,23 @@ export function ShiftPage() {
                               ) : null}
                               {on && !isGate && w.trainingRole !== 'trainee' ? (
                                 (() => {
+                                  const mentorPair = (
+                                    draft.trainingPairs ?? []
+                                  ).find((item) => item.mentorId === w.id)
                                   const placement = draft.manualPlacements?.find(
                                     (item) => item.workerId === w.id,
                                   )
-                                  return placement?.laneId ? (
+                                  const pinnedLaneId =
+                                    mentorPair?.laneId ?? placement?.laneId
+                                  return pinnedLaneId ? (
                                     <span className="inline-flex items-center gap-1 rounded-md bg-ok-soft px-1.5 py-0.5 text-[10px] font-bold text-ok ring-1 ring-ok/20">
-                                      📌 {data.lanes.find((l) => l.id === placement.laneId)?.name}
+                                      📌{' '}
+                                      {
+                                        data.lanes.find(
+                                          (l) => l.id === pinnedLaneId,
+                                        )?.name
+                                      }
+                                      {mentorPair ? ' · חונכות' : ''}
                                     </span>
                                   ) : null
                                 })()
@@ -1551,28 +1562,48 @@ export function ShiftPage() {
                                 ))}
                               </select>
                             ) : w.trainingRole !== 'trainee' ? (
-                              <select
-                                className="ui-field w-full py-1.5 text-[13px]"
-                                aria-label={`נתיב מועדף עבור ${w.fullName}`}
-                                value={draft.manualPlacements?.find((p) => p.workerId === w.id)?.laneId ?? ''}
-                                onChange={(e) => {
-                                  const laneId = e.target.value || null
-                                  setManualPlacement(w.id, laneId)
-                                }}
-                              >
-                                <option value="">שיבוץ אוטומטי</option>
-                                {data.lanes
-                                  .filter(
-                                    (lane) =>
-                                      draft.activeLaneIds.includes(lane.id) &&
-                                      !isGateManagerLane(lane),
-                                  )
-                                  .map((lane) => (
-                                    <option key={lane.id} value={lane.id}>
-                                      📌 {lane.name}
-                                    </option>
-                                  ))}
-                              </select>
+                              (() => {
+                                const mentorPair = (
+                                  draft.trainingPairs ?? []
+                                ).find((pair) => pair.mentorId === w.id)
+                                const preferredLaneId =
+                                  mentorPair?.laneId ??
+                                  draft.manualPlacements?.find(
+                                    (p) => p.workerId === w.id,
+                                  )?.laneId ??
+                                  ''
+                                return (
+                                  <select
+                                    className="ui-field w-full py-1.5 text-[13px]"
+                                    aria-label={
+                                      mentorPair
+                                        ? `נתיב חונכות עבור ${w.fullName}`
+                                        : `נתיב מועדף עבור ${w.fullName}`
+                                    }
+                                    value={preferredLaneId}
+                                    onChange={(e) => {
+                                      const laneId = e.target.value || null
+                                      setManualPlacement(w.id, laneId)
+                                    }}
+                                  >
+                                    {mentorPair ? null : (
+                                      <option value="">שיבוץ אוטומטי</option>
+                                    )}
+                                    {data.lanes
+                                      .filter(
+                                        (lane) =>
+                                          draft.activeLaneIds.includes(
+                                            lane.id,
+                                          ) && !isGateManagerLane(lane),
+                                      )
+                                      .map((lane) => (
+                                        <option key={lane.id} value={lane.id}>
+                                          📌 {lane.name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )
+                              })()
                             ) : null}
                             <div className="mt-2 space-y-2">
                               <LateMinutesControl

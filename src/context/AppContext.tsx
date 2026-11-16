@@ -80,6 +80,14 @@ import {
   normalizeManualPlacements,
   pruneManualPlacements,
 } from '../lib/manualPlacements'
+import {
+  manualsCompatibleWithTraining,
+  reservedSeatsByLane,
+} from '../lib/assignLocks'
+import {
+  manualsCompatibleWithTraining,
+  reservedSeatsByLane,
+} from '../lib/assignLocks'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
@@ -2137,10 +2145,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.activeLaneIds,
         workersById,
       )
-      const manualPlacements = pruneManualPlacements(
-        d.manualPlacements,
-        presentWorkerIds,
-        d.activeLaneIds,
+      const manualPlacements = manualsCompatibleWithTraining(
+        pruneManualPlacements(
+          d.manualPlacements,
+          presentWorkerIds,
+          d.activeLaneIds,
+        ),
+        trainingPairs,
       )
       return withGateManagerSync(
         {
@@ -2190,9 +2201,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             laneId: lock.laneId,
           },
         ])
+        // Training lock owns the seat — drop preferred-lane pins for the pair.
+        const manuals = manualsCompatibleWithTraining(
+          d.manualPlacements,
+          next,
+        )
         return {
           ...d,
           trainingPairs: next.length ? next : undefined,
+          manualPlacements: manuals.length ? manuals : undefined,
         }
       })
     },
@@ -2206,6 +2223,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const without = (d.manualPlacements ?? []).filter(
           (placement) => placement.workerId !== workerId,
         )
+        // Mentor already locked with a trainee: preferred lane retargets the pair.
+        const mentorPair = (d.trainingPairs ?? []).find(
+          (pair) => pair.mentorId === workerId,
+        )
+        if (mentorPair) {
+          if (!laneId) return d
+          if (!d.activeLaneIds.includes(laneId)) return d
+          const nextPairs = normalizeTrainingPairs(
+            (d.trainingPairs ?? []).map((pair) =>
+              pair.mentorId === workerId ? { ...pair, laneId } : pair,
+            ),
+          )
+          const manuals = manualsCompatibleWithTraining(without, nextPairs)
+          return {
+            ...d,
+            trainingPairs: nextPairs.length ? nextPairs : undefined,
+            manualPlacements: manuals.length ? manuals : undefined,
+          }
+        }
         if (!laneId) {
           return {
             ...d,
@@ -2214,6 +2250,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (!d.presentWorkerIds.includes(workerId)) return d
         if (!d.activeLaneIds.includes(laneId)) return d
+        // Trainee seat is owned by the training lock — ignore preferred pin.
+        if (trainingPairLockedIds(d.trainingPairs).has(workerId)) return d
         const next = normalizeManualPlacements([
           ...without,
           { workerId, laneId },
@@ -2789,21 +2827,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.activeLaneIds,
         workersById,
       )
-      const manualPlacements = pruneManualPlacements(
-        d.manualPlacements,
-        d.presentWorkerIds,
-        d.activeLaneIds,
+      const manualPlacements = manualsCompatibleWithTraining(
+        pruneManualPlacements(
+          d.manualPlacements,
+          d.presentWorkerIds,
+          d.activeLaneIds,
+        ),
+        trainingPairs,
       )
       const lockedIds = trainingPairLockedIds(trainingPairs)
       const manualIds = manualPlacementLockedIds(manualPlacements)
       if (!usesRounds(d)) {
-        const reservedByLane = new Map<string, number>()
-        for (const pair of trainingPairs) {
-          reservedByLane.set(
-            pair.laneId,
-            (reservedByLane.get(pair.laneId) ?? 0) + 2,
-          )
-        }
+        const reservedByLane = reservedSeatsByLane(
+          trainingPairs,
+          manualPlacements,
+        )
         const activeLanes = data.lanes
           .filter(
             (lane) =>
@@ -2892,6 +2930,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ),
         d.gateManagerWorkerId,
       )
+      const reservedByLane = reservedSeatsByLane(
+        trainingPairs,
+        manualPlacements,
+      )
+      const assignOverrides: StaffingOverrides = {
+        ...normalizeStaffingOverrides(d.staffingOverrides),
+      }
+      const activeLaneIdsForAssign = d.activeLaneIds.filter((laneId) => {
+        const lane = data.lanes.find((item) => item.id === laneId)
+        if (!lane || isGateManagerLane(lane)) return true
+        const base = effectiveStaffingStandard(lane, d.staffingOverrides)
+        const reserved = reservedByLane.get(laneId) ?? 0
+        const remaining = base - reserved
+        if (remaining <= 0) return false
+        assignOverrides[laneId] = Math.min(5, remaining) as StaffingStandard
+        return true
+      })
       // Same multi-start budget as single-mode (~1000 board checks) with progress.
       const moduleKey = activeModule(user)
       const bounds = selectorRoundBounds(d.shiftType, data.shiftModels, moduleKey)
@@ -2909,9 +2964,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           stagger: staggerRef.current[moduleKey],
           windowAdjustments: d.windowAdjustments,
           lanes: data.lanes,
-          activeLaneIds: d.activeLaneIds,
+          activeLaneIds: activeLaneIdsForAssign,
           workers: present,
-          overrides: d.staffingOverrides,
+          overrides: assignOverrides,
           peakHoursOverrides: d.peakHoursOverrides,
           workerWindows: d.workerWindows,
           history: data.history,
