@@ -75,6 +75,7 @@ export function SelectorRoundTable({
         editable={editable}
         onChange={onChange}
         onRemoveLane={onRemoveLane}
+        managerRequired={managerRequired}
       />
     )
   }
@@ -301,6 +302,7 @@ function SelectorRoundLegacyTable({
   editable = false,
   onChange,
   onRemoveLane,
+  managerRequired = false,
 }: {
   rounds: SelectorRound[]
   lanes: Lane[]
@@ -318,20 +320,40 @@ function SelectorRoundLegacyTable({
     workerId: string | null,
   ) => void
   onRemoveLane?: (laneId: string) => void
+  managerRequired?: boolean
 }) {
   const byId = new Map(workers.map((worker) => [worker.id, worker]))
   const nameOf = (id: string) => byId.get(id)?.fullName ?? id
+  const managerMissing =
+    managerRequired && editable && onManagerChange && !(managerId ?? '').trim()
 
   return (
     <div className="space-y-2">
       {ramashName !== undefined ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[13px] font-semibold text-ink">
+        <div
+          className={`rounded-2xl border bg-card px-4 py-3 text-[13px] font-semibold text-ink shadow-sm ${
+            managerMissing ? 'border-hard/40 ring-1 ring-hard/20' : 'border-line/70'
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
           <Shield className="size-4 text-brand" aria-hidden />
-          <span>מנהל משמרת</span>
+          <span>
+            מנהל משמרת
+            {managerRequired ? (
+              <span className="text-hard" aria-hidden>
+                {' '}
+                *
+              </span>
+            ) : null}
+          </span>
           {editable && onManagerChange ? (
             <select
-              className="ui-field min-w-40 py-1.5 text-sm font-semibold"
-              aria-label="בחירת מנהל משמרת"
+              className={`ui-field min-w-40 py-1.5 text-sm font-semibold ${
+                managerMissing ? 'border-hard ring-1 ring-hard/30' : ''
+              }`}
+              aria-label="בחירת מנהל משמרת (שדה חובה)"
+              aria-required={managerRequired || undefined}
+              aria-invalid={managerMissing || undefined}
               value={managerId ?? ''}
               onChange={(event) => onManagerChange(event.target.value || null)}
             >
@@ -349,6 +371,12 @@ function SelectorRoundLegacyTable({
           ) : (
             <span>{ramashName.trim() || 'לא סומן'}</span>
           )}
+          </div>
+          {managerMissing ? (
+            <p className="mt-1.5 text-xs font-semibold text-hard" role="alert">
+              חובה לבחור מנהל משמרת לפני שמירה או סגירה
+            </p>
+          ) : null}
         </div>
       ) : null}
       <div className="max-w-full overflow-hidden rounded-2xl border border-line/70 bg-card shadow-[var(--shadow-panel)]">
@@ -373,11 +401,11 @@ function SelectorRoundLegacyTable({
                             <button
                               type="button"
                               onClick={() => onRemoveLane(lane.id)}
-                              className="inline-flex size-6 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard"
+                              className="inline-flex size-11 items-center justify-center rounded-full text-ink-soft transition hover:bg-hard-soft hover:text-hard"
                               title="הסר נתיב מהמשמרת"
                               aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
                             >
-                              <Trash2 className="size-3.5" aria-hidden />
+                              <Trash2 className="size-4" aria-hidden />
                             </button>
                           ) : null}
                         </span>

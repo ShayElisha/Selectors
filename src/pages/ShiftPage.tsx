@@ -22,8 +22,8 @@ import {
   Lock,
   MoreHorizontal,
   Save,
-  Rows3,
-  LayoutGrid,
+  Table2,
+  LayoutList,
 } from 'lucide-react'
 import {
   isQualified,
@@ -186,7 +186,7 @@ export function ShiftPage() {
   const [roundsMoreOpen, setRoundsMoreOpen] = useState(false)
   const [roundsWarningsOpen, setRoundsWarningsOpen] = useState(false)
   const [roundsWarningsDismissed, setRoundsWarningsDismissed] = useState(false)
-  const [roundsCompact, setRoundsCompact] = useState(false)
+  const [roundsLayout, setRoundsLayout] = useState<'cards' | 'table'>('cards')
   const [assignPreview, setAssignPreview] = useState<{
     before: NonNullable<typeof draft>
   } | null>(null)
@@ -2057,20 +2057,40 @@ export function ShiftPage() {
                 שיבוץ {roleName}
               </h2>
             </div>
-            <button
-              type="button"
-              onClick={() => setRoundsCompact((v) => !v)}
-              className="inline-flex size-11 items-center justify-center rounded-xl text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-              aria-label={roundsCompact ? 'תצוגה רגילה' : 'תצוגה מרוכזת'}
-              title={roundsCompact ? 'תצוגה רגילה' : 'תצוגה מרוכזת'}
-              aria-pressed={roundsCompact}
+            <div
+              className="inline-flex shrink-0 rounded-xl border border-line/80 bg-card p-0.5"
+              role="group"
+              aria-label="סוג תצוגה"
             >
-              {roundsCompact ? (
-                <LayoutGrid className="size-5" aria-hidden />
-              ) : (
-                <Rows3 className="size-5" aria-hidden />
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => setRoundsLayout('cards')}
+                className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                  roundsLayout === 'cards'
+                    ? 'bg-brand/10 text-brand'
+                    : 'text-ink-soft hover:text-ink'
+                }`}
+                aria-pressed={roundsLayout === 'cards'}
+                title="תצוגת רשימה"
+              >
+                <LayoutList className="size-4" aria-hidden />
+                <span className="hidden sm:inline">רשימה</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoundsLayout('table')}
+                className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                  roundsLayout === 'table'
+                    ? 'bg-brand/10 text-brand'
+                    : 'text-ink-soft hover:text-ink'
+                }`}
+                aria-pressed={roundsLayout === 'table'}
+                title="תצוגת טבלה"
+              >
+                <Table2 className="size-4" aria-hidden />
+                <span className="hidden sm:inline">טבלה</span>
+              </button>
+            </div>
             <div className="relative" ref={roundsMoreRef}>
               <button
                 type="button"
@@ -2280,7 +2300,7 @@ export function ShiftPage() {
               draft.gateManagerWorkerId,
             )}
             overrides={draft.staffingOverrides}
-            compact={roundsCompact}
+            layout={roundsLayout}
             managerRequired
             stickyOffsetClass="top-14"
             ramashName={
