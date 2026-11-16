@@ -25,6 +25,7 @@ import { HistoryPage } from './pages/HistoryPage'
 import { TrackingPage } from './pages/TrackingPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { AuditPage } from './pages/AuditPage'
+import { ReportsPage } from './pages/ReportsPage'
 import { BriefingsPage } from './pages/BriefingsPage'
 import { IncidentsPage } from './pages/IncidentsPage'
 import { ShiftModelsPage } from './pages/ShiftModelsPage'
@@ -142,6 +143,7 @@ function ProtectedShell() {
         <Route path="account/password" element={<ChangePasswordPage />} />
         <Route path="tracking" element={<TrackingPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="history" element={<HistoryPage />} />
         <Route path="history/:shiftId" element={<HistoryPage />} />

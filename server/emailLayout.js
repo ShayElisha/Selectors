@@ -145,7 +145,7 @@ export function renderBrandedEmail({
             <td style="background:${BRAND.deep};padding:22px 24px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td width="64" valign="middle" style="padding-left:14px;">
+                  <td width="64" valign="middle" style="padding-inline-start:14px;">
                     ${logoHtmlBlock()}
                   </td>
                   <td valign="middle" align="right">

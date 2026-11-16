@@ -20,7 +20,8 @@ async function ensureRateLimitIndexes(collection) {
 }
 
 /**
- * Sliding-window login rate limit (Mongo-backed for Vercel).
+ * Sliding-window rate limit (Mongo-backed for Vercel).
+ * Progressive backoff: after half the budget, wait grows with attempt count.
  * @param {{ key: string, limit?: number, windowMs?: number }} opts
  */
 export async function assertRateLimit({ key, limit = 10, windowMs = 15 * 60_000 }) {
@@ -53,12 +54,25 @@ export async function assertRateLimit({ key, limit = 10, windowMs = 15 * 60_000 
   )
 
   if (doc.count > limit) {
-    const waitSec = Math.max(1, Math.ceil((doc.resetAt - now) / 1000))
+    const over = doc.count - limit
+    const progressive = Math.min(120, 5 + over * 5)
+    const waitSec = Math.max(
+      progressive,
+      Math.ceil((doc.resetAt - now) / 1000),
+    )
     const err = new Error(`יותר מדי ניסיונות. נסו שוב בעוד ${waitSec} שניות`)
     err.status = 429
     err.retryAfterSec = waitSec
     throw err
   }
+}
+
+/** Clear counters after a successful login so legit users are not trapped. */
+export async function clearRateLimit(key) {
+  const db = await getDb()
+  const col = db.collection('rate_limits')
+  const _id = `rl:${createHash('sha256').update(key).digest('hex')}`
+  await col.deleteOne({ _id })
 }
 
 /** @param {import('http').IncomingMessage | { headers?: Record<string, string|string[]|undefined>, socket?: { remoteAddress?: string } }} req */

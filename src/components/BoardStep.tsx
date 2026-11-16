@@ -39,7 +39,11 @@ import {
   AssignmentExplainDialog,
   groupExplanations,
 } from './AssignmentExplainDialog'
-import { IntensityBadge, Ltr } from './ui'
+import { IntensityBadge, Ltr, TimingBadges } from './ui'
+import {
+  timingBadgesForWorker,
+} from '../lib/shiftTimingBadges'
+import { explainWhyNotSelected } from '../lib/whyNotSelected'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { PeopleLabels } from '../auth'
 import type { ShiftDraft } from '../context/AppContext'
@@ -372,6 +376,41 @@ export function BoardStep({
     () => groupExplanations(draft.explanations ?? [], data.lanes, data.workers),
     [draft.explanations, data.lanes, data.workers],
   )
+
+  const whyNotByLane = useMemo(() => {
+    const present = data.workers.filter((w) =>
+      draft.presentWorkerIds.includes(w.id),
+    )
+    return managedLanes(data.lanes)
+      .filter((lane) => draft.activeLaneIds.includes(lane.id))
+      .map((lane) => {
+      const selected =
+        draft.assignments.find((a) => a.laneId === lane.id)?.workerIds ?? []
+      const ranking = (draft.explanations ?? []).find(
+        (row) => row.laneId === lane.id && row.candidateRanking?.length,
+      )?.candidateRanking
+      const people = explainWhyNotSelected({
+        lane,
+        presentWorkers: present,
+        selectedWorkerIds: selected,
+        windowAdjustments: draft.windowAdjustments,
+        candidateRanking: ranking,
+        limit: 6,
+      }).map((row) => ({
+        workerName: row.workerName,
+        reasons: row.reasons,
+      }))
+      return { laneId: lane.id, laneName: lane.name, people }
+    })
+  }, [
+    data.lanes,
+    data.workers,
+    draft.activeLaneIds,
+    draft.assignments,
+    draft.explanations,
+    draft.presentWorkerIds,
+    draft.windowAdjustments,
+  ])
 
   const partitioned = useMemo(
     () => partitionWarnings(draft.warnings),
@@ -748,8 +787,22 @@ export function BoardStep({
       if (w.trainingRole === 'trainee') {
         details.unshift('מתלמד')
       }
+      const timing = timingBadgesForWorker({
+        workerId: w.id,
+        windowAdjustments: draft.windowAdjustments,
+        earlyLeaveAt: draft.earlyLeaveAt,
+      })
+      for (const badge of timing) details.push(badge.shortLabel)
       return details.join(' · ')
     }
+
+    const selectedTiming = workerId
+      ? timingBadgesForWorker({
+          workerId,
+          windowAdjustments: draft.windowAdjustments,
+          earlyLeaveAt: draft.earlyLeaveAt,
+        })
+      : []
 
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -767,7 +820,17 @@ export function BoardStep({
             onChange={() => undefined}
           />
         ) : (
-          <div className={selectedLacksCert ? 'rounded-xl ring-1 ring-warn/40' : isExtra ? 'rounded-xl ring-1 ring-accent/30' : ''}>
+          <div
+            className={
+              selectedLacksCert
+                ? 'rounded-xl ring-1 ring-warn/40'
+                : selectedTiming.length
+                  ? 'rounded-xl ring-1 ring-warn/30'
+                  : isExtra
+                    ? 'rounded-xl ring-1 ring-accent/30'
+                    : ''
+            }
+          >
             <WorkerCombobox
               options={workers.map((worker) => ({
                 worker,
@@ -783,6 +846,7 @@ export function BoardStep({
             />
           </div>
         )}
+        {selectedTiming.length ? <TimingBadges badges={selectedTiming} /> : null}
         {selectedLacksCert ? (
           <span className="inline-flex w-fit items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-bold text-warn ring-1 ring-warn/25">
             ללא הסמכה
@@ -1765,6 +1829,7 @@ export function BoardStep({
         date={draft.date}
         shiftType={draft.shiftType}
         groups={explanationGroups}
+        whyNotByLane={whyNotByLane}
         returnFocusRef={explainTriggerRef}
       />
       {dropWorkerId

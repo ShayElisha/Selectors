@@ -244,13 +244,13 @@ function LoadOverview({
         <div
           className="pointer-events-none absolute inset-y-3 rounded bg-brand/10"
           style={{
-            left: `calc(${loadScalePosition(avgLoad, max, -6)}% - 6%)`,
+            insetInlineStart: `calc(${loadScalePosition(avgLoad, max, -6)}% - 6%)`,
             width: '12%',
           }}
         />
         <div
           className="pointer-events-none absolute inset-y-2 w-px bg-accent"
-          style={{ left: `${loadScalePosition(avgLoad, max, -6)}%` }}
+          style={{ insetInlineStart: `${loadScalePosition(avgLoad, max, -6)}%` }}
           title={`ממוצע ${formatLoadOneDecimal(avgLoad)}`}
         />
         {/* baseline */}
@@ -273,16 +273,16 @@ function LoadOverview({
                 active ? 'z-10 scale-125 bg-accent' : 'bg-brand'
               }`}
               style={{
-                left: `${left}%`,
+                insetInlineStart: `${left}%`,
                 top: `calc(50% + ${lane * 10}px)`,
               }}
             />
           )
         })}
-        <span className="pointer-events-none absolute bottom-1 left-3 text-[11px] tabular-nums text-ink-soft">
+        <span className="pointer-events-none absolute bottom-1 start-3 text-[11px] tabular-nums text-ink-soft">
           0
         </span>
-        <span className="pointer-events-none absolute bottom-1 right-3 text-[11px] tabular-nums text-ink-soft">
+        <span className="pointer-events-none absolute bottom-1 end-3 text-[11px] tabular-nums text-ink-soft">
           {formatLoadOneDecimal(max)}
         </span>
       </div>

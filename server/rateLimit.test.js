@@ -9,7 +9,7 @@ const { getDb, findOneAndUpdate, createIndex, updateMany } = vi.hoisted(() => ({
 
 vi.mock('./db.js', () => ({ getDb }))
 
-import { assertRateLimit, clientKey } from './rateLimit.js'
+import { assertRateLimit, clearRateLimit, clientKey } from './rateLimit.js'
 
 describe('assertRateLimit', () => {
   beforeEach(() => {
@@ -60,5 +60,16 @@ describe('clientKey', () => {
         headers: { 'x-forwarded-for': '198.51.100.1' },
       }),
     ).toBe('203.0.113.10')
+  })
+})
+
+describe('clearRateLimit', () => {
+  it('deletes the counter document', async () => {
+    const deleteOne = vi.fn().mockResolvedValue({ deletedCount: 1 })
+    getDb.mockResolvedValue({
+      collection: () => ({ findOneAndUpdate, createIndex, updateMany, deleteOne }),
+    })
+    await clearRateLimit('login:1.2.3.4:050')
+    expect(deleteOne).toHaveBeenCalledOnce()
   })
 })

@@ -1,10 +1,13 @@
 import { CheckCircle2, CircleDashed, Shield, Trash2 } from 'lucide-react'
 import { INTENSITY_LABELS } from '../constants'
-import { IntensityBadge, Ltr } from './ui'
+import { IntensityBadge, Ltr, TimingBadges } from './ui'
 import { WorkerCombobox } from './WorkerCombobox'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { laneOpenDuring } from '../lib/shiftCatalog'
-import type { Lane, SelectorRound, Worker } from '../types'
+import {
+  timingBadgesForWorker,
+} from '../lib/shiftTimingBadges'
+import type { Lane, SelectorRound, WindowAdjustment, Worker } from '../types'
 import type { StaffingOverrides } from '../lib/shiftStaffing'
 
 export function SelectorRoundTable({
@@ -12,6 +15,8 @@ export function SelectorRoundTable({
   lanes,
   workers,
   overrides,
+  windowAdjustments,
+  earlyLeaveAt,
   ramashName,
   managerOptions,
   managerId,
@@ -28,6 +33,8 @@ export function SelectorRoundTable({
   lanes: Lane[]
   workers: Worker[]
   overrides?: StaffingOverrides | null
+  windowAdjustments?: Record<string, WindowAdjustment> | null
+  earlyLeaveAt?: Record<string, number> | null
   /** Shift manager shown above the round table. */
   ramashName?: string
   /** Active managers who can be chosen while editing the board. */
@@ -51,7 +58,17 @@ export function SelectorRoundTable({
   /** Sticky offset under the page header (Tailwind top-* class). */
   stickyOffsetClass?: string
 }) {
-  const options = workers.map((worker) => ({ worker }))
+  const options = workers.map((worker) => {
+    const timing = timingBadgesForWorker({
+      workerId: worker.id,
+      windowAdjustments,
+      earlyLeaveAt,
+    })
+    return {
+      worker,
+      description: timing.map((b) => b.shortLabel).join(' · ') || undefined,
+    }
+  })
 
   if (lanes.length === 0 || rounds.length === 0) {
     return (
@@ -259,19 +276,30 @@ export function SelectorRoundTable({
                               {slotIndex + 1}.
                             </span>
                           ) : null}
-                          <WorkerCombobox
-                            options={options}
-                            value={workerId}
-                            placeholder="פנוי"
-                            ariaLabel={`${lane.name} ${round.label}${
-                              slots.length > 1 ? ` מקום ${slotIndex + 1}` : ''
-                            }`}
-                            searchNoun="עובד"
-                            disabled={!editable}
-                            onChange={(nextId) =>
-                              onChange?.(roundIndex, lane.id, slotIndex, nextId)
-                            }
-                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <WorkerCombobox
+                              options={options}
+                              value={workerId}
+                              placeholder="פנוי"
+                              ariaLabel={`${lane.name} ${round.label}${
+                                slots.length > 1 ? ` מקום ${slotIndex + 1}` : ''
+                              }`}
+                              searchNoun="עובד"
+                              disabled={!editable}
+                              onChange={(nextId) =>
+                                onChange?.(roundIndex, lane.id, slotIndex, nextId)
+                              }
+                            />
+                            {workerId ? (
+                              <TimingBadges
+                                badges={timingBadgesForWorker({
+                                  workerId,
+                                  windowAdjustments,
+                                  earlyLeaveAt,
+                                })}
+                              />
+                            ) : null}
+                          </div>
                         </div>
                       ))
                     ) : (

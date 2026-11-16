@@ -48,7 +48,7 @@ function buildExportNode(
   root.setAttribute('dir', 'rtl')
   root.style.cssText = [
     'position:fixed',
-    'left:-10000px',
+    'inset-inline-start:-10000px',
     'top:0',
     'width:794px',
     'background:#ffffff',
@@ -373,7 +373,7 @@ function buildRoundsExportNode(
   root.setAttribute('dir', 'rtl')
   root.style.cssText = [
     'position:fixed',
-    'left:-10000px',
+    'inset-inline-start:-10000px',
     'top:0',
     'width:1100px',
     'background:#ffffff',

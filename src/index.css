@@ -1345,7 +1345,7 @@ html.kiosk-immersive body {
 
 .gate-map__beam {
   position: absolute;
-  left: 50%;
+  inset-inline-start: 50%;
   top: -8%;
   width: 42%;
   height: 120%;

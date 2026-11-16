@@ -2328,6 +2328,8 @@ export function ShiftPage() {
               draft.gateManagerWorkerId,
             )}
             overrides={draft.staffingOverrides}
+            windowAdjustments={draft.windowAdjustments}
+            earlyLeaveAt={draft.earlyLeaveAt}
             layout={roundsLayout}
             managerRequired
             stickyOffsetClass="top-14"

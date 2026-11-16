@@ -24,6 +24,7 @@ import {
   requestAccountPasswordReset,
   upsertManagerAccount,
 } from "./orgs.js";
+import { openWorkerPii, sealWorkerPii } from "./piiCrypto.js";
 
 function publicModules(modules) {
   return {
@@ -75,38 +76,41 @@ function uniqueLabels(values) {
 }
 
 function normalizeWorker(w, fallbackKind = "selector") {
-  const isManager = Boolean(w.isManager);
+  const opened = openWorkerPii(w) || w;
+  const isManager = Boolean(opened.isManager);
   const hasInspectorFlag = Object.prototype.hasOwnProperty.call(
-    w,
+    opened,
     "isInspector",
   );
-  let isInspector = hasInspectorFlag ? Boolean(w.isInspector) : !isManager;
+  let isInspector = hasInspectorFlag ? Boolean(opened.isInspector) : !isManager;
   if (!isInspector && !isManager) isInspector = true;
   const staffKind =
-    w.staffKind === "inspector" ||
-    w.staffKind === "selector" ||
-    w.staffKind === "security"
-      ? w.staffKind
+    opened.staffKind === "inspector" ||
+    opened.staffKind === "selector" ||
+    opened.staffKind === "security"
+      ? opened.staffKind
       : fallbackKind;
-  const isOrgManager = Boolean(w.isOrgManager);
-  const canLogin = Boolean(w.canLogin) || isManager || isOrgManager;
+  const isOrgManager = Boolean(opened.isOrgManager);
+  const canLogin = Boolean(opened.canLogin) || isManager || isOrgManager;
   const worker = {
-    id: w.id,
-    fullName: w.fullName || "",
-    phone: w.phone || "",
-    email: normalizeEmail(w.email),
-    certifications: uniqueLabels(w.certifications),
+    id: opened.id,
+    fullName: opened.fullName || "",
+    phone: opened.phone || "",
+    email: normalizeEmail(opened.email),
+    certifications: uniqueLabels(opened.certifications),
     status:
-      w.status === "inactive" || w.status === "archived" ? w.status : "active",
+      opened.status === "inactive" || opened.status === "archived"
+        ? opened.status
+        : "active",
     isInspector,
     isManager: isManager || isOrgManager,
     staffKind,
     isOrgManager,
     canLogin,
-    managerNotes: String(w.managerNotes || "").trim().slice(0, 2000),
+    managerNotes: String(opened.managerNotes || "").trim().slice(0, 2000),
   };
-  if (w.trainingRole === "trainee" || w.trainingRole === "mentor") {
-    worker.trainingRole = w.trainingRole;
+  if (opened.trainingRole === "trainee" || opened.trainingRole === "mentor") {
+    worker.trainingRole = opened.trainingRole;
   } else {
     delete worker.trainingRole;
   }
@@ -419,9 +423,18 @@ export function publicData(data) {
   return {
     ...data,
     workers: Array.isArray(data.workers)
-      ? data.workers.map(
-          ({ passwordHash: _h, mustChangePassword: _m, ...w }) => w,
-        )
+      ? data.workers.map((raw) => {
+          const opened = openWorkerPii(raw) || raw;
+          const {
+            passwordHash: _h,
+            mustChangePassword: _m,
+            emailLookup: _el,
+            phoneLookup: _pl,
+            phoneSealed: _ps,
+            ...w
+          } = opened;
+          return w;
+        })
       : [],
   };
 }
@@ -1700,7 +1713,7 @@ export async function writeState(data, options = {}) {
   }
   const nextRevision = currentRevision + 1;
   const toStore = {
-    workers: payload.workers,
+    workers: payload.workers.map((worker) => sealWorkerPii(worker)),
     lanes: payload.lanes,
     history: payload.history,
     certificationsCatalog: payload.certificationsCatalog,
@@ -1769,6 +1782,8 @@ export async function writeState(data, options = {}) {
           action: ev.action,
           actor: options.actor,
           details: ev.details,
+          before: ev.before,
+          after: ev.after,
           orgId: scope.orgId,
           module: scope.module,
         });
@@ -2234,6 +2249,8 @@ export async function upsertShift(id, body, actor, options = {}) {
     throw err;
   }
 
+  await assertNoCrossModuleDoubleBooking(schedule, scope, state);
+
   const idx = state.history.findIndex((h) => h.id === schedule.id);
   const isNew = idx === -1;
   const previous = isNew ? null : state.history[idx];
@@ -2393,6 +2410,93 @@ export async function upsertShift(id, body, actor, options = {}) {
 }
 
 const GUEST_MODULE_ORDER = ["selectors", "inspectors", "security"];
+
+function workerIdsOnSchedule(schedule) {
+  const ids = new Set();
+  for (const id of schedule?.presentWorkerIds || []) {
+    if (id) ids.add(String(id));
+  }
+  for (const row of schedule?.assignments || []) {
+    for (const id of row.workerIds || []) {
+      if (id) ids.add(String(id));
+    }
+  }
+  for (const round of schedule?.rounds || []) {
+    for (const row of round.assignments || []) {
+      for (const id of row.workerIds || []) {
+        if (id) ids.add(String(id));
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Block the same phone from being present/assigned on another module's
+ * shift for the same date + shift type.
+ */
+async function assertNoCrossModuleDoubleBooking(schedule, scope, localState) {
+  const localIds = workerIdsOnSchedule(schedule);
+  if (!localIds.size) return;
+  const phoneById = new Map();
+  for (const worker of localState?.workers || []) {
+    const phone = normalizePhone(worker.phone);
+    if (phone && localIds.has(String(worker.id))) {
+      phoneById.set(String(worker.id), phone);
+    }
+  }
+  // Guest workers keep source-module ids; resolve phones from other modules' catalogs.
+  for (const target of GUEST_MODULE_ORDER) {
+    if (target === scope.module) continue;
+    let otherState;
+    try {
+      otherState = await readState({ orgId: String(scope.orgId), module: target });
+    } catch {
+      continue;
+    }
+    for (const worker of otherState?.workers || []) {
+      if (!localIds.has(String(worker.id))) continue;
+      const phone = normalizePhone(worker.phone);
+      if (phone) phoneById.set(String(worker.id), phone);
+    }
+  }
+  const phones = new Set([...phoneById.values()].filter(Boolean));
+  if (!phones.size) return;
+
+  for (const target of GUEST_MODULE_ORDER) {
+    if (target === scope.module) continue;
+    let otherState;
+    try {
+      otherState = await readState({ orgId: String(scope.orgId), module: target });
+    } catch {
+      continue;
+    }
+    for (const other of otherState?.history || []) {
+      if (other.date !== schedule.date || other.shiftType !== schedule.shiftType) {
+        continue;
+      }
+      if (other.signOff?.signedAt) continue;
+      const otherIds = workerIdsOnSchedule(other);
+      for (const worker of otherState.workers || []) {
+        if (!otherIds.has(String(worker.id))) continue;
+        const phone = normalizePhone(worker.phone);
+        if (!phone || !phones.has(phone)) continue;
+        const localName =
+          [...phoneById.entries()].find(([, p]) => p === phone)?.[0] || phone;
+        const named =
+          (localState?.workers || []).find((w) => String(w.id) === localName)
+            ?.fullName ||
+          worker.fullName ||
+          phone;
+        const err = new Error(
+          `${named} כבר משובץ/נוכח במודול ${moduleLabelHe(target)} באותו תאריך ומשמרת. לא ניתן לשבץ פעמיים בין מודולים.`,
+        );
+        err.status = 409;
+        throw err;
+      }
+    }
+  }
+}
 
 /**
  * Active workers from other enabled modules in the same org (no secrets).
