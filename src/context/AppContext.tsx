@@ -2010,7 +2010,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setLaneStaffingStandard = useCallback(
     (laneId: string, standard: StaffingStandard) => {
       setDraft((d) => {
-        if (!d) return d
+        if (!d || d.signOff?.signedAt) return d
         const catalog = data.lanes.find((l) => l.id === laneId)
         const max = laneMaxStaffing(catalog)
         const clamped = clampStaffingStandard(standard)
@@ -2021,6 +2021,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           delete nextOverrides[laneId]
         } else {
           nextOverrides[laneId] = nextValue
+        }
+        if (usesRounds(d)) {
+          return {
+            ...d,
+            staffingOverrides: nextOverrides,
+          }
         }
         return {
           ...d,
@@ -4039,7 +4045,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dataRef.current = next
       persistedDataRef.current = next
       setData(next)
-      saveAppDataCache(next)
+      // Defer localStorage write so the save spinner can clear first.
+      queueMicrotask(() => saveAppDataCache(next))
       draftBaselineRef.current = snapshotDraft(synced)
       setDraftDirty(false)
       clearDraftStorage()

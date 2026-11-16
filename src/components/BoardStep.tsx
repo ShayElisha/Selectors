@@ -41,6 +41,7 @@ import {
 } from './AssignmentExplainDialog'
 import { IntensityBadge, Ltr, TimingBadges } from './ui'
 import { LateMinutesControl } from './LateMinutesControl'
+import { LaneStaffingControl } from './LaneStaffingControl'
 import {
   timingBadgesForWorker,
 } from '../lib/shiftTimingBadges'
@@ -183,6 +184,7 @@ export function BoardStep({
     updateLaneNotes,
     setGateManager,
     setWindowAdjustment,
+    setLaneStaffingStandard,
     user,
     draftDirty,
     restoreDraftSnapshot,
@@ -1234,6 +1236,17 @@ export function BoardStep({
                           {chipKind === 'over' ? ' מעל תקן' : null}
                         </span>
                       )}
+                      {!locked && !isGateLane ? (
+                        <LaneStaffingControl
+                          lane={lane}
+                          value={std}
+                          onChange={(standard) =>
+                            runWithUndo('עודכן תקן נתיב', () =>
+                              setLaneStaffingStandard(lane.id, standard),
+                            )
+                          }
+                        />
+                      ) : null}
                     </div>
                   </div>
                   {!locked ? (

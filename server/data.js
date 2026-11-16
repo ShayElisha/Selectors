@@ -2368,7 +2368,14 @@ export async function upsertShift(id, body, actor, options = {}) {
       revision: nextRevision,
     };
     rememberState(scope, savedState);
-    saved = publicData(savedState);
+    // Compact saves skip publicData(full state) — decrypting every worker on
+    // each shift save was a major latency hit. Cache still holds full state.
+    saved = options.compact
+      ? {
+          revision: nextRevision,
+          shift: { ...schedule, id: schedule.id },
+        }
+      : publicData(savedState);
   }
   if (!saved) throw conflictError(await readState(scope));
 
@@ -2379,7 +2386,8 @@ export async function upsertShift(id, body, actor, options = {}) {
   });
   const details = movement ? `${header} · ${movement}` : header;
 
-  await appendAuditLog({
+  // Don't block the HTTP response on audit I/O.
+  void appendAuditLog({
     action: closing ? "shift_signoff" : isNew ? "shift_save" : "shift_update",
     actor,
     details: closing
@@ -2387,6 +2395,8 @@ export async function upsertShift(id, body, actor, options = {}) {
       : details,
     orgId: scope?.orgId,
     module: scope?.module,
+  }).catch((err) => {
+    console.error("[audit] shift save log failed", err?.message || err);
   });
 
   // Never block the save HTTP response on per-worker notice writes — that was a

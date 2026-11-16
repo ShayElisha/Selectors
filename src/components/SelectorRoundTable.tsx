@@ -2,8 +2,12 @@ import { CheckCircle2, CircleDashed, Shield, Trash2 } from 'lucide-react'
 import { INTENSITY_LABELS } from '../constants'
 import { IntensityBadge, Ltr, TimingBadges } from './ui'
 import { LateMinutesControl } from './LateMinutesControl'
+import { LaneStaffingControl } from './LaneStaffingControl'
 import { WorkerCombobox } from './WorkerCombobox'
-import { effectiveStaffingStandard } from '../lib/shiftStaffing'
+import {
+  effectiveStaffingStandard,
+  type StaffingStandard,
+} from '../lib/shiftStaffing'
 import { laneOpenDuring } from '../lib/shiftCatalog'
 import {
   timingBadgesForWorker,
@@ -24,6 +28,7 @@ export function SelectorRoundTable({
   managerId,
   onManagerChange,
   onLateChange,
+  onStaffingChange,
   editable = false,
   onChange,
   onRemoveLane,
@@ -47,6 +52,8 @@ export function SelectorRoundTable({
   onManagerChange?: (workerId: string | null) => void
   /** Edit per-worker late minutes from the board. */
   onLateChange?: (workerId: string, lateMinutes: number) => void
+  /** Edit per-lane תקן from the board. */
+  onStaffingChange?: (laneId: string, standard: StaffingStandard) => void
   editable?: boolean
   onChange?: (
     roundIndex: number,
@@ -268,6 +275,15 @@ export function SelectorRoundTable({
                             סגור
                           </span>
                         )}
+                        {editable && onStaffingChange ? (
+                          <LaneStaffingControl
+                            lane={lane}
+                            value={standard}
+                            onChange={(next) =>
+                              onStaffingChange(lane.id, next)
+                            }
+                          />
+                        ) : null}
                       </div>
                     </div>
                     {editable && onRemoveLane ? (
