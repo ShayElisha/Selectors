@@ -1225,28 +1225,31 @@ export function BoardStep({
                           החלפת צהריים
                         </span>
                       ) : null}
-                      {filled >= std && chipKind !== 'over' ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ok">
-                          <span className="size-1.5 rounded-full bg-ok" aria-hidden />
-                          מאויש
-                        </span>
-                      ) : (
-                        <span className="inline-flex min-h-6 items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn ring-1 ring-warn/20">
-                          <Ltr>{filled}/{std}</Ltr>
-                          {chipKind === 'over' ? ' מעל תקן' : null}
-                        </span>
-                      )}
-                      {!locked && !isGateLane ? (
+                      {!isGateLane ? (
                         <LaneStaffingControl
                           lane={lane}
                           value={std}
+                          filled={filled}
+                          chipKind={chipKind}
+                          editable={!locked}
                           onChange={(standard) =>
                             runWithUndo('עודכן תקן נתיב', () =>
                               setLaneStaffingStandard(lane.id, standard),
                             )
                           }
                         />
-                      ) : null}
+                      ) : filled >= std ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ok">
+                          <span className="size-1.5 rounded-full bg-ok" aria-hidden />
+                          מאויש
+                        </span>
+                      ) : (
+                        <span className="inline-flex min-h-6 items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn ring-1 ring-warn/20">
+                          <Ltr>
+                            {filled}/{std}
+                          </Ltr>
+                        </span>
+                      )}
                     </div>
                   </div>
                   {!locked ? (

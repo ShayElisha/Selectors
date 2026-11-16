@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleDashed, Shield, Trash2 } from 'lucide-react'
+import { CircleDashed, Shield, Trash2 } from 'lucide-react'
 import { INTENSITY_LABELS } from '../constants'
 import { IntensityBadge, Ltr, TimingBadges } from './ui'
 import { LateMinutesControl } from './LateMinutesControl'
@@ -250,40 +250,22 @@ export function SelectorRoundTable({
                           {lane.name}
                         </h4>
                         <IntensityBadge intensity={lane.intensity} />
-                        {open && filled >= standard ? (
-                          <span
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-ok"
-                            title="הנתיב מאויש במלואו"
-                            aria-label="מאויש"
-                          >
-                            <CheckCircle2 className="size-3.5" aria-hidden />
-                            מאויש
-                          </span>
-                        ) : open ? (
-                          <span
-                            className="inline-flex min-h-6 items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn ring-1 ring-warn/20"
-                            title={`חסר בתקן: ${filled} מתוך ${standard}`}
-                            aria-label={`חסר בתקן ${filled} מתוך ${standard}`}
-                          >
-                            <CircleDashed className="size-3.5" aria-hidden />
-                            <Ltr>
-                              {filled}/{standard}
-                            </Ltr>
-                          </span>
-                        ) : (
+                        {!open ? (
                           <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-ink-soft ring-1 ring-line">
                             סגור
                           </span>
-                        )}
-                        {editable && onStaffingChange ? (
+                        ) : (
                           <LaneStaffingControl
                             lane={lane}
                             value={standard}
+                            filled={filled}
+                            chipKind={filled >= standard ? 'ok' : 'under'}
+                            editable={Boolean(editable && onStaffingChange)}
                             onChange={(next) =>
-                              onStaffingChange(lane.id, next)
+                              onStaffingChange?.(lane.id, next)
                             }
                           />
-                        ) : null}
+                        )}
                       </div>
                     </div>
                     {editable && onRemoveLane ? (
