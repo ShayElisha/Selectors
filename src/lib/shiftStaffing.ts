@@ -176,7 +176,7 @@ export function isInPeakHours(
   if (!peakConfig) return false
   
   return peakConfig.hours.some((span) => {
-    let start = span.start
+    const start = span.start
     let end = span.end
     let current = currentMinutes
     

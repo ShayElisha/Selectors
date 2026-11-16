@@ -4,7 +4,7 @@ import { Check, Copy, Info, X } from 'lucide-react'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { buildLaneSummaries } from '../lib/laneExplain'
 import { notify } from '../lib/notify'
-import type { Lane, ShiftType, Worker } from '../types'
+import type { Lane, ShiftType } from '../types'
 
 export type ExplainGroup = {
   laneId: string
@@ -25,11 +25,7 @@ export function groupExplanations(
 ): ExplainGroup[] {
   const laneName = new Map(lanes.map((lane) => [lane.id, lane.name]))
   const workerName = new Map(workers.map((worker) => [worker.id, worker.fullName]))
-  const summaries = buildLaneSummaries(
-    explanations,
-    lanes as Lane[],
-    workers as Worker[],
-  )
+  const summaries = buildLaneSummaries(explanations, lanes as Lane[])
   const order: string[] = []
   const byLane = new Map<string, ExplainGroup>()
   for (const item of explanations) {

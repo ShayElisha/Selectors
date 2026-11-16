@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildLaneSummaries, buildLaneSummaryText } from './laneExplain'
-import type { Lane, Worker } from '../types'
+import type { Lane } from '../types'
 
 const lane: Lane = {
   id: 'L1',
@@ -8,16 +8,6 @@ const lane: Lane = {
   staffingStandard: 2,
   requiredCertifications: ['X'],
   intensity: 'hard',
-}
-
-const worker: Worker = {
-  id: 'w1',
-  fullName: 'Test',
-  phone: '0500000000',
-  certifications: ['X'],
-  status: 'active',
-  isInspector: true,
-  isManager: false,
 }
 
 describe('laneExplain', () => {
@@ -48,7 +38,6 @@ describe('laneExplain', () => {
         },
       ],
       [lane],
-      [worker],
     )
     expect(map.get('L1')).toMatch(/2 משובצים/)
   })

@@ -1903,11 +1903,7 @@ function requiredSlots(lanes: Lane[]): number {
  * Fill lanes in the manager-defined catalog order (callers already filter
  * `data.lanes`, so this keeps that sequence instead of re-sorting by intensity).
  */
-function orderLanesForAssignment(
-  lanes: Lane[],
-  _workers: Worker[],
-  _shiftType: ShiftType,
-): Lane[] {
+function orderLanesForAssignment(lanes: Lane[]): Lane[] {
   return [...lanes]
 }
 
@@ -2027,11 +2023,7 @@ export function evaluateBoard(
   const filled = countFilled(assignments)
   const staffing = clamp01to100((filled / required) * 100)
   const assignmentByLane = new Map(assignments.map((a) => [a.laneId, a]))
-  const priorityLanes = orderLanesForAssignment(
-    ctx.lanes,
-    [...ctx.workersById.values()],
-    ctx.currentShiftType,
-  )
+  const priorityLanes = orderLanesForAssignment(ctx.lanes)
   const priorityUnderstaffingPenalty = priorityLanes.reduce(
     (penalty, lane, index) => {
       const filledHere = (assignmentByLane.get(lane.id)?.workerIds ?? []).filter(
@@ -3812,11 +3804,7 @@ export function explainSavedBoard(input: {
     }
   }
 
-  const orderedLanes = orderLanesForAssignment(
-    activeLanes,
-    presentWorkers,
-    shiftType,
-  )
+  const orderedLanes = orderLanesForAssignment(activeLanes)
 
   const roster = new Map(presentWorkers.map((worker) => [worker.id, worker]))
   const lastSeatings = buildLaneLastSeatings(
@@ -3962,11 +3950,7 @@ function runAssignmentAlgorithmInternal(
     }
   }
 
-  const orderedLanes = orderLanesForAssignment(
-    activeLanes,
-    workersForAutoAssign,
-    currentShiftType,
-  )
+  const orderedLanes = orderLanesForAssignment(activeLanes)
 
   const globalAssignments = assignWorkersGlobally(
     orderedLanes,

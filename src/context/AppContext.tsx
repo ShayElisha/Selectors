@@ -156,6 +156,12 @@ import {
   type SelectorRoundHoursSettings,
 } from '../lib/selectorRoundHours'
 import {
+  frozenLaneIds,
+  recordUnfreezeDecision,
+  shouldPromptUnfreeze,
+} from '../lib/frozenLanes'
+import { computeFeasibilityPreview } from '../lib/shiftWizard'
+import {
   formatBrokerPhone,
   normalizeBrokerPhoneDigits,
   normalizeCustomsBrokers,
@@ -163,6 +169,7 @@ import {
 import type {
   AppData,
   BriefingSection,
+  FrozenLane,
   InspectorQuestion,
   Lane,
   LaneAssignment,
@@ -1752,6 +1759,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const startShift = useCallback((_audience: ShiftAudience = 'inspector') => {
+    void _audience
     const module = activeModule(user)
     const lockedAudience: ShiftAudience = audienceForModule(module)
     const assignmentMode = assignmentModes[module]
@@ -2028,16 +2036,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         
         const frozenLanes = d.frozenLanes ?? []
         if (frozenLanes.length > 0) {
-          const { shouldPromptUnfreeze } = require('../lib/frozenLanes')
-          const { computeFeasibilityPreview } = require('../lib/feasibility')
-          
           const feasibility = computeFeasibilityPreview(
-            presentWorkerIds,
-            d.activeLaneIds,
-            d.staffingOverrides,
-            data.workers,
             data.lanes,
-            d.guestWorkerIds,
+            d.activeLaneIds,
+            presentWorkerIds,
+            data.workers,
+            d.staffingOverrides,
           )
           
           // Calculate current minutes for activeHours filtering
@@ -3702,10 +3706,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const keepLanesFrozen = useCallback(() => {
     if (!unfreezePrompt || !draft || !user) return
-    
-    const { recordUnfreezeDecision } = 
-      require('../lib/frozenLanes')
-    
+
     const model = shiftModelById(
       resolveShiftModels(data.shiftModels, activeModule(user)),
       draft.shiftType,
@@ -3777,10 +3778,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const manuallyUnfreezeLane = useCallback(async (laneId: string) => {
     if (!draft) return
-    
-    const { frozenLaneIds } = require('../lib/frozenLanes')
+
     const frozenLanes = (draft.frozenLanes ?? []).filter(
-      (fl: any) => fl.laneId !== laneId,
+      (fl: FrozenLane) => fl.laneId !== laneId,
     )
     const frozenIds = frozenLaneIds(frozenLanes)
     

@@ -1,5 +1,5 @@
 import { INTENSITY_LABELS } from '../constants'
-import type { Lane, Worker } from '../types'
+import type { Lane } from '../types'
 
 type ExplainRow = {
   laneId: string
@@ -40,7 +40,6 @@ export function buildLaneSummaryText(
 export function buildLaneSummaries(
   explanations: ExplainRow[],
   lanes: Lane[],
-  _workers: Worker[],
 ): Map<string, string> {
   const laneById = new Map(lanes.map((l) => [l.id, l]))
   const counts = new Map<string, number>()
