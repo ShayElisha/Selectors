@@ -15,10 +15,9 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
-  Download,
-  Loader2,
   MessageCircle,
   MoreHorizontal,
+  Download,
   Plus,
   Save,
   Shield,
@@ -46,7 +45,6 @@ import type { PeopleLabels } from '../auth'
 import type { ShiftDraft } from '../context/AppContext'
 import {
   boardsEqual,
-  countAssignmentChanges,
   formatOptimizationInfo,
   LANE_NOTE_MAX_LENGTH,
   missingCertsForLane,
@@ -189,7 +187,7 @@ export function BoardStep({
   draftRef.current = draft
 
   const runWithUndo = useCallback(
-    (message: string, action: () => void) => {
+    (message: string, action: () => void, major = false) => {
       const current = draftRef.current
       if (!current || current.signOff?.signedAt) {
         action()
@@ -197,7 +195,9 @@ export function BoardStep({
       }
       const snapshot = JSON.parse(JSON.stringify(current)) as typeof current
       action()
-      notify.undoable(message, () => restoreDraftSnapshot(snapshot))
+      notify.undoable(message, () => restoreDraftSnapshot(snapshot), {
+        major,
+      })
     },
     [restoreDraftSnapshot],
   )
@@ -208,7 +208,6 @@ export function BoardStep({
   const [healthOpen, setHealthOpen] = useState(false)
   const [explainModalOpen, setExplainModalOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-  const [shareBusy, setShareBusy] = useState(false)
   const [dropWorkerId, setDropWorkerId] = useState<string | null>(null)
   const [addPicker, setAddPicker] = useState<'lane' | 'worker' | null>(null)
   const [summaryMenuOpen, setSummaryMenuOpen] = useState(false)
@@ -552,31 +551,8 @@ export function BoardStep({
 
   const confirmReassign = () => {
     if (assigning) return
-    const changes = countAssignmentChanges(boardBaseline, currentSnapshot)
-    const filled = currentSnapshot.assignments.reduce(
-      (n, a) => n + a.workerIds.filter(Boolean).length,
-      0,
-    )
-    if (changes > 0 || filled > 0) {
-      const ok = window.confirm(
-        changes > 0
-          ? `יש ${changes} שינויים שלא נשמרו בלוח. שיבוץ מחדש יחליף את הלוח הנוכחי. להמשיך?`
-          : 'שיבוץ מחדש יחליף את כל השיבוצים הקיימים בלוח. להמשיך?',
-      )
-      if (!ok) return
-    }
-    // The reassignment is async (progress loader); undo toast only after the
-    // new board landed so a fast undo cannot race the search.
-    void (async () => {
-      const current = draftRef.current
-      if (!current || current.signOff?.signedAt) {
-        await onReassign()
-        return
-      }
-      const snapshot = JSON.parse(JSON.stringify(current)) as typeof current
-      await onReassign()
-      notify.undoable('שיבוץ מחדש', () => restoreDraftSnapshot(snapshot))
-    })()
+    // Preview Apply/Cancel (+ restore on failure) is handled by ShiftPage.
+    void onReassign()
   }
 
   const gateManagerName = useMemo(() => {
@@ -591,7 +567,6 @@ export function BoardStep({
       setShareOpen(false)
       return
     }
-    setShareBusy(true)
     const meta = {
       preparedBy: user?.fullName,
       organizationName: user?.orgName || undefined,
@@ -657,8 +632,7 @@ export function BoardStep({
         )
         openWhatsAppShare(text)
       }
-    }     finally {
-      setShareBusy(false)
+    } finally {
       setShareOpen(false)
     }
   }
@@ -855,24 +829,6 @@ export function BoardStep({
           ) : null}
         </div>
         {!locked ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setAddPicker('lane')}
-            className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand"
-          >
-            הוספת נתיב
-          </button>
-          <button
-            type="button"
-            onClick={() => setAddPicker('worker')}
-            className="rounded-full border border-line/80 bg-card px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand/30 hover:text-brand"
-          >
-            הוספת {people.singular}
-          </button>
-        </div>
-        ) : null}
-        {!locked ? (
         <div className="relative" ref={summaryMenuRef}>
           <button
             ref={summaryBtnRef}
@@ -880,19 +836,41 @@ export function BoardStep({
             aria-haspopup="menu"
             aria-expanded={summaryMenuOpen}
             onClick={() => setSummaryMenuOpen((o) => !o)}
-            className="inline-flex size-8 items-center justify-center rounded-lg text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            aria-label="תפריט טיוטה"
+            className="inline-flex size-11 items-center justify-center rounded-xl text-ink-soft hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            aria-label="עוד פעולות"
           >
-            <MoreHorizontal className="size-4" aria-hidden />
+            <MoreHorizontal className="size-5" aria-hidden />
           </button>
           {summaryMenuOpen && summaryPos
             ? createPortal(
                 <div
                   ref={summaryPanelRef}
                   role="menu"
-                  className="fixed z-[200] min-w-[10rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
+                  className="fixed z-[200] min-w-[12rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
                   style={{ top: summaryPos.top, left: summaryPos.left }}
                 >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      setSummaryMenuOpen(false)
+                      setAddPicker('lane')
+                    }}
+                  >
+                    הוספת נתיב
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      setSummaryMenuOpen(false)
+                      setAddPicker('worker')
+                    }}
+                  >
+                    הוספת {people.singular}
+                  </button>
                   <button
                     type="button"
                     role="menuitem"
@@ -903,6 +881,64 @@ export function BoardStep({
                     }}
                   >
                     עריכת הגדרות
+                  </button>
+                  {onSignOff ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                      onClick={() => {
+                        setSummaryMenuOpen(false)
+                        trySignOff()
+                      }}
+                    >
+                      סגירת משמרת
+                    </button>
+                  ) : null}
+                  {onCompare ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                      onClick={() => {
+                        setSummaryMenuOpen(false)
+                        onCompare()
+                      }}
+                    >
+                      השוואת חלופות
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      setSummaryMenuOpen(false)
+                      if (exportBlock) {
+                        notify.error('לא ניתן לייצא', exportBlock)
+                        return
+                      }
+                      void runShare('whatsapp')
+                    }}
+                  >
+                    <MessageCircle className="size-3.5" aria-hidden />
+                    WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface"
+                    onClick={() => {
+                      setSummaryMenuOpen(false)
+                      if (exportBlock) {
+                        notify.error('לא ניתן לייצא', exportBlock)
+                        return
+                      }
+                      void runShare('download')
+                    }}
+                  >
+                    <Download className="size-3.5" aria-hidden />
+                    ייצוא מסמך
                   </button>
                   <button
                     type="button"
@@ -1173,6 +1209,7 @@ export function BoardStep({
                                   ? `${lane.name} הוסר. ${parked.join(', ')} ממתינים לשיבוץ`
                                   : `${lane.name} הוסר מהמשמרת`,
                                 () => removeLaneFromShift(laneId),
+                                true,
                               )
                             }}
                             className="ui-btn-danger-ghost lane-card-action inline-flex size-11 items-center justify-center rounded-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -1436,33 +1473,32 @@ export function BoardStep({
         onUndo={undoShiftDrop}
       />
 
-      <div className="fixed inset-x-3 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto w-auto max-w-[760px] rounded-2xl border border-line/80 bg-card/85 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print sm:inset-x-4 lg:bottom-4">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 sm:flex-nowrap">
-          <div className="flex shrink-0 items-center gap-2">
-          <div
-            className={`flex shrink-0 items-center gap-1.5 transition-colors duration-200 ${
-              isSaved ? 'text-ok' : 'text-warn'
-            }`}
-            role="status"
-            aria-label={isSaved ? saveStatusText : 'טרם נשמר'}
-            title={saveStatusText}
-          >
-            {isSaved ? (
-              <CheckCircle2 className="size-4" aria-hidden />
-            ) : (
-              <span className="size-2 rounded-full bg-warn" aria-hidden />
-            )}
-            <span className="hidden text-[11px] font-semibold sm:inline">
-              {isSaved ? 'נשמר' : 'טרם נשמר'}
-            </span>
-          </div>
-
-          {locked ? (
-            <span className="inline-flex h-10 shrink-0 items-center gap-1.5 text-[13px] font-semibold text-ok">
-              <Lock className="size-4" aria-hidden />
-              <span className="hidden sm:inline">הלוח נעול</span>
-            </span>
+      <div className="fixed inset-x-3 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto flex max-w-[760px] items-center gap-2 rounded-2xl border border-line/80 bg-card/90 p-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl no-print sm:inset-x-4 lg:bottom-4">
+        <div
+          className={`flex shrink-0 items-center gap-1.5 ${
+            isSaved ? 'text-ok' : 'text-warn'
+          }`}
+          role="status"
+          aria-label={isSaved ? saveStatusText : 'יש שינויים שלא נשמרו'}
+          title={saveStatusText}
+        >
+          {isSaved ? (
+            <CheckCircle2 className="size-4" aria-hidden />
           ) : (
+            <span className="size-2 rounded-full bg-warn" aria-hidden />
+          )}
+          <span className="hidden text-[11px] font-semibold sm:inline">
+            {isSaved ? 'נשמר' : 'לא נשמר'}
+          </span>
+        </div>
+
+        {locked ? (
+          <span className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 text-[13px] font-semibold text-ok">
+            <Lock className="size-4" aria-hidden />
+            הלוח נעול
+          </span>
+        ) : (
+          <>
             <button
               type="button"
               onClick={trySave}
@@ -1473,7 +1509,7 @@ export function BoardStep({
                   ? 'אין שינויים לשמירה'
                   : (saveBlockedReason ?? undefined)
               }
-              className={`ui-btn ui-btn-primary !h-10 shrink-0 !px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              className={`ui-btn ui-btn-primary !h-11 flex-1 gap-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                 saveBlocked || isSaved ? 'cursor-not-allowed opacity-40' : ''
               } ${saveFlash ? '!bg-ok hover:!bg-ok' : ''}`}
             >
@@ -1484,117 +1520,19 @@ export function BoardStep({
               )}
               שמירה
             </button>
-          )}
-          </div>
-
-          <span className="hidden h-7 w-px shrink-0 bg-line sm:block" aria-hidden />
-
-          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-x-1 gap-y-1 sm:flex-nowrap sm:gap-2">
-          <div className="relative shrink-0" ref={shareRootRef}>
-            <button
-              type="button"
-              aria-label="שיתוף"
-              aria-haspopup="menu"
-              aria-expanded={shareOpen}
-              disabled={shareBusy}
-              title={exportBlock ?? 'שיתוף'}
-              onClick={() => {
-                if (exportBlock) {
-                  notify.error('לא ניתן לייצא', exportBlock)
-                  return
-                }
-                setShareOpen((o) => !o)
-              }}
-              className="ui-btn ui-btn-ghost !h-8 !w-8 !gap-1 !p-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60 sm:!h-10 sm:!w-auto sm:!px-3"
-            >
-              {shareBusy ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <MessageCircle className="size-4" aria-hidden />
-              )}
-              <span className="hidden sm:inline">שיתוף</span>
-              <ChevronDown className="hidden size-3.5 opacity-70 sm:block" aria-hidden />
-            </button>
-            {shareOpen ? (
-              <div
-                role="menu"
-                className="absolute bottom-full end-0 z-20 mb-1 min-w-[11rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={shareBusy}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface disabled:opacity-50"
-                  onClick={() => void runShare('whatsapp')}
-                >
-                  <MessageCircle className="size-3.5" aria-hidden />
-                  WhatsApp
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={shareBusy}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-[13px] font-semibold text-ink hover:bg-surface disabled:opacity-50"
-                  onClick={() => void runShare('download')}
-                >
-                  <Download className="size-3.5" aria-hidden />
-                  ייצוא מסמך
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {!locked && onCompare ? (
-            <button
-              type="button"
-              onClick={onCompare}
-              className="ui-btn ui-btn-ghost !h-8 !w-8 !p-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:!h-10 sm:!w-auto sm:!gap-2 sm:!px-3"
-              title="השוואת חלופות"
-              aria-label="השוואת חלופות"
-            >
-              <ArrowLeftRight className="size-4" aria-hidden />
-              <span className="hidden sm:inline">השוואת חלופות</span>
-            </button>
-          ) : null}
-
-          {!locked ? (
             <button
               type="button"
               onClick={confirmReassign}
               disabled={assigning}
-              className="ui-btn !h-8 !w-8 !gap-0 !rounded-xl !bg-brand-soft !p-0 text-sm !font-semibold !text-brand transition hover:!bg-brand/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60 sm:!h-10 sm:!w-auto sm:!gap-2 sm:!px-3"
-              title="שבץ מחדש"
-              aria-label="שבץ מחדש"
+              className="ui-btn !h-11 shrink-0 gap-2 !rounded-xl !bg-brand-soft !font-semibold !text-brand transition hover:!bg-brand/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60"
+              title="שיבוץ אוטומטי"
+              aria-label="שיבוץ אוטומטי"
             >
               <Sparkles className="size-4" aria-hidden />
-              <span className="hidden sm:inline">שבץ מחדש</span>
+              <span className="hidden sm:inline">שיבוץ אוטומטי</span>
             </button>
-          ) : null}
-
-          {!locked && onSignOff ? (
-            <>
-              <span className="hidden h-7 w-px shrink-0 bg-line sm:block" aria-hidden />
-              <button
-                type="button"
-                onClick={trySignOff}
-                aria-disabled={saveBlocked}
-                title={
-                  saveBlocked
-                    ? 'אפשר לסגור רק כשהלוח תקין וכולם משובצים'
-                    : 'סגירה נועלת את הלוח לעריכה'
-                }
-                className={`ui-btn ui-btn-secondary !h-8 !w-8 !gap-0 !p-0 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:!h-10 sm:!w-auto sm:!gap-2 sm:!px-3 ${
-                  saveBlocked ? 'cursor-not-allowed opacity-40' : ''
-                }`}
-                aria-label="סגירת משמרת"
-              >
-                <Lock className="size-4" aria-hidden />
-                <span className="hidden sm:inline">סגירת משמרת</span>
-              </button>
-            </>
-          ) : null}
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Swap modal */}

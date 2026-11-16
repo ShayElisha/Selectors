@@ -191,6 +191,12 @@ export function ShiftPage() {
   const [assignPreview, setAssignPreview] = useState<{
     before: NonNullable<typeof draft>
   } | null>(null)
+  const [roundsRebuildPreview, setRoundsRebuildPreview] = useState<{
+    keepRounds: NonNullable<NonNullable<typeof draft>['rounds']>
+    emptyRounds: NonNullable<NonNullable<typeof draft>['rounds']>
+    fromLabels: string[]
+    toLabels: string[]
+  } | null>(null)
   const roundsMoreRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -219,7 +225,7 @@ export function ShiftPage() {
   }, [draft?.warnings?.join('|')])
 
   const runWithUndo = useCallback(
-    (message: string, action: () => void) => {
+    (message: string, action: () => void, major = false) => {
       const current = draftRef.current
       if (!current || current.signOff?.signedAt) {
         action()
@@ -227,7 +233,7 @@ export function ShiftPage() {
       }
       const snapshot = JSON.parse(JSON.stringify(current)) as typeof current
       action()
-      notify.undoable(message, () => restoreDraftSnapshot(snapshot))
+      notify.undoable(message, () => restoreDraftSnapshot(snapshot), { major })
     },
     [restoreDraftSnapshot],
   )
@@ -595,19 +601,6 @@ export function ShiftPage() {
       notify.error('לא ניתן לשבץ', 'בחרו מנהל משמרת לפני שיבוץ אוטומטי')
       return
     }
-    const hasPlacements = draft && usesRounds(draft)
-      ? selectorRoundsHavePlacements(draft.rounds ?? [])
-      : draft?.assignments.some((a) => a.workerIds.some(Boolean))
-    // Rounds board uses a preview dialog instead of window.confirm.
-    if (hasPlacements && !(draft && usesRounds(draft))) {
-      if (
-        !window.confirm(
-          'כבר יש שיבוץ בלוח. שיבוץ אוטומטי יחליף את כל השיבוצים הקיימים. להמשיך?',
-        )
-      ) {
-        return
-      }
-    }
     setExtraAskedOnce(false)
     setExtraFlow('closed')
     setSaveFlash(false)
@@ -616,14 +609,16 @@ export function ShiftPage() {
       preAssign && !preAssign.signOff?.signedAt
         ? (JSON.parse(JSON.stringify(preAssign)) as typeof preAssign)
         : null
-    await runAutoAssign()
-    if (snapshot && usesRounds(snapshot)) {
+    const ok = await runAutoAssign()
+    if (!ok) {
+      if (snapshot) restoreDraftSnapshot(snapshot)
+      return
+    }
+    // Always show Apply/Cancel preview; Cancel restores the pre-assign board.
+    if (snapshot) {
       setAssignPreview({ before: snapshot })
       setBoardBaselineKey((k) => k + 1)
       return
-    }
-    if (snapshot) {
-      notify.undoable('שיבוץ אוטומטי', () => restoreDraftSnapshot(snapshot))
     }
     setRequestExplainModal(true)
     setBoardBaselineKey((k) => k + 1)
@@ -2186,33 +2181,29 @@ export function ShiftPage() {
                             className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-start text-sm font-semibold text-ink hover:bg-surface"
                             onClick={() => {
                               setRoundsMoreOpen(false)
-                              const snapshot = draft
-                                ? (JSON.parse(JSON.stringify(draft)) as typeof draft)
-                                : null
-                              const result = rebuildRoundsFromSettings()
-                              if (!result) {
+                              const keep = rebuildRoundsFromSettings({
+                                mode: 'keep',
+                              })
+                              const empty = rebuildRoundsFromSettings({
+                                mode: 'empty',
+                              })
+                              if (!keep || !empty) {
                                 notify.error('לא ניתן לעדכן סבבים')
                                 return
                               }
-                              if (!result.changed) {
+                              if (!keep.changed) {
                                 notify.info(
                                   'הסבבים כבר תואמים להגדרות',
                                   'אין שינוי בשעות הסבבים',
                                 )
                                 return
                               }
-                              if (snapshot) {
-                                notify.undoable(
-                                  'עודכנו סבבים לפי ההגדרות',
-                                  () => restoreDraftSnapshot(snapshot),
-                                  'השיבוצים הועברו לסבבים החופפים ככל האפשר',
-                                )
-                              } else {
-                                notify.success(
-                                  'הסבבים עודכנו',
-                                  'השיבוצים הועברו לסבבים החופפים ככל האפשר',
-                                )
-                              }
+                              setRoundsRebuildPreview({
+                                keepRounds: keep.rounds,
+                                emptyRounds: empty.rounds,
+                                fromLabels: keep.fromLabels,
+                                toLabels: keep.toLabels,
+                              })
                             }}
                           >
                             עדכון סבבים לפי ההגדרות
@@ -2236,16 +2227,6 @@ export function ShiftPage() {
                 : null}
             </div>
           </header>
-
-          {!draft.signOff?.signedAt ? (
-            <button
-              type="button"
-              onClick={() => setAddPicker('lane')}
-              className="ui-btn ui-btn-secondary gap-2"
-            >
-              הוספת נתיב
-            </button>
-          ) : null}
 
           {draft.warnings.length > 0 && !roundsWarningsDismissed ? (
             <div
@@ -2368,7 +2349,11 @@ export function ShiftPage() {
               runWithUndo('השיבוץ בסבב עודכן', () => updateSelectorCell(...args))
             }
             onRemoveLane={(laneId) => {
-              runWithUndo('הנתיב הוסר מהמשמרת', () => removeLaneFromShift(laneId))
+              runWithUndo(
+                'הנתיב הוסר מהמשמרת',
+                () => removeLaneFromShift(laneId),
+                true,
+              )
             }}
           />
           {!draft.signOff?.signedAt ? (
@@ -2444,87 +2429,99 @@ export function ShiftPage() {
             </div>
           ) : null}
 
-          {assignPreview && draft
+          {roundsRebuildPreview
             ? createPortal(
                 <div
                   className="fixed inset-0 z-[70] flex items-end justify-center bg-ink/40 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:items-center"
                   role="dialog"
                   aria-modal="true"
-                  aria-label="תצוגה מקדימה לשיבוץ אוטומטי"
+                  aria-label="תצוגה מקדימה לעדכון סבבים"
                 >
                   <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-panel-hover)]">
                     <h3 className="font-display text-lg font-bold text-ink">
-                      תצוגה מקדימה — שיבוץ אוטומטי
+                      עדכון סבבים לפי ההגדרות
                     </h3>
                     <p className="mt-1 text-sm text-ink-soft">
-                      זה השיבוץ המוצע. אפשר לאשר או לבטל ולחזור ללוח הקודם.
+                      בחרו איך להחיל את השעות החדשות על הלוח הפתוח.
                     </p>
-                    <ul className="mt-3 max-h-56 space-y-1.5 overflow-y-auto text-sm">
-                      {(draft.rounds ?? []).flatMap((round) =>
-                        round.assignments.flatMap((row) => {
-                          const laneName =
-                            data.lanes.find((l) => l.id === row.laneId)?.name ??
-                            row.laneId
-                          const beforeRow = assignPreview.before.rounds
-                            ?.find(
-                              (r) =>
-                                r.label === round.label &&
-                                r.cohort === round.cohort,
-                            )
-                            ?.assignments.find((a) => a.laneId === row.laneId)
-                          const beforeIds = (beforeRow?.workerIds ?? [])
-                            .filter(Boolean)
-                            .join(',')
-                          const afterIds = row.workerIds.filter(Boolean).join(',')
-                          if (beforeIds === afterIds) return []
-                          const names = row.workerIds
-                            .filter(Boolean)
-                            .map(
-                              (id) =>
-                                data.workers.find((w) => w.id === id)?.fullName ??
-                                id,
-                            )
-                            .join(' · ')
-                          return [
-                            <li
-                              key={`${round.label}-${row.laneId}`}
-                              className="rounded-lg bg-surface px-2.5 py-2"
-                            >
-                              <span className="font-semibold text-ink">
-                                {round.label} · {laneName}
-                              </span>
-                              <span className="mt-0.5 block text-ink-soft">
-                                {names || 'פנוי'}
-                              </span>
-                            </li>,
-                          ]
-                        }),
-                      )}
-                    </ul>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-3 space-y-2 text-sm">
+                      <p>
+                        <span className="font-semibold text-ink">לפני: </span>
+                        <span className="text-ink-soft">
+                          {roundsRebuildPreview.fromLabels.join(' · ') || '—'}
+                        </span>
+                      </p>
+                      <p>
+                        <span className="font-semibold text-ink">אחרי: </span>
+                        <span className="text-ink-soft">
+                          {roundsRebuildPreview.toLabels.join(' · ') || '—'}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-2">
                       <button
                         type="button"
-                        className="ui-btn ui-btn-ghost flex-1"
+                        className="ui-btn ui-btn-primary w-full"
                         onClick={() => {
-                          restoreDraftSnapshot(assignPreview.before)
-                          setAssignPreview(null)
+                          const snapshot = draft
+                            ? (JSON.parse(
+                                JSON.stringify(draft),
+                              ) as typeof draft)
+                            : null
+                          rebuildRoundsFromSettings({
+                            apply: true,
+                            rounds: roundsRebuildPreview.keepRounds,
+                          })
+                          setRoundsRebuildPreview(null)
+                          if (snapshot) {
+                            notify.undoable(
+                              'עודכנו סבבים לפי ההגדרות',
+                              () => restoreDraftSnapshot(snapshot),
+                              {
+                                major: true,
+                                description:
+                                  'השיבוצים הועברו לסבבים החופפים ככל האפשר',
+                              },
+                            )
+                          }
                         }}
                       >
-                        ביטול
+                        אישור עם העברת שיבוצים
                       </button>
                       <button
                         type="button"
-                        className="ui-btn ui-btn-primary flex-1"
+                        className="ui-btn ui-btn-secondary w-full"
                         onClick={() => {
-                          const before = assignPreview.before
-                          setAssignPreview(null)
-                          notify.undoable('שיבוץ אוטומטי', () =>
-                            restoreDraftSnapshot(before),
-                          )
-                          setRequestExplainModal(true)
+                          const snapshot = draft
+                            ? (JSON.parse(
+                                JSON.stringify(draft),
+                              ) as typeof draft)
+                            : null
+                          rebuildRoundsFromSettings({
+                            apply: true,
+                            rounds: roundsRebuildPreview.emptyRounds,
+                          })
+                          setRoundsRebuildPreview(null)
+                          if (snapshot) {
+                            notify.undoable(
+                              'עודכנו סבבים (מבנה ריק)',
+                              () => restoreDraftSnapshot(snapshot),
+                              {
+                                major: true,
+                                description: 'הסבבים עודכנו בלי להעביר שיבוצים',
+                              },
+                            )
+                          }
                         }}
                       >
-                        אישור
+                        אישור — מבנה ריק בלבד
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-ghost w-full"
+                        onClick={() => setRoundsRebuildPreview(null)}
+                      >
+                        ביטול
                       </button>
                     </div>
                   </div>
@@ -2568,6 +2565,122 @@ export function ShiftPage() {
         />
         </div>
       )}
+
+      {assignPreview && draft && shiftStep === 'board'
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[70] flex items-end justify-center bg-ink/40 p-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-label="תצוגה מקדימה לשיבוץ אוטומטי"
+            >
+              <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-panel-hover)]">
+                <h3 className="font-display text-lg font-bold text-ink">
+                  תצוגה מקדימה — שיבוץ אוטומטי
+                </h3>
+                <p className="mt-1 text-sm text-ink-soft">
+                  זה השיבוץ המוצע. אפשר לאשר או לבטל ולחזור ללוח הקודם.
+                </p>
+                <ul className="mt-3 max-h-56 space-y-1.5 overflow-y-auto text-sm">
+                  {usesRounds(draft)
+                    ? (draft.rounds ?? []).flatMap((round) =>
+                        round.assignments.flatMap((row) => {
+                          const laneName =
+                            data.lanes.find((l) => l.id === row.laneId)?.name ??
+                            row.laneId
+                          const beforeRow = assignPreview.before.rounds
+                            ?.find(
+                              (r) =>
+                                r.label === round.label &&
+                                r.cohort === round.cohort,
+                            )
+                            ?.assignments.find((a) => a.laneId === row.laneId)
+                          const beforeIds = (beforeRow?.workerIds ?? [])
+                            .filter(Boolean)
+                            .join(',')
+                          const afterIds = row.workerIds.filter(Boolean).join(',')
+                          if (beforeIds === afterIds) return []
+                          const names = row.workerIds
+                            .filter(Boolean)
+                            .map(
+                              (id) =>
+                                data.workers.find((w) => w.id === id)?.fullName ??
+                                id,
+                            )
+                            .join(' · ')
+                          return [
+                            <li
+                              key={`${round.label}-${row.laneId}`}
+                              className="rounded-lg bg-surface px-2.5 py-2"
+                            >
+                              <span className="font-semibold text-ink">
+                                {round.label} · {laneName}
+                              </span>
+                              <span className="mt-0.5 block text-ink-soft">
+                                {names || 'פנוי'}
+                              </span>
+                            </li>,
+                          ]
+                        }),
+                      )
+                    : draft.assignments.map((row) => {
+                        const laneName =
+                          data.lanes.find((l) => l.id === row.laneId)?.name ??
+                          row.laneId
+                        const names = row.workerIds
+                          .filter(Boolean)
+                          .map(
+                            (id) =>
+                              data.workers.find((w) => w.id === id)?.fullName ??
+                              id,
+                          )
+                          .join(' · ')
+                        return (
+                          <li
+                            key={row.laneId}
+                            className="rounded-lg bg-surface px-2.5 py-2"
+                          >
+                            <span className="font-semibold text-ink">{laneName}</span>
+                            <span className="mt-0.5 block text-ink-soft">
+                              {names || 'פנוי'}
+                            </span>
+                          </li>
+                        )
+                      })}
+                </ul>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    className="ui-btn ui-btn-ghost flex-1"
+                    onClick={() => {
+                      restoreDraftSnapshot(assignPreview.before)
+                      setAssignPreview(null)
+                    }}
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="button"
+                    className="ui-btn ui-btn-primary flex-1"
+                    onClick={() => {
+                      const before = assignPreview.before
+                      setAssignPreview(null)
+                      notify.undoable(
+                        'שיבוץ אוטומטי',
+                        () => restoreDraftSnapshot(before),
+                        { major: true },
+                      )
+                      setRequestExplainModal(true)
+                    }}
+                  >
+                    אישור
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {extraFlow !== 'closed' && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-4">

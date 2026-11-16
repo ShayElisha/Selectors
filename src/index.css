@@ -752,10 +752,15 @@ summary:focus-visible {
   }
 }
 
-/* Undo toast — 3s countdown bar (RTL: shrinks toward the end). */
+/* Undo toast — countdown bar (RTL: shrinks toward the end). */
 .undo-toast {
+  --undo-ms: 3s;
   position: relative !important;
   overflow: hidden !important;
+}
+
+.undo-toast--major {
+  --undo-ms: 8s;
 }
 
 .undo-toast::after {
@@ -766,7 +771,7 @@ summary:focus-visible {
   height: 3px;
   background: var(--color-brand);
   transform-origin: right center;
-  animation: undo-progress 3s linear forwards;
+  animation: undo-progress var(--undo-ms) linear forwards;
 }
 
 @keyframes undo-progress {

@@ -537,7 +537,7 @@ interface AppContextValue {
   setAllActiveLanes: (on: boolean) => void
   setAllActiveWorkers: (on: boolean) => void
   /** Async: shows assigning/assignProgress while the multi-start search runs. */
-  runAutoAssign: () => Promise<void>
+  runAutoAssign: () => Promise<boolean>
   /** True while the automatic assignment search is running. */
   assigning: boolean
   /** 0–100 progress of the running automatic assignment. */
@@ -552,10 +552,19 @@ interface AppContextValue {
   /** Turn the open inspector board into a full-shift selector round table. */
   commitSelectorBoard: () => void
   /**
-   * Rebuild open rounds from current org round-hour settings, keeping
-   * placements from overlapping windows when possible.
+   * Preview or apply a rebuild of open rounds from current org settings.
+   * Default is dry-run (`apply: false`). Use `mode: 'empty'` to drop placements.
    */
-  rebuildRoundsFromSettings: () => { changed: boolean } | null
+  rebuildRoundsFromSettings: (opts?: {
+    apply?: boolean
+    mode?: 'keep' | 'empty'
+    rounds?: SelectorRound[]
+  }) => {
+    changed: boolean
+    rounds: SelectorRound[]
+    fromLabels: string[]
+    toLabels: string[]
+  } | null
   /** Open an empty board so managers can place present workers by hand. */
   startManualAssign: () => void
   updateAssignment: (laneId: string, slotIndex: number, workerId: string | null) => void
@@ -2403,13 +2412,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [data.history, data.lanes, data.shiftModels, data.workers, user?.module])
 
-  const rebuildRoundsFromSettings = useCallback((): { changed: boolean } | null => {
-    let outcome: { changed: boolean } | null = null
-    setDraft((d) => {
-      if (!d || d.signOff?.signedAt || !usesRounds(d)) {
-        outcome = null
-        return d
-      }
+  const rebuildRoundsFromSettings = useCallback(
+    (opts?: {
+      apply?: boolean
+      mode?: 'keep' | 'empty'
+      rounds?: SelectorRound[]
+    }): {
+      changed: boolean
+      rounds: SelectorRound[]
+      fromLabels: string[]
+      toLabels: string[]
+    } | null => {
+      const d = draft
+      if (!d || d.signOff?.signedAt || !usesRounds(d)) return null
       const moduleKey = activeModule(user)
       const bounds = selectorRoundBounds(d.shiftType, data.shiftModels, moduleKey)
       const present = selectorStaff(
@@ -2417,40 +2432,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.presentWorkerIds,
         d.gateManagerWorkerId,
       )
-      const rebuilt = rebuildRoundsPreservingPlacements({
-        existing: d.rounds ?? [],
-        shiftType: d.shiftType,
-        lanes: data.lanes,
-        activeLaneIds: d.activeLaneIds,
-        workers: present,
-        overrides: d.staffingOverrides,
-        workerWindows: d.workerWindows,
-        bounds,
-        roundMinutes: roundMinutesRef.current[moduleKey],
-        stagger: staggerRef.current[moduleKey],
-        customBoundaries: selectorCustomBoundaries(
-          d.shiftType,
-          data.shiftModels,
-          moduleKey,
-          selectorRoundHoursRef.current,
-        ),
-      })
-      outcome = { changed: rebuilt.changed }
-      if (!rebuilt.changed) return d
-      return withGateManagerSync(
-        {
-          ...d,
-          audience: audienceForModule(user?.module),
-          assignmentMode: 'rounds',
-          assignments: [],
-          rounds: rebuilt.rounds,
-          quality: undefined,
-        },
-        data.lanes,
-      )
-    })
-    return outcome
-  }, [data.lanes, data.shiftModels, data.workers, user?.module])
+      const fromLabels = (d.rounds ?? []).map((round) => round.label)
+      const rebuilt =
+        opts?.rounds != null
+          ? {
+              rounds: opts.rounds,
+              changed:
+                fromLabels.join('|') !==
+                opts.rounds.map((round) => round.label).join('|'),
+            }
+          : rebuildRoundsPreservingPlacements({
+              existing: d.rounds ?? [],
+              shiftType: d.shiftType,
+              lanes: data.lanes,
+              activeLaneIds: d.activeLaneIds,
+              workers: present,
+              overrides: d.staffingOverrides,
+              workerWindows: d.workerWindows,
+              bounds,
+              roundMinutes: roundMinutesRef.current[moduleKey],
+              stagger: staggerRef.current[moduleKey],
+              customBoundaries: selectorCustomBoundaries(
+                d.shiftType,
+                data.shiftModels,
+                moduleKey,
+                selectorRoundHoursRef.current,
+              ),
+              preservePlacements: opts?.mode !== 'empty',
+            })
+      const toLabels = rebuilt.rounds.map((round) => round.label)
+      const outcome = {
+        changed: rebuilt.changed,
+        rounds: rebuilt.rounds,
+        fromLabels,
+        toLabels,
+      }
+      if (opts?.apply && rebuilt.changed) {
+        setDraft((current) => {
+          if (!current || current.signOff?.signedAt || !usesRounds(current)) {
+            return current
+          }
+          return withGateManagerSync(
+            {
+              ...current,
+              audience: audienceForModule(user?.module),
+              assignmentMode: 'rounds',
+              assignments: [],
+              rounds: rebuilt.rounds,
+              quality: undefined,
+            },
+            data.lanes,
+          )
+        })
+      }
+      return outcome
+    },
+    [data.lanes, data.shiftModels, data.workers, draft, user?.module],
+  )
 
   const setWorkerWindow = useCallback(
     (workerId: string, windowId: string | null) => {
@@ -2669,14 +2707,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [data.lanes])
 
-  const runAutoAssign = useCallback(async () => {
+  const runAutoAssign = useCallback(async (): Promise<boolean> => {
     const d0 = draft
-    if (!d0) return
-    if (assigningRef.current) return
+    if (!d0) return false
+    if (assigningRef.current) return false
     assigningRef.current = true
     setAssigning(true)
     setProgress(0)
     const startedAt = Date.now()
+    let ok = false
     const compute = async (): Promise<ShiftDraft | undefined> => {
       const d = d0
       const guestIds = new Set(d.guestWorkerIds ?? [])
@@ -2879,6 +2918,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? applied
             : prev,
         )
+        ok = true
         const score = applied.quality?.score
         if (score != null && applied.quality?.legal) {
           const historyScores = collectRecentQualityScores(dataRef.current.history, {
@@ -2896,6 +2936,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('auto assign failed', err)
       toast.error('השיבוץ האוטומטי נכשל — נסו שוב')
+      ok = false
     } finally {
       // Keep the loader visible long enough that the result never feels instant.
       const elapsed = Date.now() - startedAt
@@ -2915,6 +2956,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       assigningRef.current = false
       setAssigning(false)
     }
+    return ok
   }, [
     draft,
     data.history,
@@ -3701,7 +3743,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.info('הנתיבים הקפואים יישארו קפואים עד סוף המשמרת')
   }, [unfreezePrompt, draft, data.shiftModels, user])
 
-  const unfreezeAndReassignRef = useRef<(() => Promise<void>) | null>(null)
+  const unfreezeAndReassignRef = useRef<(() => Promise<boolean | void>) | null>(null)
   
   const unfreezeAndReassign = useCallback(async () => {
     if (!unfreezePrompt || !draft || !user) return

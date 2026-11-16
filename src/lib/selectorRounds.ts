@@ -256,6 +256,8 @@ export function rebuildRoundsPreservingPlacements(args: {
   roundMinutes?: number
   stagger?: boolean
   customBoundaries?: number[] | null
+  /** When false, only rebuild empty windows (no placement copy). */
+  preservePlacements?: boolean
 }): { rounds: SelectorRound[]; changed: boolean } {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const windows = buildAssignmentWindows({
@@ -271,6 +273,13 @@ export function rebuildRoundsPreservingPlacements(args: {
     ...window,
     assignments: emptyAssignments(active, args.overrides),
   }))
+
+  if (args.preservePlacements === false) {
+    return {
+      rounds: next,
+      changed: roundsStructureKey(args.existing) !== roundsStructureKey(next),
+    }
+  }
 
   for (const round of next) {
     const seatedInRound = new Set<string>()

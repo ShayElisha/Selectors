@@ -131,6 +131,30 @@ describe('rebuildRoundsPreservingPlacements', () => {
       'w1',
     ])
   })
+
+  it('can rebuild empty structure without copying placements', () => {
+    const lanes = [lane('a', 'נתיב 1')]
+    const existing = [
+      {
+        startMinutes: 6 * 60,
+        endMinutes: 8 * 60,
+        label: '06:00–08:00',
+        assignments: [{ laneId: 'a', workerIds: ['w1'] }],
+      },
+    ]
+    const { rounds } = rebuildRoundsPreservingPlacements({
+      existing,
+      shiftType: 'morning',
+      lanes,
+      activeLaneIds: ['a'],
+      bounds: { start: 6 * 60, end: 15 * 60 },
+      customBoundaries: [6 * 60, 9 * 60, 15 * 60],
+      preservePlacements: false,
+    })
+    expect(rounds[0]?.assignments.find((a) => a.laneId === 'a')?.workerIds).toEqual([
+      '',
+    ])
+  })
 })
 
 describe('assignSelectorRounds', () => {
