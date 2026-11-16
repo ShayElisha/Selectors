@@ -199,8 +199,12 @@ export function isInPeakHours(
  * 
  * Priority:
  * 1. Per-shift staffing override (staffingOverrides)
- * 2. Peak hours (if currentMinutes is in peak hours)
+ * 2. Peak hours (ONLY if configured AND enough staff available)
  * 3. Base staffing standard from lane catalog
+ * 
+ * Peak hours are ONLY applied when:
+ * - Explicitly configured in lane.peakHours OR peakHoursOverrides
+ * - AND sufficient staff is available (not in shortage mode)
  */
 export function effectiveStaffingStandardAtTime(
   lane: Lane,
@@ -208,19 +212,65 @@ export function effectiveStaffingStandardAtTime(
   options?: {
     staffingOverrides?: StaffingOverrides
     peakHoursOverrides?: PeakHoursOverrides
+    availableWorkers?: number  // ← NEW: total available staff
+    totalLanes?: number        // ← NEW: total active lanes
   },
 ): StaffingStandard {
-  // Priority 1: Per-shift staffing override
+  // Priority 1: Per-shift staffing override (always respected)
   if (options?.staffingOverrides?.[lane.id] != null) {
     return options.staffingOverrides[lane.id]
   }
   
-  // Priority 2: Peak hours
+  // Priority 2: Peak hours (ONLY if configured AND not in shortage)
   const peakConfig = getEffectivePeakHours(lane, options?.peakHoursOverrides)
-  if (isInPeakHours(peakConfig, currentMinutes)) {
-    return peakConfig!.peakStandard
+  
+  // Check if peak hours are configured
+  const hasPeakConfig = Boolean(
+    peakConfig && 
+    peakConfig.hours.length > 0 && 
+    peakConfig.peakStandard > 0
+  )
+  
+  if (hasPeakConfig && isInPeakHours(peakConfig, currentMinutes)) {
+    // Check if we have enough staff to support peak hours
+    const hasEnoughStaff = checkSufficientStaffForPeak(
+      lane,
+      peakConfig!.peakStandard,
+      options,
+    )
+    
+    if (hasEnoughStaff) {
+      return peakConfig!.peakStandard
+    }
+    // Fall through to base standard if not enough staff
   }
   
   // Priority 3: Base standard from lane catalog
   return lane.staffingStandard
+}
+
+/**
+ * Check if there's sufficient staff to apply peak hours staffing.
+ * Peak hours should NOT be applied during manpower shortages.
+ */
+function checkSufficientStaffForPeak(
+  lane: Lane,
+  _peakStandard: StaffingStandard,
+  options?: {
+    availableWorkers?: number
+    totalLanes?: number
+  },
+): boolean {
+  // If no availability info provided, allow peak hours (backward compatible)
+  if (options?.availableWorkers == null || options?.totalLanes == null) {
+    return true
+  }
+  
+  const { availableWorkers, totalLanes } = options
+  
+  // Need at least base staffing for all lanes first
+  const baseRequirement = totalLanes * lane.staffingStandard
+  
+  // Only apply peak if we have surplus beyond base requirements
+  return availableWorkers >= baseRequirement
 }
