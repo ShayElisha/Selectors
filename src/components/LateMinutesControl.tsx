@@ -88,54 +88,41 @@ export function LateMinutesControl({
     )
   }
 
+  // Compact per-person control: no label chip, tiny segmented buttons.
   return (
     <div
-      className={`inline-flex max-w-full flex-wrap items-center gap-1.5 ${className}`}
+      role="group"
+      aria-label={ariaLabel ?? title}
+      className={`inline-flex max-w-full items-center rounded-md bg-surface/60 p-px ring-1 ring-line/55 ${className}`}
     >
-      <span
-        className={`inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10px] font-bold ${
-          late
-            ? 'bg-warn-soft text-warn ring-1 ring-warn/20'
-            : 'bg-surface text-ink-soft ring-1 ring-line/70'
-        }`}
-      >
-        <Clock3 className="size-3" aria-hidden />
-        {title}
-      </span>
-      <div
-        role="group"
-        aria-label={ariaLabel ?? title}
-        className="inline-flex rounded-xl bg-surface/80 p-0.5 ring-1 ring-line/70"
-      >
-        {SHIFT_LATE_OPTIONS.map((option) => {
-          const active = current === option.value
-          const short =
-            option.value === 0
-              ? 'בזמן'
-              : option.value === 60
-                ? '60׳'
-                : `${option.value}׳`
-          return (
-            <button
-              key={option.value}
-              type="button"
-              disabled={disabled}
-              aria-pressed={active}
-              title={option.label}
-              onClick={() => onChange(option.value)}
-              className={`min-h-8 rounded-lg px-2 text-[11px] font-bold tabular-nums transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50 ${
-                active
-                  ? option.value === 0
-                    ? 'bg-ok text-white shadow-sm'
-                    : 'bg-warn text-white shadow-sm'
-                  : 'text-ink-soft hover:bg-card hover:text-ink'
-              }`}
-            >
-              {short}
-            </button>
-          )
-        })}
-      </div>
+      {SHIFT_LATE_OPTIONS.map((option) => {
+        const active = current === option.value
+        const short =
+          option.value === 0
+            ? 'בזמן'
+            : option.value === 60
+              ? '60׳'
+              : `${option.value}׳`
+        return (
+          <button
+            key={option.value}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            title={option.label}
+            onClick={() => onChange(option.value)}
+            className={`min-h-6 rounded px-1.5 text-[10px] font-semibold tabular-nums leading-none transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand disabled:opacity-50 ${
+              active
+                ? option.value === 0
+                  ? 'bg-ok/90 text-white'
+                  : 'bg-warn/90 text-white'
+                : 'text-ink-soft hover:bg-card hover:text-ink'
+            }`}
+          >
+            {short}
+          </button>
+        )
+      })}
     </div>
   )
 }

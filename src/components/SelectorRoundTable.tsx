@@ -24,7 +24,6 @@ export function SelectorRoundTable({
   managerId,
   onManagerChange,
   onLateChange,
-  onDefaultLateChange,
   editable = false,
   onChange,
   onRemoveLane,
@@ -48,8 +47,6 @@ export function SelectorRoundTable({
   onManagerChange?: (workerId: string | null) => void
   /** Edit per-worker late minutes from the board. */
   onLateChange?: (workerId: string, lateMinutes: number) => void
-  /** Edit shift-wide late default from the board. */
-  onDefaultLateChange?: (lateMinutes: number) => void
   editable?: boolean
   onChange?: (
     roundIndex: number,
@@ -125,14 +122,6 @@ export function SelectorRoundTable({
           </span>
           <span>פס צד = עומס הנתיב (קל / בינוני / קשה)</span>
         </p>
-        {editable && onDefaultLateChange ? (
-          <LateMinutesControl
-            variant="bar"
-            hint="חל על כל הנוכחים · אפשר לשנות לאדם"
-            value={defaultLateMinutes ?? 0}
-            onChange={onDefaultLateChange}
-          />
-        ) : null}
       </div>
       {ramashName !== undefined ? (
         <div
