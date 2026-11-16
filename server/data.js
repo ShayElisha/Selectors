@@ -2489,13 +2489,18 @@ async function loadWorkerContactMap(scope, ids) {
 }
 
 /**
- * Block the same phone from being present/assigned on another module's
- * shift for the same date + shift type.
+ * Find same-phone double bookings across other modules for one schedule/slot.
+ * @returns {Promise<Array<{ workerId: string, workerName: string, otherModule: string, otherModuleKey: string, otherShiftId: string, date: string, shiftType: string }>>}
  */
-async function assertNoCrossModuleDoubleBooking(schedule, scope, localState) {
-  if (!scope?.orgId || !scope?.module) return;
+export async function findCrossModuleDoubleBookings(
+  schedule,
+  scope,
+  localState,
+) {
+  const conflicts = [];
+  if (!scope?.orgId || !scope?.module || !schedule) return conflicts;
   const localIds = workerIdsOnSchedule(schedule);
-  if (!localIds.size) return;
+  if (!localIds.size) return conflicts;
 
   const phoneById = new Map();
   const nameById = new Map();
@@ -2507,7 +2512,6 @@ async function assertNoCrossModuleDoubleBooking(schedule, scope, localState) {
     if (worker.fullName) nameById.set(id, String(worker.fullName));
   }
 
-  // One pass per other module: resolve guest phones + compare open slot shifts.
   for (const target of GUEST_MODULE_ORDER) {
     if (target === scope.module) continue;
     const otherScope = { orgId: String(scope.orgId), module: target };
@@ -2562,14 +2566,70 @@ async function assertNoCrossModuleDoubleBooking(schedule, scope, localState) {
           nameById.get(String(localId)) ||
           contact?.fullName ||
           phone;
-        const err = new Error(
-          `${named} כבר משובץ/נוכח במודול ${moduleLabelHe(target)} באותו תאריך ומשמרת. לא ניתן לשבץ פעמיים בין מודולים.`,
-        );
-        err.status = 409;
-        throw err;
+        conflicts.push({
+          workerId: String(localId),
+          workerName: String(named),
+          otherModule: moduleLabelHe(target),
+          otherModuleKey: target,
+          otherShiftId: String(other.id || ""),
+          date: String(schedule.date || ""),
+          shiftType: String(schedule.shiftType || ""),
+        });
       }
     }
   }
+  return conflicts;
+}
+
+/**
+ * Block the same phone from being present/assigned on another module's
+ * shift for the same date + shift type.
+ */
+async function assertNoCrossModuleDoubleBooking(schedule, scope, localState) {
+  const conflicts = await findCrossModuleDoubleBookings(
+    schedule,
+    scope,
+    localState,
+  );
+  if (!conflicts.length) return;
+  const first = conflicts[0];
+  const err = new Error(
+    `${first.workerName} כבר משובץ/נוכח במודול ${first.otherModule} באותו תאריך ומשמרת. לא ניתן לשבץ פעמיים בין מודולים.`,
+  );
+  err.status = 409;
+  err.conflicts = conflicts;
+  throw err;
+}
+
+/**
+ * API helper: check an open draft/shift for cross-module conflicts.
+ */
+export async function listCrossModuleConflictsForShift(body, scope) {
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  const state = await readState(scope);
+  const schedule = {
+    id: String(body?.id || body?.shiftId || "draft"),
+    date: String(body?.date || ""),
+    shiftType: String(body?.shiftType || ""),
+    presentWorkerIds: Array.isArray(body?.presentWorkerIds)
+      ? body.presentWorkerIds
+      : [],
+    assignments: Array.isArray(body?.assignments) ? body.assignments : [],
+    rounds: Array.isArray(body?.rounds) ? body.rounds : [],
+  };
+  if (!schedule.date || !schedule.shiftType) {
+    return { conflicts: [] };
+  }
+  const conflicts = await findCrossModuleDoubleBookings(
+    schedule,
+    scope,
+    state,
+  );
+  return { conflicts };
 }
 
 /**

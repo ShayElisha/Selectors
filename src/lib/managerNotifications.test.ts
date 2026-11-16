@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearManagerNotices,
   ensureBoardQualityNotice,
+  ensureCrossModuleConflictFromMessage,
+  ensureCrossModuleConflictNotices,
   ensurePendingEquipmentNotices,
   ensurePendingFaultNotices,
   ensureShiftEndNotice,
@@ -167,5 +169,27 @@ describe('managerNotifications', () => {
     expect(listManagerNotices().some((n) => n.kind === 'board_quality')).toBe(
       true,
     )
+  })
+
+  it('stores cross-module conflict notices', () => {
+    const rows = ensureCrossModuleConflictNotices(
+      [
+        {
+          workerId: 'w1',
+          workerName: 'דני',
+          otherModule: 'סלקטורים',
+          date: '2026-11-16',
+          shiftType: 'morning',
+        },
+      ],
+      { shiftId: 's1' },
+    )
+    expect(rows[0]?.kind).toBe('cross_module')
+    expect(
+      ensureCrossModuleConflictFromMessage(
+        'דני כבר משובץ/נוכח במודול סלקטורים באותו תאריך ומשמרת. לא ניתן לשבץ פעמיים בין מודולים.',
+        { shiftId: 's1' },
+      )?.kind,
+    ).toBe('cross_module')
   })
 })

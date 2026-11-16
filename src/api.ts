@@ -577,6 +577,30 @@ export function fetchGuestWorkersRemote(): Promise<GuestWorker[]> {
   return request<GuestWorker[]>('/api/guest-workers')
 }
 
+export type CrossModuleConflictRow = {
+  workerId: string
+  workerName: string
+  otherModule: string
+  otherModuleKey?: string
+  otherShiftId?: string
+  date: string
+  shiftType: string
+}
+
+export function checkCrossModuleConflictsRemote(body: {
+  id?: string
+  date: string
+  shiftType: string
+  presentWorkerIds?: string[]
+  assignments?: { workerIds?: string[] }[]
+  rounds?: { assignments?: { workerIds?: string[] }[] }[]
+}): Promise<{ conflicts: CrossModuleConflictRow[] }> {
+  return request('/api/shifts/cross-module-check', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 export interface SystemErrorEntry {
   id: string
   at: string
