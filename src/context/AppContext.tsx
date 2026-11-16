@@ -84,10 +84,6 @@ import {
   manualsCompatibleWithTraining,
   reservedSeatsByLane,
 } from '../lib/assignLocks'
-import {
-  manualsCompatibleWithTraining,
-  reservedSeatsByLane,
-} from '../lib/assignLocks'
 import { rotationOverrideWarning } from '../lib/rotationOverride'
 import { planRemoval, removalMinute, type SelfHealPlan } from '../lib/selfHeal'
 import { namesMatchForSignOff, normalizeSignOff } from '../lib/shiftSignOff'
