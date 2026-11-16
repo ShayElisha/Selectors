@@ -796,6 +796,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {ALL_NAV.filter((n) => MOBILE_PRIMARY.includes(n.id)).map((item) => {
             const Icon = item.icon
             const active = itemActive(item.id)
+            // Workers label follows the active module (סלקטורים/בודקים/מאבטחים)
+            // so bottom nav does not hardcode "בודקים" over the shift title.
+            const label =
+              item.id === 'workers' ? MODULE_LABELS[module] : item.label
             return (
               <button
                 key={item.id}
@@ -812,7 +816,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   className={`size-[18px] ${active ? 'stroke-[2.25]' : ''}`}
                   aria-hidden
                 />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{label}</span>
               </button>
             )
           })}

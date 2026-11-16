@@ -476,9 +476,12 @@ export function BoardStep({
   const saveBlocked =
     Boolean(slotConflict) ||
     draft.unassignedWorkerIds.length > 0 ||
-    hasBoardErrors
+    hasBoardErrors ||
+    !draft.gateManagerWorkerId
   const saveBlockedReason = slotConflict
     ? 'כבר קיים שיבוץ לאותו תאריך ומשמרת'
+    : !draft.gateManagerWorkerId
+      ? 'בחרו מנהל משמרת לפני השמירה'
     : draft.unassignedWorkerIds.length > 0
       ? `יש ${draft.unassignedWorkerIds.length} ${people.plural} שלא שובצו — שבצו את כולם לפני השמירה`
       : hasBoardErrors
@@ -1172,7 +1175,7 @@ export function BoardStep({
                                 () => removeLaneFromShift(laneId),
                               )
                             }}
-                            className="ui-btn-danger-ghost lane-card-action inline-flex size-9 items-center justify-center rounded-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                            className="ui-btn-danger-ghost lane-card-action inline-flex size-11 items-center justify-center rounded-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                             title="הסר נתיב מהמשמרת"
                             aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
                           >
@@ -1419,10 +1422,11 @@ export function BoardStep({
       <button
         type="button"
         onClick={onBackToAttendance}
-        className="inline-flex items-center gap-1 text-xs font-medium text-ink-soft hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print sm:text-sm"
+        className="inline-flex size-11 items-center justify-center rounded-xl text-ink-soft hover:bg-surface hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
+        aria-label="חזרה לנוכחות"
+        title="חזרה לנוכחות"
       >
-        <ChevronRight className="size-3.5 sm:size-4" aria-hidden />
-        חזרה לנוכחות
+        <ChevronRight className="size-5" aria-hidden />
       </button>
       ) : null}
 
@@ -1462,10 +1466,15 @@ export function BoardStep({
             <button
               type="button"
               onClick={trySave}
-              aria-disabled={saveBlocked}
-              title={saveBlockedReason ?? undefined}
+              disabled={isSaved}
+              aria-disabled={saveBlocked || isSaved}
+              title={
+                isSaved
+                  ? 'אין שינויים לשמירה'
+                  : (saveBlockedReason ?? undefined)
+              }
               className={`ui-btn ui-btn-primary !h-10 shrink-0 !px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                saveBlocked ? 'cursor-not-allowed opacity-40' : ''
+                saveBlocked || isSaved ? 'cursor-not-allowed opacity-40' : ''
               } ${saveFlash ? '!bg-ok hover:!bg-ok' : ''}`}
             >
               {saveFlash ? (
