@@ -1,4 +1,5 @@
 import type { WindowAdjustment } from '../types'
+import { effectiveLateMinutes } from './shiftLate'
 
 export type TimingBadge = {
   kind: 'late' | 'early' | 'left'
@@ -10,11 +11,16 @@ export type TimingBadge = {
 export function timingBadgesForWorker(opts: {
   workerId: string
   windowAdjustments?: Record<string, WindowAdjustment> | null
+  defaultLateMinutes?: number | null
   earlyLeaveAt?: Record<string, number> | null
 }): TimingBadge[] {
   const badges: TimingBadge[] = []
   const adj = opts.windowAdjustments?.[opts.workerId]
-  const late = Number(adj?.lateMinutes || 0)
+  const late = effectiveLateMinutes({
+    workerId: opts.workerId,
+    windowAdjustments: opts.windowAdjustments,
+    defaultLateMinutes: opts.defaultLateMinutes,
+  })
   const early = Number(adj?.earlyMinutes || 0)
   const leftAt = opts.earlyLeaveAt?.[opts.workerId]
 
