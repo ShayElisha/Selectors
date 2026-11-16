@@ -280,14 +280,14 @@ export function BoardStep({
 
   useEffect(() => {
     const dirty = boardDirty || draftDirty
-    if (!dirty || locked) return
+    if (!dirty || draft.signOff?.signedAt) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [boardDirty, draftDirty, locked])
+  }, [boardDirty, draftDirty, draft.signOff?.signedAt])
 
   useEffect(() => {
     if (!shareOpen && !summaryMenuOpen && !laneActionMenu) return

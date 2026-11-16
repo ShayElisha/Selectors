@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { buildShiftCloseSummary } from './shiftCloseSummary'
-import type { Lane, ShiftDraft, Worker } from '../types'
+import {
+  buildShiftCloseSummary,
+  type ShiftCloseDraft,
+} from './shiftCloseSummary'
+import type { Lane, Worker } from '../types'
 
 const lanes: Lane[] = [
   {
     id: 'l1',
     name: 'נתיב 1',
     intensity: 'medium',
-    requiredCerts: [],
+    requiredCertifications: [],
     staffingStandard: 2,
   },
   {
     id: 'gm',
     name: 'מנהל שער',
-    intensity: 'low',
-    requiredCerts: [],
+    intensity: 'easy',
+    requiredCertifications: [],
     staffingStandard: 1,
   },
 ]
@@ -24,30 +27,28 @@ const workers: Worker[] = [
     id: 'w1',
     fullName: 'דני כהן',
     phone: '0500000001',
-    kind: 'manager',
-    certs: [],
-    active: true,
+    certifications: [],
+    status: 'active',
+    isInspector: false,
+    isManager: true,
   },
   {
     id: 'w2',
     fullName: 'רוני לוי',
     phone: '0500000002',
-    kind: 'worker',
-    certs: [],
-    active: true,
+    certifications: [],
+    status: 'active',
+    isInspector: true,
+    isManager: false,
   },
 ]
 
-function baseDraft(partial: Partial<ShiftDraft> = {}): ShiftDraft {
+function baseDraft(partial: Partial<ShiftCloseDraft> = {}): ShiftCloseDraft {
   return {
-    id: 's1',
-    date: '2026-03-16',
-    shiftType: 'morning',
+    assignmentMode: 'single',
     activeLaneIds: ['l1'],
-    presentWorkerIds: ['w1', 'w2'],
     assignments: [{ laneId: 'l1', workerIds: ['w2'] }],
     unassignedWorkerIds: [],
-    warnings: [],
     ...partial,
   }
 }

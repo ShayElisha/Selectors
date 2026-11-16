@@ -1,7 +1,14 @@
 import { isGateManagerLane } from './gateManager'
-import { effectiveStaffingStandard } from './shiftStaffing'
+import { effectiveStaffingStandard, type StaffingOverrides } from './shiftStaffing'
 import { usesRounds } from './assignmentMode'
-import type { Lane, ShiftDraft, Worker } from '../types'
+import type {
+  AssignmentMode,
+  Lane,
+  LaneAssignment,
+  SelectorRound,
+  ShiftAudience,
+  Worker,
+} from '../types'
 
 export type ShiftCloseSummary = {
   managerName: string | null
@@ -13,9 +20,21 @@ export type ShiftCloseSummary = {
   understaffedLanes: { name: string; filled: number; standard: number }[]
 }
 
+/** Minimal draft shape needed for the pre-close summary. */
+export type ShiftCloseDraft = {
+  audience?: ShiftAudience
+  assignmentMode?: AssignmentMode
+  activeLaneIds: string[]
+  assignments: LaneAssignment[]
+  rounds?: SelectorRound[]
+  staffingOverrides?: StaffingOverrides
+  gateManagerWorkerId?: string
+  unassignedWorkerIds: string[]
+}
+
 /** Snapshot for the sign-off dialog: coverage, gaps, and shift manager. */
 export function buildShiftCloseSummary(
-  draft: ShiftDraft,
+  draft: ShiftCloseDraft,
   lanes: Lane[],
   workers: Worker[],
 ): ShiftCloseSummary {
@@ -52,7 +71,9 @@ export function buildShiftCloseSummary(
       const lane = lanes.find((l) => l.id === laneId)
       if (!lane || isGateManagerLane(lane)) continue
       const standard = effectiveStaffingStandard(lane, draft.staffingOverrides)
-      const row = draft.assignments.find((a) => a.laneId === laneId)
+      const row = draft.assignments.find(
+        (assignment: LaneAssignment) => assignment.laneId === laneId,
+      )
       const filled = (row?.workerIds ?? []).filter(Boolean).length
       filledSlots += filled
       requiredSlots += standard
