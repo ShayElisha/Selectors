@@ -9,7 +9,8 @@
   --color-card: #ffffff;
   --color-line: #e8ebf3;
   --color-ink: #0f172a;
-  --color-ink-soft: #64748b;
+  /* Darkened for WCAG AA on white (~5.9:1 vs ~4.5:1). */
+  --color-ink-soft: #475569;
   --color-text: #334155;
   --color-primary: #2f5bff;
   --color-primary-hover: #234ae0;

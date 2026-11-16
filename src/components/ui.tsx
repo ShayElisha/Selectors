@@ -37,12 +37,15 @@ export function IntensityBadge({ intensity }: { intensity: Intensity }) {
     },
   }
   const s = styles[intensity]
+  const label = INTENSITY_LABELS[intensity]
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide ring-1 sm:gap-1.5 sm:px-2.5 sm:text-xs ${s.wrap}`}
+      title={`עומס נתיב: ${label}`}
+      aria-label={`עומס נתיב ${label}`}
     >
       <s.Icon className="size-3 shrink-0 sm:size-3.5" aria-hidden />
-      {INTENSITY_LABELS[intensity]}
+      {label}
     </span>
   )
 }

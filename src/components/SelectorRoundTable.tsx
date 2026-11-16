@@ -1,4 +1,5 @@
-import { Shield, Trash2 } from 'lucide-react'
+import { CheckCircle2, CircleDashed, Shield, Trash2 } from 'lucide-react'
+import { INTENSITY_LABELS } from '../constants'
 import { IntensityBadge, Ltr } from './ui'
 import { WorkerCombobox } from './WorkerCombobox'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
@@ -19,6 +20,9 @@ export function SelectorRoundTable({
   onChange,
   onRemoveLane,
   layout = 'cards',
+  compact = false,
+  managerRequired = false,
+  stickyOffsetClass = 'top-14',
 }: {
   rounds: SelectorRound[]
   lanes: Lane[]
@@ -40,6 +44,12 @@ export function SelectorRoundTable({
   onRemoveLane?: (laneId: string) => void
   /** Home keeps the previous time-by-lane table. The shift board uses cards. */
   layout?: 'cards' | 'table'
+  /** Denser cards — more routes visible without scrolling. */
+  compact?: boolean
+  /** Block-style validation when manager is required but missing. */
+  managerRequired?: boolean
+  /** Sticky offset under the page header (Tailwind top-* class). */
+  stickyOffsetClass?: string
 }) {
   const options = workers.map((worker) => ({ worker }))
 
@@ -69,38 +79,80 @@ export function SelectorRoundTable({
     )
   }
 
+  const managerMissing =
+    managerRequired && editable && onManagerChange && !(managerId ?? '').trim()
+
   return (
-    <div className="space-y-4">
+    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
+        <span className="font-semibold text-ink">מקרא:</span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-full bg-ok" aria-hidden />
+          מאויש
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <CircleDashed className="size-3 text-warn" aria-hidden />
+          חסר בתקן
+        </span>
+        <span>פס צד = עומס הנתיב (קל / בינוני / קשה)</span>
+      </p>
       {ramashName !== undefined ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-2xl border border-line/70 bg-card px-4 py-3 text-[13px] font-semibold text-ink shadow-sm">
-          <Shield className="size-4 text-brand" aria-hidden />
-          <span>מנהל משמרת</span>
-          {editable && onManagerChange ? (
-            <select
-              className="ui-field min-w-40 py-1.5 text-sm font-semibold"
-              aria-label="בחירת מנהל משמרת"
-              value={managerId ?? ''}
-              onChange={(event) => onManagerChange(event.target.value || null)}
-            >
-              <option value="">
-                {(managerOptions?.length ?? 0) === 0
-                  ? 'אין מנהל שהוא גם בודק'
-                  : 'בחרו מנהל משמרת'}
-              </option>
-              {(managerOptions ?? []).map((manager) => (
-                <option key={manager.id} value={manager.id}>
-                  {manager.fullName}
+        <div
+          className={`rounded-2xl border bg-card px-4 py-3 text-[13px] font-semibold text-ink shadow-sm ${
+            managerMissing
+              ? 'border-hard/40 ring-1 ring-hard/20'
+              : 'border-line/70'
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+            <Shield className="size-4 text-brand" aria-hidden />
+            <span>
+              מנהל משמרת
+              {managerRequired ? (
+                <span className="text-hard" aria-hidden>
+                  {' '}
+                  *
+                </span>
+              ) : null}
+            </span>
+            {editable && onManagerChange ? (
+              <select
+                className={`ui-field min-w-40 py-1.5 text-sm font-semibold ${
+                  managerMissing ? 'border-hard ring-1 ring-hard/30' : ''
+                }`}
+                aria-label="בחירת מנהל משמרת (שדה חובה)"
+                aria-required={managerRequired || undefined}
+                aria-invalid={managerMissing || undefined}
+                value={managerId ?? ''}
+                onChange={(event) => onManagerChange(event.target.value || null)}
+              >
+                <option value="">
+                  {(managerOptions?.length ?? 0) === 0
+                    ? 'אין מנהל שהוא גם בודק'
+                    : 'בחרו מנהל משמרת'}
                 </option>
-              ))}
-            </select>
-          ) : (
-            <span>{ramashName.trim() || 'לא סומן'}</span>
-          )}
+                {(managerOptions ?? []).map((manager) => (
+                  <option key={manager.id} value={manager.id}>
+                    {manager.fullName}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span>{ramashName.trim() || 'לא סומן'}</span>
+            )}
+          </div>
+          {managerMissing ? (
+            <p className="mt-1.5 text-xs font-semibold text-hard" role="alert">
+              חובה לבחור מנהל משמרת לפני שמירה או סגירה
+            </p>
+          ) : null}
         </div>
       ) : null}
       {rounds.map((round, roundIndex) => (
-        <section key={`${round.cohort ?? ''}-${round.label}`} className="space-y-3">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <section key={`${round.cohort ?? ''}-${round.label}`} className="space-y-2.5">
+          <div
+            className={`sticky z-20 -mx-1 flex flex-wrap items-center gap-1.5 bg-bg/95 px-1 py-1.5 backdrop-blur-sm ${stickyOffsetClass}`}
+          >
             <span className="rounded-full bg-brand px-2.5 py-1 text-[12px] font-bold text-white">
               <Ltr>{round.label}</Ltr>
             </span>
@@ -110,7 +162,13 @@ export function SelectorRoundTable({
               </span>
             ) : null}
           </div>
-          <div className="grid touch-pan-y grid-cols-1 gap-4 min-[900px]:grid-cols-2">
+          <div
+            className={`grid touch-pan-y grid-cols-1 ${
+              compact
+                ? 'gap-2.5 min-[640px]:grid-cols-2 min-[1100px]:grid-cols-3'
+                : 'gap-4 min-[900px]:grid-cols-2'
+            }`}
+          >
             {lanes.map((lane, laneIndex) => {
               const open = laneOpenDuring(
                 lane.activeHours,
@@ -125,26 +183,49 @@ export function SelectorRoundTable({
                 ? filledIds.slice(0, Math.max(standard, filledIds.filter(Boolean).length))
                 : []
               const filled = slots.filter(Boolean).length
+              const intensityLabel = INTENSITY_LABELS[lane.intensity]
+              const statusLabel = !open
+                ? 'סגור'
+                : filled >= standard
+                  ? 'מאויש'
+                  : `${filled} מתוך ${standard}`
               return (
                 <div
                   key={lane.id}
                   style={{ animationDelay: `${laneIndex * 20}ms` }}
-                  className={`board-lane-card board-lane-card--${lane.intensity} relative rounded-2xl border border-line bg-card p-4 shadow-sm`}
+                  className={`board-lane-card board-lane-card--${lane.intensity} relative rounded-2xl border border-line bg-card shadow-sm ${
+                    compact ? 'p-3' : 'p-4'
+                  }`}
+                  aria-label={`${lane.name}, עומס ${intensityLabel}, ${statusLabel}`}
+                  title={`${lane.name} · עומס ${intensityLabel} · ${statusLabel}`}
                 >
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                        <h4 className="min-w-0 font-display text-base font-semibold tracking-tight text-ink sm:text-[17px]">
+                        <h4
+                          className={`min-w-0 font-display font-semibold tracking-tight text-ink ${
+                            compact ? 'text-[15px]' : 'text-base sm:text-[17px]'
+                          }`}
+                        >
                           {lane.name}
                         </h4>
                         <IntensityBadge intensity={lane.intensity} />
                         {open && filled >= standard ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ok">
-                            <span className="size-1.5 rounded-full bg-ok" aria-hidden />
+                          <span
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-ok"
+                            title="הנתיב מאויש במלואו"
+                            aria-label="מאויש"
+                          >
+                            <CheckCircle2 className="size-3.5" aria-hidden />
                             מאויש
                           </span>
                         ) : open ? (
-                          <span className="inline-flex min-h-6 items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn ring-1 ring-warn/20">
+                          <span
+                            className="inline-flex min-h-6 items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn ring-1 ring-warn/20"
+                            title={`חסר בתקן: ${filled} מתוך ${standard}`}
+                            aria-label={`חסר בתקן ${filled} מתוך ${standard}`}
+                          >
+                            <CircleDashed className="size-3.5" aria-hidden />
                             <Ltr>
                               {filled}/{standard}
                             </Ltr>
@@ -160,7 +241,7 @@ export function SelectorRoundTable({
                       <button
                         type="button"
                         onClick={() => onRemoveLane(lane.id)}
-                        className="lane-card-action inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-ink-soft transition hover:bg-hard-soft hover:text-hard"
+                        className="lane-card-action inline-flex size-11 shrink-0 items-center justify-center rounded-[10px] text-ink-soft transition hover:bg-hard-soft hover:text-hard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                         title="הסר נתיב מהמשמרת"
                         aria-label={`הסר נתיב ${lane.name} מהמשמרת`}
                       >
@@ -168,7 +249,7 @@ export function SelectorRoundTable({
                       </button>
                     ) : null}
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className={compact ? 'mt-2 space-y-1.5' : 'mt-3 space-y-2'}>
                     {open ? (
                       slots.map((workerId, slotIndex) => (
                         <div key={`${lane.id}-${slotIndex}`} className="flex min-w-0 items-center gap-2">
