@@ -1,7 +1,9 @@
 import {
   buildLaneLastSeatings,
+  DEFAULT_PROGRESS_SEARCH_STARTS,
   isQualified,
   LAST_OCCUPANT_WINDOW_DAYS,
+  type AssignmentProgress,
   type LaneLastSeating,
   type PlacementExplanation,
 } from '../algorithm'
@@ -315,7 +317,7 @@ function pickWorker(
   return qualified[0] ?? null
 }
 
-export function assignSelectorRounds(args: {
+export type AssignSelectorRoundsArgs = {
   shiftType: ShiftType
   lanes: Lane[]
   activeLaneIds: string[]
@@ -349,12 +351,53 @@ export function assignSelectorRounds(args: {
   date?: string
   /** Names for people who sat a lane last but are absent today. */
   roster?: Worker[]
-}): {
+  /**
+   * How many full board starts to compare (each with a different rotation seed).
+   * Sync default stays small for freeze / window edits; the progress runner
+   * uses DEFAULT_PROGRESS_SEARCH_STARTS (1000), same as single-mode assign.
+   */
+  searchStarts?: number
+  /** Rotation seed for a single attempt (used by the async multi-start runner). */
+  seedOffset?: number
+}
+
+export type AssignSelectorRoundsResult = {
   rounds: SelectorRound[]
   warnings: string[]
   unassignedWorkerIds: string[]
   explanations: PlacementExplanation[]
-} {
+  searchStats?: { starts: number; evaluations: number }
+}
+
+type RoundsAttempt = {
+  rounds: SelectorRound[]
+  emptySeats: number
+  repeatBlocks: number
+  lastHits: number
+  explanations: PlacementExplanation[]
+  unassignedCount: number
+}
+
+function isRoundsAttemptBetter(next: RoundsAttempt, best: RoundsAttempt): boolean {
+  if (next.emptySeats !== best.emptySeats) {
+    return next.emptySeats < best.emptySeats
+  }
+  if (next.lastHits !== best.lastHits) {
+    return next.lastHits < best.lastHits
+  }
+  if (next.unassignedCount !== best.unassignedCount) {
+    return next.unassignedCount < best.unassignedCount
+  }
+  return next.repeatBlocks < best.repeatBlocks
+}
+
+function yieldForProgressUi(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+export function assignSelectorRounds(
+  args: AssignSelectorRoundsArgs,
+): AssignSelectorRoundsResult {
   const active = selectorLanes(args.lanes, args.activeLaneIds)
   const workers = [...args.workers].sort((a, b) =>
     a.fullName.localeCompare(b.fullName, 'he'),
@@ -521,25 +564,53 @@ export function assignSelectorRounds(args: {
     return { ...w, assignments }
   })
 
-  return { rounds, emptySeats, repeatBlocks, lastHits, explanations }
+    const placedIds = placedSelectorIds(rounds)
+    return {
+      rounds,
+      emptySeats,
+      repeatBlocks,
+      lastHits,
+      explanations,
+      unassignedCount: workers.filter((w) => !placedIds.includes(w.id)).length,
+    }
   }
 
-  const attempts = Math.min(8, Math.max(1, workers.length))
-  let best = buildAttempt(0)
+  const attempts = Math.max(
+    1,
+    args.searchStarts ?? Math.min(8, Math.max(1, workers.length)),
+  )
+  const seedBase = args.seedOffset ?? 0
+  let best = buildAttempt(seedBase)
   for (let offset = 1; offset < attempts; offset += 1) {
-    const next = buildAttempt(offset)
-    const fewerEmpty = next.emptySeats < best.emptySeats
-    const sameEmptyFewerRepeats =
-      next.emptySeats === best.emptySeats && next.lastHits < best.lastHits
-    if (fewerEmpty || sameEmptyFewerRepeats) best = next
+    const next = buildAttempt(seedBase + offset)
+    if (isRoundsAttemptBetter(next, best)) best = next
   }
 
+  return finalizeRoundsResult({
+    best,
+    workers,
+    activeLength: active.length,
+    attempts,
+    warnings,
+  })
+}
+
+function finalizeRoundsResult(input: {
+  best: RoundsAttempt
+  workers: Worker[]
+  activeLength: number
+  attempts: number
+  warnings: string[]
+}): AssignSelectorRoundsResult {
+  const { best, workers, activeLength, attempts } = input
+  const warnings = [...input.warnings]
   const { rounds, explanations } = best
+
   if (best.repeatBlocks > 0) {
     warnings.push('נחסם רצף של אותו נתיב בשני סבבים צמודים')
   }
 
-  if (best.emptySeats > 0 && workers.length > 0 && active.length > 0) {
+  if (best.emptySeats > 0 && workers.length > 0 && activeLength > 0) {
     warnings.push(
       `נותרו ${best.emptySeats} מקומות ריקים בסבבים — אין מספיק סלקטורים מוסמכים לכל הנתיבים`,
     )
@@ -550,19 +621,134 @@ export function assignSelectorRounds(args: {
     .map((w) => w.id)
     .filter((id) => !placed.has(id))
 
-  if (unassignedWorkerIds.length > 0 && active.length > 0) {
-    warnings.push(
-      `${unassignedWorkerIds.length} סלקטורים לא נכנסו לאף סבב`,
-    )
+  if (unassignedWorkerIds.length > 0 && activeLength > 0) {
+    warnings.push(`${unassignedWorkerIds.length} סלקטורים לא נכנסו לאף סבב`)
   }
 
   if (attempts > 1) {
     warnings.push(
-      `נבדקו ${attempts} סידורי סבבים, והשיבוץ שנבחר חוזר פחות למי שישבו אחרונים בנתיב`,
+      `נבדקו ${attempts} סידורי סבבים ב־${attempts} התחלות, והשיבוץ שנבחר ממלא יותר מושבים וחוזר פחות למי שישבו אחרונים בנתיב`,
     )
   }
 
-  return { rounds, warnings, unassignedWorkerIds, explanations }
+  return {
+    rounds,
+    warnings,
+    unassignedWorkerIds,
+    explanations,
+    searchStats: { starts: attempts, evaluations: attempts },
+  }
+}
+
+/**
+ * Async multi-start runner for rounds — same budget as single-mode assign
+ * (DEFAULT_PROGRESS_SEARCH_STARTS = 1000), with UI progress ticks.
+ */
+export async function assignSelectorRoundsWithProgress(
+  args: AssignSelectorRoundsArgs,
+  options?: {
+    searchStarts?: number
+    onProgress?: (progress: AssignmentProgress) => void
+    yieldToUi?: () => Promise<void>
+  },
+): Promise<AssignSelectorRoundsResult> {
+  const starts = Math.max(
+    1,
+    options?.searchStarts ?? DEFAULT_PROGRESS_SEARCH_STARTS,
+  )
+  const yieldToUi = options?.yieldToUi ?? yieldForProgressUi
+  const report = (percent: number, done: number, evaluations: number) => {
+    options?.onProgress?.({
+      percent,
+      startsDone: done,
+      startsTotal: starts,
+      evaluations,
+    })
+  }
+
+  if (starts === 1) {
+    const single = assignSelectorRounds({ ...args, searchStarts: 1, seedOffset: 0 })
+    report(100, 1, 1)
+    return single
+  }
+
+  await yieldToUi()
+  let best: AssignSelectorRoundsResult | null = null
+  let bestMeta: RoundsAttempt | null = null
+
+  for (let i = 0; i < starts; i += 1) {
+    const candidate = assignSelectorRounds({
+      ...args,
+      searchStarts: 1,
+      seedOffset: i,
+    })
+    const meta: RoundsAttempt = {
+      rounds: candidate.rounds,
+      emptySeats: countEmptySeats(candidate.rounds),
+      repeatBlocks: candidate.warnings.some((w) => w.includes('נחסם רצף'))
+        ? 1
+        : 0,
+      lastHits: countLastHits(candidate.rounds, args),
+      explanations: candidate.explanations,
+      unassignedCount: candidate.unassignedWorkerIds.length,
+    }
+    if (!best || !bestMeta || isRoundsAttemptBetter(meta, bestMeta)) {
+      best = candidate
+      bestMeta = meta
+    }
+    report(Math.round(((i + 1) / starts) * 100), i + 1, i + 1)
+    await yieldToUi()
+  }
+
+  if (!best || !bestMeta) {
+    return assignSelectorRounds({ ...args, searchStarts: 1 })
+  }
+
+  const baseWarnings = best.warnings.filter((w) => !w.startsWith('נבדקו '))
+  const checkNote = `נבדקו ${starts} לוחות סבבים ב־${starts} התחלות לפני שהשיבוץ הוצג`
+  return {
+    ...best,
+    warnings: baseWarnings.includes(checkNote)
+      ? baseWarnings
+      : [...baseWarnings, checkNote],
+    searchStats: { starts, evaluations: starts },
+  }
+}
+
+function countEmptySeats(rounds: SelectorRound[]): number {
+  let empty = 0
+  for (const round of rounds) {
+    for (const assignment of round.assignments) {
+      for (const id of assignment.workerIds) {
+        if (!id) empty += 1
+      }
+    }
+  }
+  return empty
+}
+
+function countLastHits(
+  rounds: SelectorRound[],
+  args: AssignSelectorRoundsArgs,
+): number {
+  if (!args.date) return 0
+  const historical = buildLaneLastSeatings(
+    args.history ?? [],
+    args.date,
+    args.shiftType,
+    LAST_OCCUPANT_WINDOW_DAYS,
+  )
+  let hits = 0
+  for (const round of rounds) {
+    for (const assignment of round.assignments) {
+      const seating = historical.get(assignment.laneId)
+      if (!seating) continue
+      for (const workerId of assignment.workerIds) {
+        if (workerId && seating.workerIds.includes(workerId)) hits += 1
+      }
+    }
+  }
+  return hits
 }
 
 export function unassignedSelectorIds(

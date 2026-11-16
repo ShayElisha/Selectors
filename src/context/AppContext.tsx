@@ -132,6 +132,7 @@ import {
 } from '../lib/briefings'
 import {
   assignSelectorRounds,
+  assignSelectorRoundsWithProgress,
   applyLaneActivityHours,
   clearWorkerFromRounds,
   emptySelectorRounds,
@@ -2683,28 +2684,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ),
         d.gateManagerWorkerId,
       )
-      const result = assignSelectorRounds({
-        shiftType: d.shiftType,
-        bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
-        roundMinutes:
-          roundMinutesRef.current[
-            activeModule(user)
-          ],
-        stagger:
-          staggerRef.current[
-            activeModule(user)
-          ],
-        windowAdjustments: d.windowAdjustments,
-        lanes: data.lanes,
-        activeLaneIds: d.activeLaneIds,
-        workers: present,
-        overrides: d.staffingOverrides,
-        peakHoursOverrides: d.peakHoursOverrides,
-        workerWindows: d.workerWindows,
-        history: data.history,
-        date: d.date,
-        roster: data.workers,
-      })
+      // Same multi-start budget as single-mode (~1000 board checks) with progress.
+      const result = await assignSelectorRoundsWithProgress(
+        {
+          shiftType: d.shiftType,
+          bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
+          roundMinutes:
+            roundMinutesRef.current[
+              activeModule(user)
+            ],
+          stagger:
+            staggerRef.current[
+              activeModule(user)
+            ],
+          windowAdjustments: d.windowAdjustments,
+          lanes: data.lanes,
+          activeLaneIds: d.activeLaneIds,
+          workers: present,
+          overrides: d.staffingOverrides,
+          peakHoursOverrides: d.peakHoursOverrides,
+          workerWindows: d.workerWindows,
+          history: data.history,
+          date: d.date,
+          roster: data.workers,
+        },
+        {
+          onProgress: (p) => {
+            if (p.startsDone % 10 === 0 || p.startsDone === p.startsTotal) {
+              setProgress(p.percent)
+            }
+          },
+        },
+      )
       const withTrainingRounds = applyTrainingPairsToRounds(
         result.rounds,
         trainingPairs,
@@ -2731,7 +2742,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         'auto_assign',
         `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · ${mergedRounds.length} סבבים · ${filled} שיבוצים${
           result.warnings[0] ? ` · ${result.warnings[0]}` : ''
-        } · durationMs=${durationMs}`,
+        } · starts=${result.searchStats?.starts ?? 1} · durationMs=${durationMs}`,
       )
       return withGateManagerSync(
         {

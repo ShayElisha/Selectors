@@ -4,10 +4,12 @@ import { roundCutsForWindows } from './shiftCatalog'
 import {
   applyLaneActivityHours,
   assignSelectorRounds,
+  assignSelectorRoundsWithProgress,
   buildRoundWindows,
   selectorLanes,
   setSelectorCell,
 } from './selectorRounds'
+import { DEFAULT_PROGRESS_SEARCH_STARTS } from '../algorithm'
 import { windowCoversRound } from './shiftCatalog'
 
 function lane(id: string, name: string, certs: string[] = []): Lane {
@@ -353,5 +355,30 @@ describe('hard assignment rules', () => {
         lateMinutes: 30,
       }),
     ).toBe(true)
+  })
+})
+
+describe('assignSelectorRoundsWithProgress', () => {
+  it('runs the same default start budget as single-mode assign', async () => {
+    expect(DEFAULT_PROGRESS_SEARCH_STARTS).toBe(1000)
+    const ticks: number[] = []
+    const result = await assignSelectorRoundsWithProgress(
+      {
+        shiftType: 'morning',
+        lanes: [lane('a', 'נתיב 1'), lane('b', 'נתיב 2')],
+        activeLaneIds: ['a', 'b'],
+        workers: [worker('w1', 'אביב'), worker('w2', 'בני'), worker('w3', 'גל')],
+      },
+      {
+        searchStarts: 12,
+        yieldToUi: async () => {},
+        onProgress: (p) => ticks.push(p.startsDone),
+      },
+    )
+    expect(result.searchStats?.starts).toBe(12)
+    expect(result.searchStats?.evaluations).toBe(12)
+    expect(ticks[ticks.length - 1]).toBe(12)
+    expect(result.warnings.some((w) => w.includes('12'))).toBe(true)
+    expect(result.rounds.length).toBeGreaterThan(0)
   })
 })
