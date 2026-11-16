@@ -126,11 +126,17 @@ export function seedAppDataRemote(expectedRevision?: number): Promise<AppData> {
   })
 }
 
+/** Compact shift-save payload — avoids shipping the full org dump on every save. */
+export type ShiftSaveResult = {
+  revision: number
+  shift: ShiftSchedule
+}
+
 export function saveShiftRemote(
   schedule: ShiftSchedule,
   expectedRevision?: number,
-): Promise<AppData> {
-  return request<AppData>(`/api/shifts/${schedule.id}`, {
+): Promise<ShiftSaveResult> {
+  return request<ShiftSaveResult>(`/api/shifts/${schedule.id}?compact=1`, {
     method: 'PUT',
     body: JSON.stringify({ ...schedule, expectedRevision }),
   })

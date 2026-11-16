@@ -81,14 +81,15 @@ export function nowMinutesLocal(date = new Date()): number {
 }
 
 /**
- * If the open shift is within `withinMinutes` of its end (or past it) and not
- * signed off, ensure a bell notice exists for the manager.
+ * Only after the shift window has ended (and the board is still open), ensure a
+ * gate-manager bell notice exists. No early / “X minutes left” alerts.
  */
 export function ensureShiftEndNotice(opts: {
   shiftId: string
   date: string
   shiftType: ShiftType
   signedOff: boolean
+  /** @deprecated Ignored — notices fire only once the shift has ended. */
   withinMinutes?: number
   now?: Date
 }): ManagerNotice | null {
@@ -104,8 +105,8 @@ export function ensureShiftEndNotice(opts: {
   if (bounds.end > 24 * 60 && nowMinutesLocal(now) < bounds.start) {
     remaining = bounds.end - (nowMinutesLocal(now) + 24 * 60)
   }
-  const within = opts.withinMinutes ?? 45
-  if (remaining > within) return null
+  // Strict: only at/after official shift end.
+  if (remaining > 0) return null
 
   const id = noticeId(opts.shiftId, 'shift_end')
   const existing = readAll()
@@ -113,20 +114,11 @@ export function ensureShiftEndNotice(opts: {
     return existing.find((n) => n.id === id) ?? null
   }
 
-  const title =
-    remaining <= 0
-      ? 'המשמרת הסתיימה — נדרשת סגירה'
-      : `בעוד ${remaining} דק׳ מסתיים חלון המשמרת`
-  const body =
-    remaining <= 0
-      ? 'הגיע הזמן לסגור את המשמרת בפעמון/במסך השיבוץ, כדי לנעול את הלוח ולשמור היסטוריה.'
-      : 'כדאי לבדוק שהלוח מלא ולסגור את המשמרת לפני שהחלון נגמר.'
-
   const notice: ManagerNotice = {
     id,
     at: now.toISOString(),
-    title,
-    body,
+    title: 'המשמרת הסתיימה — נדרשת סגירה',
+    body: 'הגיע הזמן לסגור את המשמרת במסך השיבוץ, כדי לנעול את הלוח ולשמור היסטוריה.',
     kind: 'shift_end',
     read: false,
     shiftId: opts.shiftId,

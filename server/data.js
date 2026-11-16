@@ -2312,23 +2312,20 @@ export async function upsertShift(id, body, actor, options = {}) {
           fullName: String(actor.fullName || ""),
         }
       : null;
+    // Baseline uses a stable id + $setOnInsert so we never need a countDocuments
+    // round-trip on every save (that scan was a frequent save-latency hit).
     const versionDocs = [];
     if (previous) {
-      const versionFilter = { ...scopeFilter(scope), shiftId: schedule.id };
-      const hasVersions = await db
-        .collection(SHIFT_VERSIONS_COLLECTION)
-        .countDocuments(versionFilter);
-      if (hasVersions === 0) {
-        const baselineId = `baseline:${shiftDocId(scope, schedule.id)}`;
-        versionDocs.push({
-          _id: baselineId,
-          shiftId: schedule.id,
-          createdAt: String(previous.updatedAt || previous.createdAt || new Date().toISOString()),
-          actor: null,
-          schedule: { ...previous },
-          ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
-        });
-      }
+      versionDocs.push({
+        _id: `baseline:${shiftDocId(scope, schedule.id)}`,
+        shiftId: schedule.id,
+        createdAt: String(
+          previous.updatedAt || previous.createdAt || new Date().toISOString(),
+        ),
+        actor: null,
+        schedule: { ...previous },
+        ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+      });
     }
     versionDocs.push({
       _id: randomUUID(),
@@ -2385,25 +2382,26 @@ export async function upsertShift(id, body, actor, options = {}) {
     module: scope?.module,
   });
 
+  // Never block the save HTTP response on per-worker notice writes — that was a
+  // common cause of long/failing saves when many placements changed at once.
   if (scope?.orgId && scope?.module && !closing) {
-    try {
-      const { notifyWorkersOfAssignmentChanges } = await import(
-        "./workerAlerts.js"
-      );
-      await notifyWorkersOfAssignmentChanges({
-        previous,
-        next: schedule,
-        scope,
-        actor,
-        lanes: state.lanes,
-        models: state.shiftModels,
+    void import("./workerAlerts.js")
+      .then(({ notifyWorkersOfAssignmentChanges }) =>
+        notifyWorkersOfAssignmentChanges({
+          previous,
+          next: schedule,
+          scope,
+          actor,
+          lanes: state.lanes,
+          models: state.shiftModels,
+        }),
+      )
+      .catch((err) => {
+        console.error(
+          "[worker-alerts] assignment notice failed",
+          err?.message || err,
+        );
       });
-    } catch (err) {
-      console.error(
-        "[worker-alerts] assignment notice failed",
-        err?.message || err,
-      );
-    }
   }
 
   return saved;
@@ -2432,61 +2430,137 @@ function workerIdsOnSchedule(schedule) {
 }
 
 /**
+ * Load only open shifts for one date+type from another module — prefer a warm
+ * in-memory cache, otherwise a targeted Mongo find (never full history assemble).
+ */
+async function loadOpenShiftsForSlot(scope, date, shiftType) {
+  const cached = stateCache.get(stateCacheKey(scope));
+  if (cached?.state) {
+    return (cached.state.history || []).filter(
+      (h) =>
+        h.date === date &&
+        h.shiftType === shiftType &&
+        !isShiftSignedOff(h),
+    );
+  }
+  const target = targetForScope(scope);
+  const db = await getDb(target);
+  const docs = await db
+    .collection(MODEL_COLLECTIONS.shifts)
+    .find({
+      ...scopeFilter(scope),
+      date,
+      shiftType,
+    })
+    .toArray();
+  return fromOrderedDocs(docs).filter((h) => !isShiftSignedOff(h));
+}
+
+/** Resolve phone/name for a set of worker ids from one module (cache or query). */
+async function loadWorkerContactMap(scope, ids) {
+  const wanted = [...ids].map(String).filter(Boolean);
+  const out = new Map();
+  if (!wanted.length) return out;
+  const cached = stateCache.get(stateCacheKey(scope));
+  if (cached?.state) {
+    for (const worker of cached.state.workers || []) {
+      const id = String(worker.id || "");
+      if (!wanted.includes(id)) continue;
+      const phone = normalizePhone(worker.phone);
+      if (!phone) continue;
+      out.set(id, { phone, fullName: String(worker.fullName || "") });
+    }
+    return out;
+  }
+  const target = targetForScope(scope);
+  const db = await getDb(target);
+  const docs = await db
+    .collection(MODEL_COLLECTIONS.workers)
+    .find({ ...scopeFilter(scope), id: { $in: wanted } })
+    .project({ id: 1, phone: 1, fullName: 1 })
+    .toArray();
+  for (const worker of docs) {
+    const id = String(worker.id || "");
+    const phone = normalizePhone(worker.phone);
+    if (!id || !phone) continue;
+    out.set(id, { phone, fullName: String(worker.fullName || "") });
+  }
+  return out;
+}
+
+/**
  * Block the same phone from being present/assigned on another module's
  * shift for the same date + shift type.
  */
 async function assertNoCrossModuleDoubleBooking(schedule, scope, localState) {
+  if (!scope?.orgId || !scope?.module) return;
   const localIds = workerIdsOnSchedule(schedule);
   if (!localIds.size) return;
-  const phoneById = new Map();
-  for (const worker of localState?.workers || []) {
-    const phone = normalizePhone(worker.phone);
-    if (phone && localIds.has(String(worker.id))) {
-      phoneById.set(String(worker.id), phone);
-    }
-  }
-  // Guest workers keep source-module ids; resolve phones from other modules' catalogs.
-  for (const target of GUEST_MODULE_ORDER) {
-    if (target === scope.module) continue;
-    let otherState;
-    try {
-      otherState = await readState({ orgId: String(scope.orgId), module: target });
-    } catch {
-      continue;
-    }
-    for (const worker of otherState?.workers || []) {
-      if (!localIds.has(String(worker.id))) continue;
-      const phone = normalizePhone(worker.phone);
-      if (phone) phoneById.set(String(worker.id), phone);
-    }
-  }
-  const phones = new Set([...phoneById.values()].filter(Boolean));
-  if (!phones.size) return;
 
+  const phoneById = new Map();
+  const nameById = new Map();
+  for (const worker of localState?.workers || []) {
+    const id = String(worker.id || "");
+    if (!localIds.has(id)) continue;
+    const phone = normalizePhone(worker.phone);
+    if (phone) phoneById.set(id, phone);
+    if (worker.fullName) nameById.set(id, String(worker.fullName));
+  }
+
+  // One pass per other module: resolve guest phones + compare open slot shifts.
   for (const target of GUEST_MODULE_ORDER) {
     if (target === scope.module) continue;
-    let otherState;
+    const otherScope = { orgId: String(scope.orgId), module: target };
+    let otherShifts;
     try {
-      otherState = await readState({ orgId: String(scope.orgId), module: target });
+      otherShifts = await loadOpenShiftsForSlot(
+        otherScope,
+        schedule.date,
+        schedule.shiftType,
+      );
     } catch {
       continue;
     }
-    for (const other of otherState?.history || []) {
-      if (other.date !== schedule.date || other.shiftType !== schedule.shiftType) {
-        continue;
+    if (!otherShifts.length) continue;
+
+    const missingIds = [...localIds].filter((id) => !phoneById.has(id));
+    if (missingIds.length) {
+      try {
+        const contacts = await loadWorkerContactMap(otherScope, missingIds);
+        for (const [id, contact] of contacts) {
+          phoneById.set(id, contact.phone);
+          if (contact.fullName) nameById.set(id, contact.fullName);
+        }
+      } catch {
+        /* module may be disabled / unreachable */
       }
-      if (other.signOff?.signedAt) continue;
+    }
+
+    const phones = new Set([...phoneById.values()].filter(Boolean));
+    if (!phones.size) continue;
+
+    const otherWorkerIds = new Set();
+    for (const other of otherShifts) {
+      for (const id of workerIdsOnSchedule(other)) otherWorkerIds.add(id);
+    }
+    let otherContacts = new Map();
+    try {
+      otherContacts = await loadWorkerContactMap(otherScope, otherWorkerIds);
+    } catch {
+      otherContacts = new Map();
+    }
+
+    for (const other of otherShifts) {
       const otherIds = workerIdsOnSchedule(other);
-      for (const worker of otherState.workers || []) {
-        if (!otherIds.has(String(worker.id))) continue;
-        const phone = normalizePhone(worker.phone);
+      for (const workerId of otherIds) {
+        const contact = otherContacts.get(String(workerId));
+        const phone = contact?.phone || "";
         if (!phone || !phones.has(phone)) continue;
-        const localName =
+        const localId =
           [...phoneById.entries()].find(([, p]) => p === phone)?.[0] || phone;
         const named =
-          (localState?.workers || []).find((w) => String(w.id) === localName)
-            ?.fullName ||
-          worker.fullName ||
+          nameById.get(String(localId)) ||
+          contact?.fullName ||
           phone;
         const err = new Error(
           `${named} כבר משובץ/נוכח במודול ${moduleLabelHe(target)} באותו תאריך ומשמרת. לא ניתן לשבץ פעמיים בין מודולים.`,
