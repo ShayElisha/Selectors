@@ -87,6 +87,50 @@ describe('assignLocks', () => {
     ])
   })
 
+  it('keeps mentor with trainee when mentor also had a preferred lane elsewhere', () => {
+    // Screenshot bug: Ronit pinned to 13-14 while locked as mentor with Rachel on מטען כללי.
+    const lanes = [lane('cargo', 2), lane('13-14', 2), lane('other', 1)]
+    const overrides = { cargo: 2 as const, '13-14': 2 as const, other: 1 as const }
+    const pairs: TrainingPairLock[] = [
+      { traineeId: 'rachel', mentorId: 'ronit', laneId: 'cargo' },
+    ]
+    const rawManuals: ManualLanePlacement[] = [
+      { workerId: 'ronit', laneId: '13-14' },
+      { workerId: 'aviran', laneId: '13-14' },
+    ]
+    const manuals = manualsCompatibleWithTraining(rawManuals, pairs)
+    expect(manuals).toEqual([{ workerId: 'aviran', laneId: '13-14' }])
+
+    const reserved = reservedSeatsByLane(pairs, manuals)
+    expect(reserved.get('cargo')).toBe(2)
+    expect(reserved.get('13-14')).toBe(1)
+
+    const padded = [
+      { laneId: 'cargo', workerIds: ['', ''] },
+      { laneId: '13-14', workerIds: ['', ''] },
+      { laneId: 'other', workerIds: ['free1'] },
+    ]
+    const withTraining = applyTrainingPairsToAssignments(
+      padded,
+      pairs,
+      lanes,
+      overrides,
+    )
+    const merged = applyManualPlacementsToAssignments(
+      withTraining,
+      manuals,
+      lanes,
+      overrides,
+    )
+    expect(merged.find((r) => r.laneId === 'cargo')?.workerIds).toEqual([
+      'ronit',
+      'rachel',
+    ])
+    expect(merged.find((r) => r.laneId === '13-14')?.workerIds[0]).toBe(
+      'aviran',
+    )
+  })
+
   it('does not orphan free workers when training and manual share a full lane', () => {
     const lanes = [lane('L1', 3), lane('L2', 2)]
     const overrides = { L1: 3 as const, L2: 2 as const }

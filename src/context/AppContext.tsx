@@ -2145,10 +2145,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.activeLaneIds,
         workersById,
       )
-      const manualPlacements = pruneManualPlacements(
-        d.manualPlacements,
-        presentWorkerIds,
-        d.activeLaneIds,
+      const manualPlacements = manualsCompatibleWithTraining(
+        pruneManualPlacements(
+          d.manualPlacements,
+          presentWorkerIds,
+          d.activeLaneIds,
+        ),
+        trainingPairs,
       )
       return withGateManagerSync(
         {
@@ -2220,6 +2223,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const without = (d.manualPlacements ?? []).filter(
           (placement) => placement.workerId !== workerId,
         )
+        // Mentor already locked with a trainee: preferred lane retargets the pair.
+        const mentorPair = (d.trainingPairs ?? []).find(
+          (pair) => pair.mentorId === workerId,
+        )
+        if (mentorPair) {
+          if (!laneId) return d
+          if (!d.activeLaneIds.includes(laneId)) return d
+          const nextPairs = normalizeTrainingPairs(
+            (d.trainingPairs ?? []).map((pair) =>
+              pair.mentorId === workerId ? { ...pair, laneId } : pair,
+            ),
+          )
+          const manuals = manualsCompatibleWithTraining(without, nextPairs)
+          return {
+            ...d,
+            trainingPairs: nextPairs.length ? nextPairs : undefined,
+            manualPlacements: manuals.length ? manuals : undefined,
+          }
+        }
         if (!laneId) {
           return {
             ...d,
@@ -2228,7 +2250,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (!d.presentWorkerIds.includes(workerId)) return d
         if (!d.activeLaneIds.includes(laneId)) return d
-        // Prefer training lock over preferred-lane pin.
+        // Trainee seat is owned by the training lock — ignore preferred pin.
         if (trainingPairLockedIds(d.trainingPairs).has(workerId)) return d
         const next = normalizeManualPlacements([
           ...without,
