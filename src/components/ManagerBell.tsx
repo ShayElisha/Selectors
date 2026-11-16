@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Bell, CheckCheck } from 'lucide-react'
 import { fetchManagerEquipmentRequestsRemote } from '../api'
@@ -45,14 +45,36 @@ function openShiftCandidates(
   return [...byId.values()]
 }
 
+type PanelPos = { top: number; left: number; width: number }
+
 export function ManagerBell() {
   const { draft, data, user, setView } = useApp()
   const [open, setOpen] = useState(false)
   const [notices, setNotices] = useState<ManagerNotice[]>(() => listManagerNotices())
+  const [panelPos, setPanelPos] = useState<PanelPos | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
   const refresh = useCallback(() => setNotices(listManagerNotices()), [])
+
+  const placePanel = useCallback(() => {
+    const btn = btnRef.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    const gap = 8
+    const width = Math.min(22 * 16, window.innerWidth - 24)
+    // Prefer aligning the panel's inline-end with the button's inline-end
+    // (under the bell), then clamp into the viewport.
+    const rtl = getComputedStyle(document.documentElement).direction === 'rtl'
+    let left = rtl ? rect.right - width : rect.left
+    left = Math.max(12, Math.min(left, window.innerWidth - width - 12))
+    let top = rect.bottom + gap
+    const approxHeight = Math.min(window.innerHeight * 0.6, 24 * 16)
+    if (top + approxHeight > window.innerHeight - 12) {
+      top = Math.max(12, rect.top - gap - approxHeight)
+    }
+    setPanelPos({ top, left, width })
+  }, [])
 
   const syncNotices = useCallback(async () => {
     const shifts = openShiftCandidates(draft, data.history)
@@ -98,6 +120,21 @@ export function ManagerBell() {
     }, 60_000)
     return () => window.clearInterval(timer)
   }, [syncNotices])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelPos(null)
+      return
+    }
+    placePanel()
+    const onWin = () => placePanel()
+    window.addEventListener('resize', onWin)
+    window.addEventListener('scroll', onWin, true)
+    return () => {
+      window.removeEventListener('resize', onWin)
+      window.removeEventListener('scroll', onWin, true)
+    }
+  }, [open, placePanel, notices.length])
 
   useEffect(() => {
     if (!open) return
@@ -161,13 +198,20 @@ export function ManagerBell() {
           <span className="absolute end-1.5 top-1.5 size-2 rounded-full bg-warn ring-2 ring-card" />
         ) : null}
       </button>
-      {open
+      {open && panelPos
         ? createPortal(
             <div
               ref={panelRef}
               role="dialog"
               aria-label="התראות מנהל"
-              className="fixed end-3 top-14 z-[220] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-panel-hover)]"
+              style={{
+                position: 'fixed',
+                top: panelPos.top,
+                left: panelPos.left,
+                width: panelPos.width,
+                zIndex: 220,
+              }}
+              className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-panel-hover)]"
             >
               <div className="flex items-center justify-between border-b border-line/70 px-3 py-2.5">
                 <p className="text-sm font-bold text-ink">התראות</p>
