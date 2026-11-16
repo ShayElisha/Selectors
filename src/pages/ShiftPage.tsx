@@ -54,6 +54,7 @@ import {
   selectorStaff,
 } from '../lib/gateManager'
 import { IntensityBadge, Ltr, TraineeBadge } from '../components/ui'
+import { LateMinutesControl } from '../components/LateMinutesControl'
 import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
@@ -1279,24 +1280,14 @@ export function ShiftPage() {
                       ? ' · כולל מנהל משמרת'
                       : ''}
                   </p>
-                  <label className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-soft">
-                    <span className="font-semibold text-ink">איחור כללי למשמרת</span>
-                    <select
-                      className="ui-field w-auto min-w-[7.5rem] py-1.5 text-[13px]"
-                      aria-label="איחור כללי לבודקים במשמרת"
-                      value={draft.defaultLateMinutes ?? 0}
-                      onChange={(e) =>
-                        setDefaultLateMinutes(Number(e.target.value), true)
-                      }
-                    >
-                      <option value={0}>בזמן</option>
-                      <option value={15}>15 דק׳</option>
-                      <option value={30}>30 דק׳</option>
-                      <option value={45}>45 דק׳</option>
-                      <option value={60}>שעה</option>
-                    </select>
-                    <span className="text-[11px]">חל על כל הנוכחים (אפשר לשנות לאדם)</span>
-                  </label>
+                  <LateMinutesControl
+                    className="mt-3"
+                    variant="bar"
+                    label="איחור כללי למשמרת"
+                    hint="חל על כל הנוכחים · אפשר לשנות לאדם למטה"
+                    value={draft.defaultLateMinutes ?? 0}
+                    onChange={(minutes) => setDefaultLateMinutes(minutes, true)}
+                  />
                 </div>
                 <div className="flex flex-wrap gap-1.5 rounded-xl bg-surface/70 p-1 ring-1 ring-line/70">
                   <button
@@ -1583,30 +1574,23 @@ export function ShiftPage() {
                                   ))}
                               </select>
                             ) : null}
-                            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                              <label className="text-[11px] text-ink-soft">
-                                איחור
-                                <select
-                                  className="ui-field mt-0.5 w-full py-1 text-[12px]"
-                                  aria-label={`איחור של ${w.fullName}`}
-                                  value={draft.windowAdjustments?.[w.id]?.lateMinutes ?? 0}
-                                  onChange={(e) =>
-                                    setWindowAdjustment(w.id, {
-                                      lateMinutes: Number(e.target.value),
-                                    })
-                                  }
-                                >
-                                  <option value={0}>בזמן</option>
-                                  <option value={15}>15 דק׳</option>
-                                  <option value={30}>30 דק׳</option>
-                                  <option value={45}>45 דק׳</option>
-                                  <option value={60}>שעה</option>
-                                </select>
-                              </label>
-                              <label className="text-[11px] text-ink-soft">
+                            <div className="mt-2 space-y-2">
+                              <LateMinutesControl
+                                variant="chip"
+                                ariaLabel={`איחור של ${w.fullName}`}
+                                value={
+                                  draft.windowAdjustments?.[w.id]?.lateMinutes ??
+                                  draft.defaultLateMinutes ??
+                                  0
+                                }
+                                onChange={(lateMinutes) =>
+                                  setWindowAdjustment(w.id, { lateMinutes })
+                                }
+                              />
+                              <label className="block text-[11px] text-ink-soft">
                                 יציאה מוקדמת
                                 <select
-                                  className="ui-field mt-0.5 w-full py-1 text-[12px]"
+                                  className="ui-field mt-0.5 w-full py-1.5 text-[12px]"
                                   aria-label={`יציאה מוקדמת של ${w.fullName}`}
                                   value={draft.windowAdjustments?.[w.id]?.earlyMinutes ?? 0}
                                   onChange={(e) =>
