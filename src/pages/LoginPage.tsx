@@ -271,9 +271,12 @@ export function LoginPage() {
     setError(null)
     try {
       const message = await requestPasswordReset(phoneTrimmed)
-      setInfo(message)
+      const soft =
+        message?.trim() ||
+        'אם המספר רשום במערכת, נשלח קוד איפוס למייל המשויך.'
+      setInfo(soft)
       setStep('reset_sent')
-      notify.success('נשלח מייל לאיפוס סיסמה')
+      notify.info(soft)
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'איפוס הסיסמה נכשל')
     } finally {

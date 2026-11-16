@@ -1028,13 +1028,10 @@ export async function requestAccountPasswordReset(phoneRaw) {
       reason: 'reset',
     })
   } catch (e) {
+    // Same generic 200 as "unknown phone" — never reveal that the account exists.
     console.error('password reset mail failed', e)
-    throw httpError(
-      e instanceof Error && e.status === 503
-        ? e.message
-        : 'שליחת מייל האיפוס נכשלה. נסו שוב מאוחר יותר.',
-      e?.status || 502,
-    )
+    await padResponse()
+    return generic
   }
 
   // Keep the current password intact until the emailed one-time code is used.

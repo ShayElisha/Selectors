@@ -107,6 +107,26 @@ describe('password reset without immediate overwrite', () => {
     expect(setFields.mustChangePassword).toBeUndefined()
   })
 
+  it('returns the generic message when mail send fails (no enumeration)', async () => {
+    findOne.mockResolvedValueOnce({
+      _id: 'acc-1',
+      orgId: 'org-1',
+      fullName: 'Manager',
+      phone: '0501234567',
+      email: 'manager@example.com',
+      status: 'active',
+      passwordHash: 'hash:OldPass1!',
+    })
+    sendTempPasswordEmail.mockRejectedValueOnce(new Error('smtp down'))
+
+    const result = await requestAccountPasswordReset('0501234567')
+    expect(result).toEqual({
+      ok: true,
+      message: 'אם המספר רשום במערכת, נשלח קוד איפוס למייל המשויך.',
+    })
+    expect(updateOne).not.toHaveBeenCalled()
+  })
+
   it('accepts the reset code then requires a new permanent password', async () => {
     findOne
       // account by phone
