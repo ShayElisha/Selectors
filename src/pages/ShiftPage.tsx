@@ -151,6 +151,7 @@ export function ShiftPage() {
     removeLaneFromShift,
     setWorkerWindow,
     setWindowAdjustment,
+    setDefaultLateMinutes,
     recordShiftDrop,
     undoShiftDrop,
     addBoardLane,
@@ -1278,6 +1279,24 @@ export function ShiftPage() {
                       ? ' · כולל מנהל משמרת'
                       : ''}
                   </p>
+                  <label className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-soft">
+                    <span className="font-semibold text-ink">איחור כללי למשמרת</span>
+                    <select
+                      className="ui-field w-auto min-w-[7.5rem] py-1.5 text-[13px]"
+                      aria-label="איחור כללי לבודקים במשמרת"
+                      value={draft.defaultLateMinutes ?? 0}
+                      onChange={(e) =>
+                        setDefaultLateMinutes(Number(e.target.value), true)
+                      }
+                    >
+                      <option value={0}>בזמן</option>
+                      <option value={15}>15 דק׳</option>
+                      <option value={30}>30 דק׳</option>
+                      <option value={45}>45 דק׳</option>
+                      <option value={60}>שעה</option>
+                    </select>
+                    <span className="text-[11px]">חל על כל הנוכחים (אפשר לשנות לאדם)</span>
+                  </label>
                 </div>
                 <div className="flex flex-wrap gap-1.5 rounded-xl bg-surface/70 p-1 ring-1 ring-line/70">
                   <button
@@ -2316,6 +2335,7 @@ export function ShiftPage() {
             )}
             overrides={draft.staffingOverrides}
             windowAdjustments={draft.windowAdjustments}
+            defaultLateMinutes={draft.defaultLateMinutes}
             earlyLeaveAt={draft.earlyLeaveAt}
             layout={roundsLayout}
             stickyOffsetClass="top-14"
@@ -2406,12 +2426,32 @@ export function ShiftPage() {
                 type="button"
                 disabled={!draftDirty}
                 onClick={() => void handleSave()}
-                className={`ui-btn ui-btn-primary !h-11 flex-1 gap-2 ${
+                className={`ui-btn ui-btn-primary !h-11 flex-1 gap-1.5 ${
                   !draftDirty ? 'cursor-not-allowed opacity-40' : ''
                 }`}
               >
                 <Save className="size-4" aria-hidden />
                 שמירה
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportSelectorBoard('whatsapp')}
+                className="ui-btn ui-btn-secondary !h-11 shrink-0 gap-1.5 !px-3"
+                aria-label="שיתוף"
+                title="שיתוף בוואטסאפ"
+              >
+                <MessageCircle className="size-4" aria-hidden />
+                <span className="hidden sm:inline">שיתוף</span>
+              </button>
+              <button
+                type="button"
+                onClick={openSignOff}
+                className="ui-btn !h-11 shrink-0 gap-1.5 !bg-ok-soft !px-3 !font-semibold !text-ok hover:!bg-ok/15"
+                aria-label="סגירת משמרת"
+                title="סגירת משמרת"
+              >
+                <Lock className="size-4" aria-hidden />
+                <span className="hidden sm:inline">סגירה</span>
               </button>
               <button
                 type="button"

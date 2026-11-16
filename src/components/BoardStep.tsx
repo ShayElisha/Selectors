@@ -780,6 +780,7 @@ export function BoardStep({
       const timing = timingBadgesForWorker({
         workerId: w.id,
         windowAdjustments: draft.windowAdjustments,
+        defaultLateMinutes: draft.defaultLateMinutes,
         earlyLeaveAt: draft.earlyLeaveAt,
       })
       for (const badge of timing) details.push(badge.shortLabel)
@@ -790,6 +791,7 @@ export function BoardStep({
       ? timingBadgesForWorker({
           workerId,
           windowAdjustments: draft.windowAdjustments,
+          defaultLateMinutes: draft.defaultLateMinutes,
           earlyLeaveAt: draft.earlyLeaveAt,
         })
       : []
@@ -1564,7 +1566,7 @@ export function BoardStep({
                   ? 'אין שינויים לשמירה'
                   : (saveBlockedReason ?? undefined)
               }
-              className={`ui-btn ui-btn-primary !h-11 flex-1 gap-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              className={`ui-btn ui-btn-primary !h-11 flex-1 gap-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                 saveBlocked || isSaved ? 'cursor-not-allowed opacity-40' : ''
               } ${saveFlash ? '!bg-ok hover:!bg-ok' : ''}`}
             >
@@ -1575,6 +1577,35 @@ export function BoardStep({
               )}
               שמירה
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (exportBlock) {
+                  notify.error('לא ניתן לשתף', exportBlock)
+                  return
+                }
+                void runShare('whatsapp')
+              }}
+              disabled={Boolean(exportBlock)}
+              title={exportBlock ?? 'שיתוף בוואטסאפ'}
+              aria-label="שיתוף"
+              className="ui-btn ui-btn-secondary !h-11 shrink-0 gap-1.5 !px-3"
+            >
+              <MessageCircle className="size-4" aria-hidden />
+              <span className="hidden sm:inline">שיתוף</span>
+            </button>
+            {onSignOff ? (
+              <button
+                type="button"
+                onClick={trySignOff}
+                title="סגירת משמרת"
+                aria-label="סגירת משמרת"
+                className="ui-btn !h-11 shrink-0 gap-1.5 !bg-ok-soft !px-3 !font-semibold !text-ok hover:!bg-ok/15"
+              >
+                <Lock className="size-4" aria-hidden />
+                <span className="hidden sm:inline">סגירה</span>
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={confirmReassign}

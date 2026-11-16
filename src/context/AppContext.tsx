@@ -411,6 +411,8 @@ export interface ShiftDraft {
   /** Personal hours keyed by worker id. */
   workerWindows: Record<string, string>
   windowAdjustments: Record<string, WindowAdjustment>
+  /** Shift-wide default late minutes; per-worker late overrides when set. */
+  defaultLateMinutes?: number
   staggerRounds: boolean
   /** Per-shift תקן (1…5); falls back to lane catalog when absent */
   staffingOverrides: StaffingOverrides
@@ -538,6 +540,8 @@ interface AppContextValue {
     workerId: string,
     patch: { lateMinutes?: number; earlyMinutes?: number },
   ) => void
+  /** Shift-wide late default; optionally apply to all present workers. */
+  setDefaultLateMinutes: (minutes: number, applyToPresent?: boolean) => void
   /** Mark that a person left the shift at a clock time. Null means they stayed to the end. */
   setEarlyLeave: (workerId: string, minutes: number | null) => void
   recordShiftDrop: (drop: ShiftDrop) => void
@@ -819,6 +823,7 @@ function restoreDraft(): ShiftDraft | null {
         parsed.windowAdjustments && typeof parsed.windowAdjustments === 'object'
           ? parsed.windowAdjustments
           : {},
+      defaultLateMinutes: Number(parsed.defaultLateMinutes) || undefined,
       staggerRounds: Boolean(parsed.staggerRounds),
       signOff: normalizeSignOff(parsed.signOff),
       explanations: Array.isArray(parsed.explanations) ? parsed.explanations : [],
@@ -850,6 +855,7 @@ function snapshotDraft(d: ShiftDraft): string {
     rounds: d.rounds ?? [],
     workerWindows: d.workerWindows ?? {},
     windowAdjustments: d.windowAdjustments ?? {},
+    defaultLateMinutes: d.defaultLateMinutes ?? 0,
     staggerRounds: Boolean(d.staggerRounds),
     activeLaneIds: d.activeLaneIds,
     presentWorkerIds: d.presentWorkerIds,
@@ -1664,6 +1670,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             usesRounds(item) && Array.isArray(item.rounds) ? item.rounds : [],
           workerWindows: item.workerWindows ?? {},
           windowAdjustments: item.windowAdjustments ?? {},
+          defaultLateMinutes: item.defaultLateMinutes || undefined,
           staggerRounds: Boolean(item.staggerRounds),
           earlyLeaveAt: item.earlyLeaveAt,
           shiftDrops: item.shiftDrops,
@@ -1722,11 +1729,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...(Object.keys(d.workerWindows ?? {}).length > 0
               ? { workerWindows: d.workerWindows }
               : {}),
-            ...(Object.keys(d.windowAdjustments ?? {}).length > 0
-              ? { windowAdjustments: d.windowAdjustments }
-              : {}),
             ...(d.staggerRounds ? { staggerRounds: true } : {}),
           }
+        : {}),
+      ...(Object.keys(d.windowAdjustments ?? {}).length > 0
+        ? { windowAdjustments: d.windowAdjustments }
+        : {}),
+      ...(d.defaultLateMinutes
+        ? { defaultLateMinutes: Number(d.defaultLateMinutes) || undefined }
         : {}),
       ...(Object.keys(overrides).length > 0
         ? { staffingOverrides: overrides }
@@ -1796,6 +1806,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       rounds: [],
       workerWindows: {},
       windowAdjustments: {},
+      defaultLateMinutes: undefined,
       staggerRounds: staggerRef.current[module],
       warnings: [],
       unassignedWorkerIds: [],
@@ -1850,6 +1861,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           presentWorkerIds: [],
           workerWindows: {},
           windowAdjustments: {},
+          defaultLateMinutes: undefined,
           gateManagerWorkerId: undefined,
         }
       })
@@ -2575,6 +2587,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!lateMinutes && !earlyMinutes) delete windowAdjustments[workerId]
         else windowAdjustments[workerId] = { lateMinutes, earlyMinutes }
         return { ...d, windowAdjustments }
+      })
+    },
+    [],
+  )
+
+  const setDefaultLateMinutes = useCallback(
+    (minutes: number, applyToPresent = true) => {
+      const late = [0, 15, 30, 45, 60].includes(Number(minutes))
+        ? Number(minutes)
+        : 0
+      setDraft((d) => {
+        if (!d) return d
+        const windowAdjustments = { ...(d.windowAdjustments ?? {}) }
+        if (applyToPresent) {
+          const gate = d.gateManagerWorkerId?.trim() || ''
+          for (const workerId of d.presentWorkerIds) {
+            if (!workerId || workerId === gate) continue
+            const current = windowAdjustments[workerId] ?? {}
+            const earlyMinutes = current.earlyMinutes ?? 0
+            if (!late && !earlyMinutes) delete windowAdjustments[workerId]
+            else {
+              windowAdjustments[workerId] = {
+                lateMinutes: late,
+                earlyMinutes,
+              }
+            }
+          }
+        }
+        return {
+          ...d,
+          defaultLateMinutes: late || undefined,
+          windowAdjustments,
+        }
       })
     },
     [],
@@ -4847,6 +4892,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
+      setDefaultLateMinutes,
       setEarlyLeave,
       recordShiftDrop,
       undoShiftDrop,
@@ -4962,6 +5008,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addGuestWorkers,
       setWorkerWindow,
       setWindowAdjustment,
+      setDefaultLateMinutes,
       setEarlyLeave,
       recordShiftDrop,
       undoShiftDrop,

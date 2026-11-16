@@ -16,6 +16,7 @@ export function SelectorRoundTable({
   workers,
   overrides,
   windowAdjustments,
+  defaultLateMinutes,
   earlyLeaveAt,
   ramashName,
   managerOptions,
@@ -34,6 +35,7 @@ export function SelectorRoundTable({
   workers: Worker[]
   overrides?: StaffingOverrides | null
   windowAdjustments?: Record<string, WindowAdjustment> | null
+  defaultLateMinutes?: number | null
   earlyLeaveAt?: Record<string, number> | null
   /** Shift manager shown above the round table. */
   ramashName?: string
@@ -62,6 +64,7 @@ export function SelectorRoundTable({
     const timing = timingBadgesForWorker({
       workerId: worker.id,
       windowAdjustments,
+      defaultLateMinutes,
       earlyLeaveAt,
     })
     return {
@@ -301,6 +304,7 @@ export function SelectorRoundTable({
                                 badges={timingBadgesForWorker({
                                   workerId,
                                   windowAdjustments,
+                                  defaultLateMinutes,
                                   earlyLeaveAt,
                                 })}
                               />

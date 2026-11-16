@@ -268,6 +268,11 @@ export interface ShiftSchedule {
    * The next automatic assignment uses the trimmed window.
    */
   windowAdjustments?: Record<string, WindowAdjustment>
+  /**
+   * Shift-wide default late arrival (minutes) for present workers.
+   * Per-worker windowAdjustments.lateMinutes override this when set.
+   */
+  defaultLateMinutes?: number
   /** When true, selector rounds alternate between the hour and the half-hour. */
   staggerRounds?: boolean
   /**
