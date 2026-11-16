@@ -464,12 +464,6 @@ export function BoardStep({
         message: shiftSlotConflictMessage(draft.date, draft.shiftType),
       })
     }
-    if (!draft.gateManagerWorkerId) {
-      items.push({
-        severity: 'warning',
-        message: 'לא נבחר מנהל משמרת. אפשר לבחור אותו כאן בלוח, בלי לחזור אחורה.',
-      })
-    }
     return items
   }, [
     partitioned,
@@ -477,7 +471,6 @@ export function BoardStep({
     slotConflict,
     draft.date,
     draft.shiftType,
-    draft.gateManagerWorkerId,
   ])
 
   const hasBoardErrors = boardIssues.some((i) => i.severity === 'error')
@@ -504,9 +497,9 @@ export function BoardStep({
       placeholder={
         shiftManagers.length === 0
           ? `אין מנהל שהוא גם ${people.singular}`
-          : 'בחרו מנהל משמרת'
+          : 'מנהל משמרת (אופציונלי)'
       }
-      ariaLabel="בחירת מנהל משמרת"
+      ariaLabel="בחירת מנהל משמרת (אופציונלי)"
       searchNoun={people.singular}
       disabled={locked || shiftManagers.length === 0}
       onChange={(workerId) => chooseGateManager(workerId ?? '')}
@@ -515,12 +508,9 @@ export function BoardStep({
   const saveBlocked =
     Boolean(slotConflict) ||
     draft.unassignedWorkerIds.length > 0 ||
-    hasBoardErrors ||
-    !draft.gateManagerWorkerId
+    hasBoardErrors
   const saveBlockedReason = slotConflict
     ? 'כבר קיים שיבוץ לאותו תאריך ומשמרת'
-    : !draft.gateManagerWorkerId
-      ? 'בחרו מנהל משמרת לפני השמירה'
     : draft.unassignedWorkerIds.length > 0
       ? `יש ${draft.unassignedWorkerIds.length} ${people.plural} שלא שובצו — שבצו את כולם לפני השמירה`
       : hasBoardErrors

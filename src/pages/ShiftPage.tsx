@@ -606,10 +606,6 @@ export function ShiftPage() {
 
   const handleAutoAssign = async () => {
     if (assigning) return
-    if (!draft?.gateManagerWorkerId) {
-      notify.error('לא ניתן לשבץ', 'בחרו מנהל משמרת לפני שיבוץ אוטומטי')
-      return
-    }
     setExtraAskedOnce(false)
     setExtraFlow('closed')
     setSaveFlash(false)
@@ -700,11 +696,6 @@ export function ShiftPage() {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
       return
     }
-    if (!draft.gateManagerWorkerId) {
-      setSaveFlash(false)
-      notify.error('לא ניתן לשמור', 'בחרו מנהל משמרת לפני השמירה')
-      return
-    }
     if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
       setSaveFlash(false)
       notify.error(
@@ -729,10 +720,6 @@ export function ShiftPage() {
     if (!draft || draft.signOff?.signedAt) return
     if (slotConflict) {
       notify.error(shiftSlotConflictMessage(draft.date, draft.shiftType))
-      return
-    }
-    if (!draft.gateManagerWorkerId) {
-      notify.error('לא ניתן לסגור', 'בחרו מנהל משמרת לפני סגירת המשמרת')
       return
     }
     if (!usesRounds(draft) && draft.unassignedWorkerIds.length > 0) {
@@ -2331,7 +2318,6 @@ export function ShiftPage() {
             windowAdjustments={draft.windowAdjustments}
             earlyLeaveAt={draft.earlyLeaveAt}
             layout={roundsLayout}
-            managerRequired
             stickyOffsetClass="top-14"
             ramashName={
               draft.gateManagerWorkerId

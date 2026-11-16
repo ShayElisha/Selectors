@@ -138,7 +138,11 @@ export function SelectorRoundTable({
                 className={`ui-field min-w-40 py-1.5 text-sm font-semibold ${
                   managerMissing ? 'border-hard ring-1 ring-hard/30' : ''
                 }`}
-                aria-label="בחירת מנהל משמרת (שדה חובה)"
+                aria-label={
+                  managerRequired
+                    ? 'בחירת מנהל משמרת (שדה חובה)'
+                    : 'בחירת מנהל משמרת (אופציונלי)'
+                }
                 aria-required={managerRequired || undefined}
                 aria-invalid={managerMissing || undefined}
                 value={managerId ?? ''}
@@ -147,7 +151,9 @@ export function SelectorRoundTable({
                 <option value="">
                   {(managerOptions?.length ?? 0) === 0
                     ? 'אין מנהל שהוא גם בודק'
-                    : 'בחרו מנהל משמרת'}
+                    : managerRequired
+                      ? 'בחרו מנהל משמרת'
+                      : 'ללא מנהל משמרת'}
                 </option>
                 {(managerOptions ?? []).map((manager) => (
                   <option key={manager.id} value={manager.id}>
@@ -379,7 +385,11 @@ function SelectorRoundLegacyTable({
               className={`ui-field min-w-40 py-1.5 text-sm font-semibold ${
                 managerMissing ? 'border-hard ring-1 ring-hard/30' : ''
               }`}
-              aria-label="בחירת מנהל משמרת (שדה חובה)"
+              aria-label={
+                managerRequired
+                  ? 'בחירת מנהל משמרת (שדה חובה)'
+                  : 'בחירת מנהל משמרת (אופציונלי)'
+              }
               aria-required={managerRequired || undefined}
               aria-invalid={managerMissing || undefined}
               value={managerId ?? ''}
@@ -388,7 +398,9 @@ function SelectorRoundLegacyTable({
               <option value="">
                 {(managerOptions?.length ?? 0) === 0
                   ? 'אין מנהל שהוא גם בודק'
-                  : 'בחרו מנהל משמרת'}
+                  : managerRequired
+                    ? 'בחרו מנהל משמרת'
+                    : 'ללא מנהל משמרת'}
               </option>
               {(managerOptions ?? []).map((manager) => (
                 <option key={manager.id} value={manager.id}>
