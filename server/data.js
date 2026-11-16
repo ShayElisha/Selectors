@@ -712,12 +712,19 @@ function workerHasLogin(worker) {
   return Boolean(worker.isManager || worker.canLogin);
 }
 
-function shouldIssueTempPassword(worker, prev) {
+/**
+ * Issue a temp password only for brand-new login access.
+ * Never re-issue just because worker.passwordHash is missing — passwords often
+ * live on the manager account, and bulk PUT /api/data (lanes/settings/models)
+ * must not spam invite emails.
+ */
+export function shouldIssueTempPassword(worker, prev) {
   if (!workerHasLogin(worker)) return false;
   if (!isValidEmail(worker.email)) return false;
+  // Brand-new worker document with login rights.
   if (!prev) return true;
+  // Newly promoted / newly granted portal login.
   if (!workerHadLogin(prev)) return true;
-  if (!prev.passwordHash) return true;
   return false;
 }
 
