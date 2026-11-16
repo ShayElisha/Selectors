@@ -149,6 +149,12 @@ import {
 } from '../lib/assignmentMode'
 import { currentShiftModel, resolveShiftModels, shiftModelAbsoluteEnd, shiftModelById } from '../lib/shiftModels'
 import {
+  customBoundariesForShift,
+  EMPTY_SELECTOR_ROUND_HOURS,
+  normalizeSelectorRoundHours,
+  type SelectorRoundHoursSettings,
+} from '../lib/selectorRoundHours'
+import {
   formatBrokerPhone,
   normalizeBrokerPhoneDigits,
   normalizeCustomsBrokers,
@@ -431,6 +437,8 @@ interface AppContextValue {
   saveRoundMinutes: (minutes: { selectors: number; inspectors: number; security: number }) => Promise<void>
   staggerRounds: { selectors: boolean; inspectors: boolean; security: boolean }
   saveStaggerRounds: (stagger: { selectors: boolean; inspectors: boolean; security: boolean }) => Promise<void>
+  selectorRoundHours: SelectorRoundHoursSettings
+  saveSelectorRoundHours: (hours: SelectorRoundHoursSettings) => Promise<void>
   orgProfile: {
     name: string
     logo: string
@@ -678,6 +686,17 @@ function selectorRoundBounds(shiftType: string, models: ShiftModel[] | undefined
   return { start: model.startMinutes, end: shiftModelAbsoluteEnd(model) }
 }
 
+function selectorCustomBoundaries(
+  shiftType: string,
+  models: ShiftModel[] | undefined,
+  module: AppModule,
+  hours: SelectorRoundHoursSettings,
+) {
+  if (module !== 'selectors') return null
+  const bounds = selectorRoundBounds(shiftType, models, module)
+  return customBoundariesForShift(hours, shiftType, bounds)
+}
+
 function workerIsSeated(
   draft: { assignments: { workerIds: string[] }[]; rounds?: { assignments: { workerIds: string[] }[] }[] },
   workerId: string,
@@ -861,6 +880,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     inspectors: false,
     security: false,
   })
+  const [selectorRoundHours, setSelectorRoundHours] =
+    useState<SelectorRoundHoursSettings>(EMPTY_SELECTOR_ROUND_HOURS)
   const [orgProfile, setOrgProfile] = useState<{
     name: string
     logo: string
@@ -870,6 +891,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   roundMinutesRef.current = roundMinutes
   const staggerRef = useRef(staggerRoundsSetting)
   staggerRef.current = staggerRoundsSetting
+  const selectorRoundHoursRef = useRef(selectorRoundHours)
+  selectorRoundHoursRef.current = selectorRoundHours
   const view = viewFromPath(location.pathname)
   const [shiftStep, setShiftStepState] = useState<ShiftStep>(() => restoreStep())
   const [draft, setDraftState] = useState<ShiftDraft | null>(() => restoreDraft())
@@ -1368,6 +1391,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
               security: settings.staggerRounds.security === true,
             })
           }
+          if (settings.selectorRoundHours) {
+            setSelectorRoundHours(
+              normalizeSelectorRoundHours(settings.selectorRoundHours),
+            )
+          }
           if (settings.organization) setOrgProfile(settings.organization)
         }
       })
@@ -1412,6 +1440,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     },
     [assignmentModes, roundMinutes],
+  )
+
+  const saveSelectorRoundHours = useCallback(
+    async (hours: SelectorRoundHoursSettings) => {
+      const saved = await saveOrgSettings({
+        assignmentModes,
+        roundMinutes,
+        staggerRounds: staggerRoundsSetting,
+        selectorRoundHours: normalizeSelectorRoundHours(hours),
+      })
+      if (saved.selectorRoundHours) {
+        setSelectorRoundHours(
+          normalizeSelectorRoundHours(saved.selectorRoundHours),
+        )
+      } else {
+        setSelectorRoundHours(normalizeSelectorRoundHours(hours))
+      }
+    },
+    [assignmentModes, roundMinutes, staggerRoundsSetting],
   )
 
   const saveOrgProfile = useCallback(
@@ -2311,17 +2358,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.presentWorkerIds.filter((id) => !guestIds.has(id)),
         d.gateManagerWorkerId,
       )
+      const moduleKey = activeModule(user)
+      const bounds = selectorRoundBounds(d.shiftType, data.shiftModels, moduleKey)
       const result = assignSelectorRounds({
         shiftType: d.shiftType,
-        bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
-        roundMinutes:
-          roundMinutesRef.current[
-            activeModule(user)
-          ],
-        stagger:
-          staggerRef.current[
-            activeModule(user)
-          ],
+        bounds,
+        roundMinutes: roundMinutesRef.current[moduleKey],
+        customBoundaries: selectorCustomBoundaries(
+          d.shiftType,
+          data.shiftModels,
+          moduleKey,
+          selectorRoundHoursRef.current,
+        ),
+        stagger: staggerRef.current[moduleKey],
         windowAdjustments: d.windowAdjustments,
         lanes: data.lanes,
         activeLaneIds: d.activeLaneIds,
@@ -2362,17 +2411,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           d.presentWorkerIds,
           d.gateManagerWorkerId,
         )
+        const moduleKey = activeModule(user)
+        const bounds = selectorRoundBounds(d.shiftType, data.shiftModels, moduleKey)
         const result = assignSelectorRounds({
           shiftType: d.shiftType,
-          bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
-          roundMinutes:
-            roundMinutesRef.current[
-              activeModule(user)
-            ],
-          stagger:
-            staggerRef.current[
-              activeModule(user)
-            ],
+          bounds,
+          roundMinutes: roundMinutesRef.current[moduleKey],
+          customBoundaries: selectorCustomBoundaries(
+            d.shiftType,
+            data.shiftModels,
+            moduleKey,
+            selectorRoundHoursRef.current,
+          ),
+          stagger: staggerRef.current[moduleKey],
           windowAdjustments: d.windowAdjustments,
           lanes: data.lanes,
           activeLaneIds: d.activeLaneIds,
@@ -2685,18 +2736,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         d.gateManagerWorkerId,
       )
       // Same multi-start budget as single-mode (~1000 board checks) with progress.
+      const moduleKey = activeModule(user)
+      const bounds = selectorRoundBounds(d.shiftType, data.shiftModels, moduleKey)
       const result = await assignSelectorRoundsWithProgress(
         {
           shiftType: d.shiftType,
-          bounds: selectorRoundBounds(d.shiftType, data.shiftModels, activeModule(user)),
-          roundMinutes:
-            roundMinutesRef.current[
-              activeModule(user)
-            ],
-          stagger:
-            staggerRef.current[
-              activeModule(user)
-            ],
+          bounds,
+          roundMinutes: roundMinutesRef.current[moduleKey],
+          customBoundaries: selectorCustomBoundaries(
+            d.shiftType,
+            data.shiftModels,
+            moduleKey,
+            selectorRoundHoursRef.current,
+          ),
+          stagger: staggerRef.current[moduleKey],
           windowAdjustments: d.windowAdjustments,
           lanes: data.lanes,
           activeLaneIds: d.activeLaneIds,
@@ -2924,9 +2977,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
               ),
               d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
-              roundMinutesRef.current[
-                activeModule(user)
-              ],
+              roundMinutesRef.current[activeModule(user)],
+              selectorRoundBounds(
+                d.shiftType,
+                data.shiftModels,
+                activeModule(user),
+              ),
+              selectorCustomBoundaries(
+                d.shiftType,
+                data.shiftModels,
+                activeModule(user),
+                selectorRoundHoursRef.current,
+              ),
             ),
             warnings: [],
             explanations: [],
@@ -4609,6 +4671,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveRoundMinutes,
       staggerRounds: staggerRoundsSetting,
       saveStaggerRounds,
+      selectorRoundHours,
+      saveSelectorRoundHours,
       orgProfile,
       saveOrgProfile,
       login,
@@ -4718,6 +4782,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveRoundMinutes,
       staggerRoundsSetting,
       saveStaggerRounds,
+      selectorRoundHours,
+      saveSelectorRoundHours,
       orgProfile,
       saveOrgProfile,
       setModule,

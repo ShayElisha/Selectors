@@ -73,6 +73,19 @@ describe('buildRoundWindows', () => {
       '05:00–06:30',
     ])
   })
+
+  it('follows exact custom boundaries when provided', () => {
+    expect(
+      buildRoundWindows(
+        'morning',
+        [],
+        [],
+        { start: 6 * 60, end: 15 * 60 },
+        120,
+        [6 * 60, 9 * 60, 12 * 60, 15 * 60],
+      ).map((w) => w.label),
+    ).toEqual(['06:00–09:00', '09:00–12:00', '12:00–15:00'])
+  })
 })
 
 describe('assignSelectorRounds', () => {

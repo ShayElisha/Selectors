@@ -1,12 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
-import { SectionCard } from '../components/ui'
+import { Ltr, SectionCard } from '../components/ui'
 import type { AssignmentMode, AssignmentModes } from '../lib/assignmentMode'
 import type { OrgPortalContact } from '../api'
 import { formatIsraeliMobile, isValidIsraeliMobile } from '../lib/workersHelpers'
+import {
+  formatSwapEditorRows,
+  parseSwapClocksForModel,
+  previewRoundLabels,
+  suggestSwapsFromDuration,
+  type SelectorRoundHoursSettings,
+} from '../lib/selectorRoundHours'
+import {
+  formatMinutes,
+  formatShiftModelWindow,
+  resolveShiftModels,
+  shiftModelAbsoluteEnd,
+} from '../lib/shiftModels'
 
 function newContactDraft(): OrgPortalContact {
   return {
@@ -68,15 +81,29 @@ async function readLogoFile(file: File): Promise<string> {
 export function OrgSettingsPage() {
   const {
     user,
+    data,
     assignmentModes,
     roundMinutes,
     staggerRounds,
+    selectorRoundHours,
     saveAssignmentModes,
     saveRoundMinutes,
     saveStaggerRounds,
+    saveSelectorRoundHours,
     orgProfile,
     saveOrgProfile,
   } = useApp()
+  const selectorModels = useMemo(
+    () => resolveShiftModels(data.shiftModels, 'selectors'),
+    [data.shiftModels],
+  )
+  const [hoursDraft, setHoursDraft] = useState<SelectorRoundHoursSettings>(
+    selectorRoundHours,
+  )
+  const [hoursSaving, setHoursSaving] = useState(false)
+  const [newSwapByShift, setNewSwapByShift] = useState<Record<string, string>>(
+    {},
+  )
   const [orgName, setOrgName] = useState(orgProfile.name || user?.orgName || '')
   const [logo, setLogo] = useState(orgProfile.logo)
   const [portalContacts, setPortalContacts] = useState<OrgPortalContact[]>(
@@ -93,6 +120,10 @@ export function OrgSettingsPage() {
     setLogo(orgProfile.logo)
     setPortalContacts(orgProfile.portalContacts || [])
   }, [orgProfile, user?.orgName])
+
+  useEffect(() => {
+    setHoursDraft(selectorRoundHours)
+  }, [selectorRoundHours])
 
   useEffect(() => {
     setDraft((current) => {
@@ -437,6 +468,238 @@ export function OrgSettingsPage() {
                       </span>
                     </span>
                   </label>
+                ) : null}
+                {section.id === 'selectors' && draft.selectors === 'rounds' ? (
+                  <div className="mt-4 rounded-xl border border-line/80 bg-surface/60 p-3 sm:p-4">
+                    <label className="flex items-start gap-2 text-[13px] text-ink">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-4 accent-[var(--color-brand)]"
+                        checked={hoursDraft.enabled}
+                        onChange={(e) => {
+                          const enabled = e.target.checked
+                          if (!enabled) {
+                            const next = { ...hoursDraft, enabled: false }
+                            setHoursDraft(next)
+                            setHoursSaving(true)
+                            void saveSelectorRoundHours(next)
+                              .then(() =>
+                                notify.success('הוחזר אורך סבב אחיד לסלקטורים'),
+                              )
+                              .catch((err: unknown) =>
+                                notify.error(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'שמירת שעות הסבבים נכשלה',
+                                ),
+                              )
+                              .finally(() => setHoursSaving(false))
+                            return
+                          }
+                          setHoursDraft((current) => {
+                            const byShift = { ...current.byShift }
+                            for (const model of selectorModels) {
+                              if ((byShift[model.id] ?? []).length > 0) continue
+                              byShift[model.id] = suggestSwapsFromDuration(
+                                model.startMinutes,
+                                shiftModelAbsoluteEnd(model),
+                                roundMinutes.selectors,
+                              )
+                            }
+                            return { enabled: true, byShift }
+                          })
+                        }}
+                      />
+                      <span>
+                        <span className="font-semibold">
+                          החלפת סבבים לפי שעות מדויקות
+                        </span>
+                        <span className="mt-0.5 block text-ink-soft">
+                          לכל משמרת מגדירים את שעות ההחלפה במקום אורך סבב אחיד.
+                          תחילת וסיום המשמרת נלקחים מהגדרות המשמרות. חל על משמרות חדשות ועל שיבוץ מחדש.
+                        </span>
+                      </span>
+                    </label>
+                    {hoursDraft.enabled ? (
+                      <div className="mt-3 space-y-4">
+                        {selectorModels.map((model) => {
+                          const start = model.startMinutes
+                          const end = shiftModelAbsoluteEnd(model)
+                          const swaps = hoursDraft.byShift[model.id] ?? []
+                          const labels = formatSwapEditorRows(swaps, model)
+                          const preview = previewRoundLabels(start, end, swaps)
+                          return (
+                            <div
+                              key={model.id}
+                              className="rounded-xl border border-line bg-card p-3"
+                            >
+                              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                <h4 className="text-sm font-bold text-ink">
+                                  {model.name}
+                                </h4>
+                                <p className="text-[12px] text-ink-soft">
+                                  {formatShiftModelWindow(model)}
+                                </p>
+                              </div>
+                              <p className="mt-2 text-[12px] text-ink-soft">
+                                התחלה קבועה{' '}
+                                <Ltr>{formatMinutes(start)}</Ltr>
+                                {' · '}
+                                סיום קבוע{' '}
+                                <Ltr>
+                                  {formatMinutes(model.endMinutes)}
+                                </Ltr>
+                              </p>
+                              <ul className="mt-2 flex flex-wrap gap-1.5">
+                                {swaps.length === 0 ? (
+                                  <li className="text-[12px] text-ink-soft">
+                                    אין נקודות החלפה — סבב אחד לכל המשמרת
+                                  </li>
+                                ) : (
+                                  swaps.map((point, index) => {
+                                    const clock = labels[index] ?? formatMinutes(point)
+                                    return (
+                                    <li key={`${model.id}-${point}`}>
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-brand/8 px-2 py-1 text-[12px] font-semibold text-brand ring-1 ring-brand/15">
+                                        <Ltr>{clock}</Ltr>
+                                        <button
+                                          type="button"
+                                          className="inline-flex size-5 items-center justify-center rounded-full hover:bg-hard-soft hover:text-hard"
+                                          aria-label={`הסר החלפה בשעה ${clock}`}
+                                          onClick={() =>
+                                            setHoursDraft((current) => ({
+                                              ...current,
+                                              byShift: {
+                                                ...current.byShift,
+                                                [model.id]: (
+                                                  current.byShift[model.id] ?? []
+                                                ).filter((item) => item !== point),
+                                              },
+                                            }))
+                                          }
+                                        >
+                                          <Trash2 className="size-3" aria-hidden />
+                                        </button>
+                                      </span>
+                                    </li>
+                                    )
+                                  })
+                                )}
+                              </ul>
+                              <div className="mt-2 flex flex-wrap items-end gap-2">
+                                <label className="text-[12px] text-ink-soft">
+                                  שעת החלפה
+                                  <input
+                                    type="time"
+                                    className="ui-field mt-1 !w-auto min-w-[8rem] !py-1.5"
+                                    value={newSwapByShift[model.id] ?? ''}
+                                    onChange={(e) =>
+                                      setNewSwapByShift((current) => ({
+                                        ...current,
+                                        [model.id]: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="ui-btn ui-btn-secondary !h-9 gap-1.5 !px-3 text-xs"
+                                  onClick={() => {
+                                    const clock = newSwapByShift[model.id]
+                                    if (!clock) return
+                                    const parsed = parseSwapClocksForModel(
+                                      [clock],
+                                      model,
+                                    )
+                                    if (parsed.length === 0) {
+                                      notify.error(
+                                        'שעה לא תקינה',
+                                        'בחרו שעה בתוך חלון המשמרת',
+                                      )
+                                      return
+                                    }
+                                    setHoursDraft((current) => ({
+                                      ...current,
+                                      byShift: {
+                                        ...current.byShift,
+                                        [model.id]: [
+                                          ...new Set([
+                                            ...(current.byShift[model.id] ?? []),
+                                            ...parsed,
+                                          ]),
+                                        ].sort((a, b) => a - b),
+                                      },
+                                    }))
+                                    setNewSwapByShift((current) => ({
+                                      ...current,
+                                      [model.id]: '',
+                                    }))
+                                  }}
+                                >
+                                  <Plus className="size-3.5" aria-hidden />
+                                  הוספה
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ui-btn ui-btn-ghost !h-9 text-xs"
+                                  onClick={() =>
+                                    setHoursDraft((current) => ({
+                                      ...current,
+                                      byShift: {
+                                        ...current.byShift,
+                                        [model.id]: suggestSwapsFromDuration(
+                                          start,
+                                          end,
+                                          roundMinutes.selectors,
+                                        ),
+                                      },
+                                    }))
+                                  }
+                                >
+                                  לפי אורך סבב
+                                </button>
+                              </div>
+                              {preview.length > 0 ? (
+                                <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">
+                                  סבבים:{' '}
+                                  {preview.map((label, index) => (
+                                    <span key={label}>
+                                      {index > 0 ? ' · ' : null}
+                                      <Ltr>{label}</Ltr>
+                                    </span>
+                                  ))}
+                                </p>
+                              ) : null}
+                            </div>
+                          )
+                        })}
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            disabled={hoursSaving}
+                            className="ui-btn ui-btn-primary disabled:opacity-40"
+                            onClick={() => {
+                              setHoursSaving(true)
+                              void saveSelectorRoundHours(hoursDraft)
+                                .then(() =>
+                                  notify.success('שעות החלפת הסבבים נשמרו'),
+                                )
+                                .catch((err: unknown) =>
+                                  notify.error(
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'שמירת שעות הסבבים נכשלה',
+                                  ),
+                                )
+                                .finally(() => setHoursSaving(false))
+                            }}
+                          >
+                            {hoursSaving ? 'שומר…' : 'שמירת שעות סבבים'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </fieldset>
             ))}

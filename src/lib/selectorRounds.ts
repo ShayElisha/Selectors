@@ -43,6 +43,11 @@ export function buildRoundWindows(
   windowIds: Array<string | undefined> = [],
   bounds?: { start: number; end: number },
   roundMinutes = 120,
+  /**
+   * Exact ordered boundaries [start … end]. When provided, rounds follow these
+   * hours instead of a uniform step; worker-window cuts still split a segment.
+   */
+  customBoundaries?: number[] | null,
 ): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
   const fallback = MAIN_SHIFT_BOUNDS[shiftType]
   const end = bounds?.end ?? fallback?.end
@@ -53,6 +58,34 @@ export function buildRoundWindows(
     .sort((a, b) => a - b)
   const windows: Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] =
     []
+
+  const custom =
+    Array.isArray(customBoundaries) && customBoundaries.length >= 2
+      ? [...new Set(customBoundaries.map((n) => Math.round(n)))]
+          .filter((n) => n >= start && n <= end)
+          .sort((a, b) => a - b)
+      : null
+  if (custom && custom.length >= 2) {
+    if (custom[0] !== start) custom.unshift(start)
+    if (custom[custom.length - 1] !== end) custom.push(end)
+    for (let i = 0; i < custom.length - 1; i++) {
+      let t = custom[i]!
+      const segmentEnd = custom[i + 1]!
+      while (t < segmentEnd) {
+        let next = segmentEnd
+        const cut = cuts.find((point) => point > t && point < next)
+        if (cut != null) next = cut
+        windows.push({
+          startMinutes: t,
+          endMinutes: next,
+          label: roundLabel(t, next),
+        })
+        t = next
+      }
+    }
+    return windows
+  }
+
   let t = start
   while (t < end) {
     let next = Math.min(t + Math.max(30, roundMinutes), end)
@@ -99,6 +132,7 @@ function buildAssignmentWindows(args: {
   bounds?: { start: number; end: number }
   roundMinutes?: number
   stagger?: boolean
+  customBoundaries?: number[] | null
 }): Array<Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label' | 'cohort'>> {
   const windowIds = args.workers.map((worker) => args.workerWindows?.[worker.id])
   const cuts = roundCutsForWindows(args.shiftType, windowIds)
@@ -108,6 +142,7 @@ function buildAssignmentWindows(args: {
     windowIds,
     args.bounds,
     args.roundMinutes,
+    args.customBoundaries,
   )
   if (!args.stagger || hour.length === 0) return hour
   const first = hour[0]
@@ -117,12 +152,15 @@ function buildAssignmentWindows(args: {
   if (halfStart >= last.endMinutes) {
     return hour.map((window) => ({ ...window, cohort: 'hour' as const }))
   }
+  const halfBounds = args.customBoundaries
+    ?.filter((point) => point >= halfStart && point <= last.endMinutes)
   const half = buildRoundWindows(
     args.shiftType,
     cuts,
     windowIds,
     { start: halfStart, end: last.endMinutes },
     args.roundMinutes,
+    halfBounds && halfBounds.length >= 2 ? halfBounds : null,
   ).map((window) => ({ ...window, cohort: 'half' as const }))
   return [
     ...hour.map((window) => ({ ...window, cohort: 'hour' as const })),
@@ -155,9 +193,18 @@ export function emptySelectorRounds(
   cutMinutes: number[] = [],
   windowIds: Array<string | undefined> = [],
   roundMinutes = 120,
+  bounds?: { start: number; end: number },
+  customBoundaries?: number[] | null,
 ): SelectorRound[] {
   const active = selectorLanes(lanes, activeLaneIds)
-  return buildRoundWindows(shiftType, cutMinutes, windowIds, undefined, roundMinutes).map((w) => ({
+  return buildRoundWindows(
+    shiftType,
+    cutMinutes,
+    windowIds,
+    bounds,
+    roundMinutes,
+    customBoundaries,
+  ).map((w) => ({
     ...w,
     assignments: emptyAssignments(active, overrides),
   }))
@@ -336,6 +383,8 @@ export type AssignSelectorRoundsArgs = {
   bounds?: { start: number; end: number }
   /** Length of one round, in minutes. Default is two hours. */
   roundMinutes?: number
+  /** Exact [start … end] boundaries from org settings (selectors). */
+  customBoundaries?: number[] | null
   /** Half the people rotate on the hour, half on the half-hour. */
   stagger?: boolean
   /** Late arrival / early leave. Existing placements are left in place. */

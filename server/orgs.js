@@ -1243,6 +1243,33 @@ export function publicStaggerRounds(org) {
   }
 }
 
+export function publicSelectorRoundHours(org) {
+  const raw =
+    org?.selectorRoundHours && typeof org.selectorRoundHours === 'object'
+      ? org.selectorRoundHours
+      : {}
+  const byShift = {}
+  const src =
+    raw.byShift && typeof raw.byShift === 'object' ? raw.byShift : {}
+  for (const [shiftId, value] of Object.entries(src)) {
+    const id = String(shiftId || '').trim()
+    if (!id || !Array.isArray(value)) continue
+    const points = [
+      ...new Set(
+        value
+          .map((item) => Number(item))
+          .filter((n) => Number.isFinite(n) && n >= 0)
+          .map((n) => Math.round(n)),
+      ),
+    ].sort((a, b) => a - b)
+    if (points.length > 0) byShift[id] = points
+  }
+  return {
+    enabled: raw.enabled === true,
+    byShift,
+  }
+}
+
 export async function readOrgAssignmentSettings(orgId) {
   const org = await getOrganization(orgId)
   if (!org) throw httpError('הארגון לא נמצא', 404)
@@ -1251,6 +1278,7 @@ export async function readOrgAssignmentSettings(orgId) {
     assignmentModes: publicAssignmentModes(org),
     roundMinutes: publicRoundMinutes(org),
     staggerRounds: publicStaggerRounds(org),
+    selectorRoundHours: publicSelectorRoundHours(org),
     organization: publicOrgProfile(org),
   }
 }
@@ -1398,6 +1426,13 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
       if (typeof staggerPatch[key] === 'boolean') stagger[key] = staggerPatch[key]
     }
   }
+  const previousRoundHours = publicSelectorRoundHours(org)
+  let roundHours = previousRoundHours
+  if (patch?.selectorRoundHours && typeof patch.selectorRoundHours === 'object') {
+    roundHours = publicSelectorRoundHours({
+      selectorRoundHours: patch.selectorRoundHours,
+    })
+  }
   const sameModes =
     next.selectors === current.selectors &&
     next.inspectors === current.inspectors &&
@@ -1412,12 +1447,16 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     stagger.selectors === previousStagger.selectors &&
     stagger.inspectors === previousStagger.inspectors &&
     stagger.security === previousStagger.security
-  if (sameModes && sameMinutes && sameStagger) {
+  const sameRoundHours =
+    roundHours.enabled === previousRoundHours.enabled &&
+    JSON.stringify(roundHours.byShift) === JSON.stringify(previousRoundHours.byShift)
+  if (sameModes && sameMinutes && sameStagger && sameRoundHours) {
     return {
       modules: publicModules(org.modules),
       assignmentModes: current,
       roundMinutes: minutes,
       staggerRounds: stagger,
+      selectorRoundHours: roundHours,
       organization: publicOrgProfile(org),
     }
   }
@@ -1428,6 +1467,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
         assignmentModes: next,
         roundMinutes: minutes,
         staggerRounds: stagger,
+        selectorRoundHours: roundHours,
         updatedAt: new Date().toISOString(),
       },
     },
@@ -1442,6 +1482,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     next.security !== current.security
       ? `מאבטחים: ${assignmentModeLabel(next.security)}`
       : '',
+    !sameRoundHours ? 'שעות החלפת סבבים לסלקטורים עודכנו' : '',
   ]
     .filter(Boolean)
     .join(' · ')
@@ -1456,6 +1497,7 @@ export async function updateOrgAssignmentSettings(orgId, patch, actor) {
     assignmentModes: next,
     roundMinutes: minutes,
     staggerRounds: stagger,
+    selectorRoundHours: roundHours,
     organization: publicOrgProfile(org),
   }
 }

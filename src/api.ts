@@ -492,6 +492,11 @@ export interface OrgAssignmentSettings {
   }
   roundMinutes?: { selectors: number; inspectors: number; security: number }
   staggerRounds?: { selectors: boolean; inspectors: boolean; security: boolean }
+  /** Selectors only: exact round-swap hours per shift model. */
+  selectorRoundHours?: {
+    enabled: boolean
+    byShift: Record<string, number[]>
+  }
   organization?: OrgProfile
 }
 
@@ -518,6 +523,10 @@ export function saveOrgSettings(body: {
   }
   roundMinutes?: { selectors: number; inspectors: number; security: number }
   staggerRounds?: { selectors: boolean; inspectors: boolean; security: boolean }
+  selectorRoundHours?: {
+    enabled: boolean
+    byShift: Record<string, number[]>
+  }
   profile?: OrgProfile
 }): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings', {
