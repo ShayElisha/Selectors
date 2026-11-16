@@ -1550,7 +1550,12 @@ export function ShiftPage() {
                                   </option>
                                 ))}
                               </select>
-                            ) : w.trainingRole !== 'trainee' ? (
+                            ) : w.trainingRole !== 'trainee' &&
+                              !(draft.trainingPairs ?? []).some(
+                                (pair) =>
+                                  pair.traineeId === w.id ||
+                                  pair.mentorId === w.id,
+                              ) ? (
                               <select
                                 className="ui-field w-full py-1.5 text-[13px]"
                                 aria-label={`נתיב מועדף עבור ${w.fullName}`}

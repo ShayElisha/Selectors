@@ -57,28 +57,39 @@ function seatWorkerOnLane(
   const lane = lanes.find((item) => item.id === placement.laneId)
   if (!lane) return assignments
   const std = effectiveStaffingStandard(lane, overrides)
-  const byLane = new Map(assignments.map((row) => [row.laneId, { ...row }]))
-  
+  const byLane = new Map(
+    assignments.map((row) => [
+      row.laneId,
+      { ...row, workerIds: [...row.workerIds] },
+    ]),
+  )
+
   for (const row of byLane.values()) {
     row.workerIds = row.workerIds.map((id) =>
       id === placement.workerId ? '' : id,
     )
   }
-  
+
   const existing = byLane.get(placement.laneId)
-  const others = [...(existing?.workerIds ?? [])].filter(
-    (id) => id && id !== placement.workerId,
-  )
-  
-  const nextIds = [placement.workerId, ...others.slice(0, Math.max(0, std - 1))]
+  const nextIds = [...(existing?.workerIds ?? [])]
   while (nextIds.length < std) nextIds.push('')
-  
+
+  // Prefer an empty reserved seat so training pairs already seated at the
+  // front of the lane are not displaced. If the lane is already full (e.g.
+  // תקן smaller than training+manual locks), append instead of kicking anyone.
+  const emptyIdx = nextIds.findIndex((id) => !id)
+  if (emptyIdx >= 0) {
+    nextIds[emptyIdx] = placement.workerId
+  } else {
+    nextIds.push(placement.workerId)
+  }
+
   byLane.set(placement.laneId, {
     laneId: placement.laneId,
     workerIds: nextIds,
     notes: existing?.notes,
   })
-  
+
   return [...byLane.values()]
 }
 

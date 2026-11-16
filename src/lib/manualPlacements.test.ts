@@ -103,6 +103,47 @@ describe('manualPlacements', () => {
     expect(result.find((r) => r.laneId === 'L2')?.workerIds[0]).toBe('')
   })
 
+  it('applyManualPlacementsToAssignments fills empty seats without displacing front seats', () => {
+    const lanes = [lane('L1', 3)]
+    const assignments = [
+      { laneId: 'L1', workerIds: ['mentor', 'trainee', ''] },
+    ]
+    const placements: ManualLanePlacement[] = [
+      { workerId: 'pinned', laneId: 'L1' },
+    ]
+
+    const result = applyManualPlacementsToAssignments(
+      assignments,
+      placements,
+      lanes,
+      { L1: 3 },
+    )
+
+    expect(result.find((r) => r.laneId === 'L1')?.workerIds).toEqual([
+      'mentor',
+      'trainee',
+      'pinned',
+    ])
+  })
+
+  it('applyManualPlacementsToAssignments appends when lane is already full', () => {
+    const lanes = [lane('L1', 2)]
+    const assignments = [
+      { laneId: 'L1', workerIds: ['mentor', 'trainee'] },
+    ]
+    const result = applyManualPlacementsToAssignments(
+      assignments,
+      [{ workerId: 'pinned', laneId: 'L1' }],
+      lanes,
+      { L1: 2 },
+    )
+    expect(result.find((r) => r.laneId === 'L1')?.workerIds).toEqual([
+      'mentor',
+      'trainee',
+      'pinned',
+    ])
+  })
+
   it('filterManuallyPlacedFromPool excludes manually placed workers', () => {
     const workers = [worker('w1'), worker('w2'), worker('w3')]
     const placements: ManualLanePlacement[] = [
