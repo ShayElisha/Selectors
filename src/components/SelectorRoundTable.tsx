@@ -308,7 +308,7 @@ export function SelectorRoundTable({
                             />
                             {workerId && editable && onLateChange ? (
                               <LateMinutesControl
-                                variant="chip"
+                                variant="board"
                                 ariaLabel={`איחור בנתיב ${lane.name}`}
                                 value={
                                   windowAdjustments?.[workerId]?.lateMinutes ?? 0

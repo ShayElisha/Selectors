@@ -852,7 +852,12 @@ export function BoardStep({
             className={
               selectedLacksCert
                 ? 'rounded-xl ring-1 ring-warn/40'
-                : selectedTiming.length
+                : selectedTiming.some(
+                      (badge) =>
+                        badge.kind === 'late' ||
+                        badge.kind === 'early' ||
+                        badge.kind === 'left',
+                    )
                   ? 'rounded-xl ring-1 ring-warn/30'
                   : isExtra
                     ? 'rounded-xl ring-1 ring-accent/30'
@@ -875,14 +880,21 @@ export function BoardStep({
           </div>
         )}
         {workerId && !locked ? (
-          <LateMinutesControl
-            variant="chip"
-            ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
-            value={draft.windowAdjustments?.[workerId]?.lateMinutes ?? 0}
-            onChange={(lateMinutes) =>
-              setWindowAdjustment(workerId, { lateMinutes })
-            }
-          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <LateMinutesControl
+              variant="board"
+              ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
+              value={draft.windowAdjustments?.[workerId]?.lateMinutes ?? 0}
+              onChange={(lateMinutes) =>
+                setWindowAdjustment(workerId, { lateMinutes })
+              }
+            />
+            {selectedTiming.filter((badge) => badge.kind !== 'late').length ? (
+              <TimingBadges
+                badges={selectedTiming.filter((badge) => badge.kind !== 'late')}
+              />
+            ) : null}
+          </div>
         ) : selectedTiming.length ? (
           <TimingBadges badges={selectedTiming} />
         ) : null}
