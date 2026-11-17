@@ -875,14 +875,21 @@ export function BoardStep({
           </div>
         )}
         {workerId && !locked ? (
-          <LateMinutesControl
-            variant="chip"
-            ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
-            value={draft.windowAdjustments?.[workerId]?.lateMinutes ?? 0}
-            onChange={(lateMinutes) =>
-              setWindowAdjustment(workerId, { lateMinutes })
-            }
-          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <LateMinutesControl
+              variant="board"
+              ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
+              value={draft.windowAdjustments?.[workerId]?.lateMinutes ?? 0}
+              onChange={(lateMinutes) =>
+                setWindowAdjustment(workerId, { lateMinutes })
+              }
+            />
+            {selectedTiming.filter((badge) => badge.kind !== 'late').length ? (
+              <TimingBadges
+                badges={selectedTiming.filter((badge) => badge.kind !== 'late')}
+              />
+            ) : null}
+          </div>
         ) : selectedTiming.length ? (
           <TimingBadges badges={selectedTiming} />
         ) : null}
