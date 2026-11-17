@@ -21,6 +21,7 @@ export function SelectorRoundTable({
   workers,
   overrides,
   windowAdjustments,
+  workerWindows,
   defaultLateMinutes,
   earlyLeaveAt,
   ramashName,
@@ -42,6 +43,7 @@ export function SelectorRoundTable({
   workers: Worker[]
   overrides?: StaffingOverrides | null
   windowAdjustments?: Record<string, WindowAdjustment> | null
+  workerWindows?: Record<string, string> | null
   defaultLateMinutes?: number | null
   earlyLeaveAt?: Record<string, number> | null
   /** Shift manager shown above the round table. */
@@ -77,6 +79,7 @@ export function SelectorRoundTable({
       windowAdjustments,
       defaultLateMinutes,
       earlyLeaveAt,
+      workerWindows,
     })
     return {
       worker,
@@ -323,6 +326,7 @@ export function SelectorRoundTable({
                                   windowAdjustments,
                                   defaultLateMinutes,
                                   earlyLeaveAt,
+                                  workerWindows,
                                 })}
                               />
                             ) : null}

@@ -1,18 +1,20 @@
 import type { WindowAdjustment } from '../types'
 import { effectiveLateMinutes } from './shiftLate'
+import { workerWindowById } from './shiftCatalog'
 
 export type TimingBadge = {
-  kind: 'late' | 'early' | 'left'
+  kind: 'late' | 'early' | 'left' | 'hours'
   label: string
   shortLabel: string
 }
 
-/** Visible late / early / left-early markers for the assignment board. */
+/** Visible late / early / left-early / personal-hours markers for the board. */
 export function timingBadgesForWorker(opts: {
   workerId: string
   windowAdjustments?: Record<string, WindowAdjustment> | null
   defaultLateMinutes?: number | null
   earlyLeaveAt?: Record<string, number> | null
+  workerWindows?: Record<string, string> | null
 }): TimingBadge[] {
   const badges: TimingBadge[] = []
   const adj = opts.windowAdjustments?.[opts.workerId]
@@ -23,7 +25,15 @@ export function timingBadgesForWorker(opts: {
   })
   const early = Number(adj?.earlyMinutes || 0)
   const leftAt = opts.earlyLeaveAt?.[opts.workerId]
+  const hours = workerWindowById(opts.workerWindows?.[opts.workerId])
 
+  if (hours) {
+    badges.push({
+      kind: 'hours',
+      label: `משמרת אישית ${hours.label}`,
+      shortLabel: hours.label,
+    })
+  }
   if (late > 0) {
     badges.push({
       kind: 'late',
@@ -56,6 +66,9 @@ export function timingBadgeClass(kind: TimingBadge['kind']): string {
   }
   if (kind === 'left') {
     return 'bg-hard-soft text-hard ring-hard/25'
+  }
+  if (kind === 'hours') {
+    return 'bg-surface text-ink-soft ring-line/80'
   }
   return 'bg-accent-soft text-accent ring-accent/25'
 }
