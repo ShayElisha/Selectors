@@ -852,7 +852,12 @@ export function BoardStep({
             className={
               selectedLacksCert
                 ? 'rounded-xl ring-1 ring-warn/40'
-                : selectedTiming.length
+                : selectedTiming.some(
+                      (badge) =>
+                        badge.kind === 'late' ||
+                        badge.kind === 'early' ||
+                        badge.kind === 'left',
+                    )
                   ? 'rounded-xl ring-1 ring-warn/30'
                   : isExtra
                     ? 'rounded-xl ring-1 ring-accent/30'
