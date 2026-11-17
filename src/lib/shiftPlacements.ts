@@ -1,5 +1,6 @@
 import { usesRounds } from './assignmentMode'
 import { earlyLeaveFraction } from './earlyLeave'
+import { boardHoursWeight } from './shiftCatalog'
 import type { ShiftSchedule } from '../types'
 
 export interface ShiftPlacement {
@@ -7,7 +8,8 @@ export interface ShiftPlacement {
   workerId: string
   /**
    * Share of one full shift this cell represents.
-   * A lane board placement is 1.
+   * A single-board (inspector) placement is the overlap of personal hours
+   * with the official shift (1 when they cover the whole shift).
    * A selector round is that round's minutes divided by the shift's rounds,
    * so a person who works every round still totals about one shift.
    * A mid-shift segment is the minutes sat divided by the full shift.
@@ -53,7 +55,17 @@ function wholeBoardPlacements(shift: ShiftSchedule): ShiftPlacement[] {
   for (const assignment of shift.assignments ?? []) {
     for (const workerId of assignment.workerIds) {
       if (!workerId) continue
-      out.push({ laneId: assignment.laneId, workerId, weight: 1 })
+      const adjustment = shift.windowAdjustments?.[workerId]
+      out.push({
+        laneId: assignment.laneId,
+        workerId,
+        weight: boardHoursWeight({
+          shiftType: shift.shiftType,
+          windowId: shift.workerWindows?.[workerId],
+          lateMinutes: adjustment?.lateMinutes,
+          earlyMinutes: adjustment?.earlyMinutes,
+        }),
+      })
     }
   }
   return out
