@@ -33,13 +33,14 @@ export function WorkerWindowsPage() {
   )
   const [start, setStart] = useState('06:00')
   const [end, setEnd] = useState('15:00')
+  const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const persist = (next: WorkerWindowPreset[]) => {
     saveWorkerWindowPresets(
       next.map((preset, order) => ({
         ...preset,
-        label: workerWindowLabelFromTimes(preset.start, preset.end),
+        label: preset.name || workerWindowLabelFromTimes(preset.start, preset.end),
         order,
       })),
     )
@@ -61,31 +62,36 @@ export function WorkerWindowsPage() {
       setError('כבר יש חלון שעות כזה')
       return
     }
+    const trimmedName = name.trim()
     persist([
       ...presets,
       {
         id,
-        label: workerWindowLabelFromTimes(startMinutes, endMinutes),
+        label: trimmedName || workerWindowLabelFromTimes(startMinutes, endMinutes),
+        name: trimmedName || undefined,
         start: startMinutes,
         end: endMinutes,
         order: presets.length,
       },
     ])
     setError(null)
+    setName('')
     notify.success('חלון השעות נוסף')
   }
 
-  const update = (id: string, patch: Partial<Pick<WorkerWindowPreset, 'start' | 'end'>>) => {
+  const update = (id: string, patch: Partial<Pick<WorkerWindowPreset, 'start' | 'end' | 'name'>>) => {
     persist(
       presets.map((preset) => {
         if (preset.id !== id) return preset
         const startMinutes = patch.start ?? preset.start
         const endMinutes = patch.end ?? preset.end
+        const customName = patch.name !== undefined ? patch.name : preset.name
         return {
           ...preset,
           start: startMinutes,
           end: endMinutes,
-          label: workerWindowLabelFromTimes(startMinutes, endMinutes),
+          name: customName,
+          label: customName || workerWindowLabelFromTimes(startMinutes, endMinutes),
         }
       }),
     )
@@ -121,8 +127,31 @@ export function WorkerWindowsPage() {
             {presets.map((preset) => (
               <li
                 key={preset.id}
-                className="grid gap-3 rounded-xl border border-line/70 bg-card p-3 sm:grid-cols-[auto_auto_1fr_auto] sm:items-end"
+                className="grid gap-3 rounded-xl border border-line/70 bg-card p-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end"
               >
+                <div>
+                  <FieldLabel htmlFor={`win-name-${preset.id}`}>
+                    שם משמרת (אופציונלי)
+                  </FieldLabel>
+                  <input
+                    id={`win-name-${preset.id}`}
+                    className="ui-field"
+                    type="text"
+                    placeholder="למשל: בוקר, צהריים"
+                    value={preset.name || ''}
+                    onChange={(e) => {
+                      const value = e.target.value.trim()
+                      update(preset.id, { name: value || undefined })
+                    }}
+                  />
+                  <p className="mt-1 text-[11px] text-ink-soft">
+                    {preset.name ? (
+                      <>שעות: <Ltr>{workerWindowLabelFromTimes(preset.start, preset.end)}</Ltr></>
+                    ) : (
+                      <Ltr>{workerWindowLabelFromTimes(preset.start, preset.end)}</Ltr>
+                    )}
+                  </p>
+                </div>
                 <div>
                   <FieldLabel htmlFor={`win-start-${preset.id}`}>התחלה</FieldLabel>
                   <input
@@ -149,11 +178,6 @@ export function WorkerWindowsPage() {
                     }}
                   />
                 </div>
-                <div className="flex items-center">
-                  <span className="text-[13px] font-semibold text-ink">
-                    <Ltr>{preset.label}</Ltr>
-                  </span>
-                </div>
                 <button
                   type="button"
                   className="ui-btn ui-btn-ghost justify-self-start sm:justify-self-end"
@@ -172,7 +196,18 @@ export function WorkerWindowsPage() {
         title="חלון שעות חדש"
         subtitle="אפשר שהסיום יהיה אחרי חצות. החלון יופיע מיד בבחירת משמרת בנוכחות"
       >
-        <div className="grid gap-3 sm:grid-cols-[auto_auto_auto] sm:items-end">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
+          <div>
+            <FieldLabel htmlFor="new-win-name">שם משמרת (אופציונלי)</FieldLabel>
+            <input
+              id="new-win-name"
+              className="ui-field"
+              type="text"
+              placeholder="למשל: בוקר, צהריים, לילה"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
           <div>
             <FieldLabel htmlFor="new-win-start">התחלה</FieldLabel>
             <input

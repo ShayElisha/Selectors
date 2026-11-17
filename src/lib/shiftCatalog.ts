@@ -44,16 +44,16 @@ export function workerWindowLabelFromTimes(start: number, end: number): string {
 
 /** Built-in personal hours when the org has not saved a custom list yet. */
 export const DEFAULT_WORKER_WINDOWS: WorkerWindowPreset[] = [
-  { id: '0445-1500', label: '04:45–15:00', start: 4 * 60 + 45, end: 15 * 60 },
-  { id: '0445-1645', label: '04:45–16:45', start: 4 * 60 + 45, end: 16 * 60 + 45 },
-  { id: '0445-1730', label: '04:45–17:30', start: 4 * 60 + 45, end: 17 * 60 + 30 },
-  { id: '0445-1830', label: '04:45–18:30', start: 4 * 60 + 45, end: 18 * 60 + 30 },
-  { id: '0600-1500', label: '06:00–15:00', start: 6 * 60, end: 15 * 60 },
-  { id: '0600-1645', label: '06:00–16:45', start: 6 * 60, end: 16 * 60 + 45 },
-  { id: '0600-1730', label: '06:00–17:30', start: 6 * 60, end: 17 * 60 + 30 },
-  { id: '0600-1830', label: '06:00–18:30', start: 6 * 60, end: 18 * 60 + 30 },
-  { id: '1430-2130', label: '14:30–21:30', start: 14 * 60 + 30, end: 21 * 60 + 30 },
-  { id: '1800-0630', label: '18:00–06:30', start: 18 * 60, end: 6 * 60 + 30 },
+  { id: '0445-1500', label: 'בוקר מוקדם', name: 'בוקר מוקדם', start: 4 * 60 + 45, end: 15 * 60 },
+  { id: '0445-1645', label: 'בוקר מוקדם ארוך', name: 'בוקר מוקדם ארוך', start: 4 * 60 + 45, end: 16 * 60 + 45 },
+  { id: '0445-1730', label: 'בוקר-צהריים מוקדם', name: 'בוקר-צהריים מוקדם', start: 4 * 60 + 45, end: 17 * 60 + 30 },
+  { id: '0445-1830', label: 'משמרת ארוכה מוקדמת', name: 'משמרת ארוכה מוקדמת', start: 4 * 60 + 45, end: 18 * 60 + 30 },
+  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60 },
+  { id: '0600-1645', label: 'בוקר-צהריים', name: 'בוקר-צהריים', start: 6 * 60, end: 16 * 60 + 45 },
+  { id: '0600-1730', label: 'בוקר-צהריים ארוך', name: 'בוקר-צהריים ארוך', start: 6 * 60, end: 17 * 60 + 30 },
+  { id: '0600-1830', label: 'משמרת ארוכה', name: 'משמרת ארוכה', start: 6 * 60, end: 18 * 60 + 30 },
+  { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30 },
+  { id: '1800-0630', label: 'לילה', name: 'לילה', start: 18 * 60, end: 6 * 60 + 30 },
 ]
 
 /** @deprecated Prefer DEFAULT_WORKER_WINDOWS / resolveWorkerWindows. */
@@ -79,12 +79,15 @@ export function normalizeWorkerWindowPresets(
       workerWindowIdFromTimes(startMinutes, endMinutes)
     if (!id || seen.has(id)) return
     seen.add(id)
+    const customName = String(row.name || '').trim() || undefined
     const label =
       String(row.label || '').trim() ||
+      customName ||
       workerWindowLabelFromTimes(startMinutes, endMinutes)
     out.push({
       id,
       label,
+      name: customName,
       start: startMinutes,
       end: endMinutes,
       order: Number.isFinite(Number((row as { order?: number }).order))

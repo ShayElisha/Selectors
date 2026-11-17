@@ -133,14 +133,17 @@ function normalizeWorkerWindowPresets(raw) {
     const id = String(item.id || "").trim();
     if (!id || seen.has(id)) return;
     seen.add(id);
-    const label = String(item.label || "").trim() || id;
-    out.push({
+    const customName = String(item.name || "").trim() || undefined;
+    const label = String(item.label || "").trim() || customName || id;
+    const preset = {
       id,
       label,
       start: startMinutes,
       end: endMinutes,
       order: Number.isFinite(Number(item.order)) ? Number(item.order) : index,
-    });
+    };
+    if (customName) preset.name = customName;
+    out.push(preset);
   });
   return out.sort(
     (a, b) =>

@@ -467,6 +467,8 @@ export interface ShiftModel {
 export interface WorkerWindowPreset {
   id: string
   label: string
+  /** Custom shift name (e.g., "בוקר", "צהריים") - displayed instead of hours when set */
+  name?: string
   start: number
   end: number
   order?: number
