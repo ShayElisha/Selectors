@@ -581,6 +581,7 @@ export function ShiftPage() {
     const audience = draft.audience ?? 'inspector'
     const ids: string[] = []
     const workerWindows: Record<string, string> = {}
+    let continueGateManagerId: string | null = null
     for (const sourceType of sourceTypes) {
       const matches = data.history.filter(
         (shift) => shift.date === draft.date && shift.shiftType === sourceType,
@@ -592,7 +593,7 @@ export function ShiftPage() {
         (a, b) => b.updatedAt.localeCompare(a.updatedAt),
       )[0]
       if (!source) continue
-      for (const id of source.presentWorkerIds) {
+      const consider = (id: string) => {
         const saved = source.workerWindows?.[id]
         if (
           !continuesIntoShift(
@@ -601,8 +602,9 @@ export function ShiftPage() {
             draft.shiftType,
             data.workerWindowPresets,
           )
-        )
-          continue
+        ) {
+          return false
+        }
         if (!ids.includes(id)) ids.push(id)
         if (
           saved &&
@@ -611,11 +613,24 @@ export function ShiftPage() {
         ) {
           workerWindows[id] = saved
         }
+        return true
+      }
+      for (const id of source.presentWorkerIds) {
+        consider(id)
+      }
+      const sourceGate = source.gateManagerWorkerId?.trim()
+      if (sourceGate && consider(sourceGate) && !continueGateManagerId) {
+        continueGateManagerId = sourceGate
       }
     }
     if (ids.length === 0) return
-    applyPresentSelection(ids, { workerWindows })
-  }, [draft, data.history, applyPresentSelection])
+    applyPresentSelection(ids, {
+      workerWindows,
+      ...(continueGateManagerId
+        ? { gateManagerWorkerId: continueGateManagerId }
+        : {}),
+    })
+  }, [draft, data.history, data.workerWindowPresets, applyPresentSelection])
 
   const handleAutoAssign = async () => {
     if (assigning) return
@@ -1520,7 +1535,7 @@ export function ShiftPage() {
                           </button>
                         ) : null}
                         </div>
-                        {on && !isGate ? (
+                        {on || isGate ? (
                           (() => {
                             const mentorPair = (draft.trainingPairs ?? []).find(
                               (pair) => pair.mentorId === w.id,
@@ -1532,6 +1547,7 @@ export function ShiftPage() {
                               )?.laneId ??
                               ''
                             const showLaneSelect =
+                              !isGate &&
                               module === 'inspectors' &&
                               w.trainingRole !== 'trainee'
                             return (
