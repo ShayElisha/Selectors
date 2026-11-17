@@ -135,10 +135,128 @@ export function continuesIntoShift(
   if (!preset) return false
   const source = MAIN_SHIFT_BOUNDS[sourceType]
   const target = MAIN_SHIFT_BOUNDS[targetType]
+  if (!source || !target) return false
   const span = windowInterval(preset, targetType)
   if (!(span.start < target.end && span.end > target.start)) return false
   const personalEnd = windowInterval(preset, sourceType).end
   return personalEnd > source.end
+}
+
+export type ContinuingAttendanceSource = {
+  date: string
+  shiftType: string
+  audience?: string
+  updatedAt: string
+  presentWorkerIds: string[]
+  gateManagerWorkerId?: string
+  workerWindows?: Record<string, string>
+  windowAdjustments?: Record<
+    string,
+    { lateMinutes?: number; earlyMinutes?: number }
+  >
+}
+
+export type ContinuingAttendance = {
+  workerIds: string[]
+  workerWindows: Record<string, string>
+  windowAdjustments: Record<
+    string,
+    { lateMinutes?: number; earlyMinutes?: number }
+  >
+  gateManagerWorkerId?: string
+  /** At least one earlier same-day shift was found. */
+  sourceFound: boolean
+  /** Earlier shift had any personal-hour entries at all. */
+  sourceHadWindows: boolean
+}
+
+/**
+ * Workers from earlier same-day shifts whose personal hours continue into
+ * the target shift — used to pre-mark attendance on the next shift.
+ */
+export function collectContinuingAttendance(opts: {
+  history: ContinuingAttendanceSource[]
+  date: string
+  shiftType: ShiftType
+  audience?: string
+  catalog?: WorkerWindowPreset[] | null
+}): ContinuingAttendance {
+  const sourceTypes = earlierShiftsToContinue(opts.shiftType)
+  const empty: ContinuingAttendance = {
+    workerIds: [],
+    workerWindows: {},
+    windowAdjustments: {},
+    sourceFound: false,
+    sourceHadWindows: false,
+  }
+  if (sourceTypes.length === 0) return empty
+
+  const audience = opts.audience ?? 'inspector'
+  const workerIds: string[] = []
+  const workerWindows: Record<string, string> = {}
+  const windowAdjustments: ContinuingAttendance['windowAdjustments'] = {}
+  let gateManagerWorkerId: string | undefined
+  let sourceFound = false
+  let sourceHadWindows = false
+
+  const consider = (
+    source: ContinuingAttendanceSource,
+    sourceType: ShiftType,
+    id: string,
+  ) => {
+    const saved = source.workerWindows?.[id]
+    if (
+      !continuesIntoShift(sourceType, saved, opts.shiftType, opts.catalog)
+    ) {
+      return false
+    }
+    if (!workerIds.includes(id)) workerIds.push(id)
+    if (
+      saved &&
+      workerWindowById(saved, opts.catalog) &&
+      !workerWindows[id]
+    ) {
+      workerWindows[id] = saved
+    }
+    const adjustment = source.windowAdjustments?.[id]
+    if (adjustment && !windowAdjustments[id]) {
+      windowAdjustments[id] = { ...adjustment }
+    }
+    return true
+  }
+
+  for (const sourceType of sourceTypes) {
+    const matches = opts.history.filter(
+      (shift) => shift.date === opts.date && shift.shiftType === sourceType,
+    )
+    const sameAudience = matches.filter(
+      (shift) => (shift.audience ?? 'inspector') === audience,
+    )
+    const source = (sameAudience.length > 0 ? sameAudience : matches).sort(
+      (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+    )[0]
+    if (!source) continue
+    sourceFound = true
+    if (Object.keys(source.workerWindows ?? {}).length > 0) {
+      sourceHadWindows = true
+    }
+    for (const id of source.presentWorkerIds) {
+      consider(source, sourceType, id)
+    }
+    const sourceGate = source.gateManagerWorkerId?.trim()
+    if (sourceGate && consider(source, sourceType, sourceGate) && !gateManagerWorkerId) {
+      gateManagerWorkerId = sourceGate
+    }
+  }
+
+  return {
+    workerIds,
+    workerWindows,
+    windowAdjustments,
+    ...(gateManagerWorkerId ? { gateManagerWorkerId } : {}),
+    sourceFound,
+    sourceHadWindows,
+  }
 }
 
 /** Lane is open for a round only when the round sits inside one activity window. */

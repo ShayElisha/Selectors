@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   boardHoursWeight,
+  collectContinuingAttendance,
   continuesIntoShift,
   laneOpenDuring,
   presetsOverlappingShift,
@@ -34,6 +35,57 @@ describe('continuesIntoShift', () => {
     expect(laneOpenDuring(hours, 8 * 60, 10 * 60)).toBe(false)
     expect(laneOpenDuring(hours, 10 * 60, 12 * 60)).toBe(true)
     expect(laneOpenDuring(undefined, 8 * 60, 10 * 60)).toBe(true)
+  })
+})
+
+describe('collectContinuingAttendance', () => {
+  it('pre-marks morning staff whose hours reach afternoon', () => {
+    const result = collectContinuingAttendance({
+      history: [
+        {
+          date: '2026-11-17',
+          shiftType: 'morning',
+          audience: 'inspector',
+          updatedAt: '2026-11-17T10:00:00.000Z',
+          presentWorkerIds: ['a', 'b', 'c'],
+          gateManagerWorkerId: 'a',
+          workerWindows: {
+            a: '0600-1730',
+            b: '0600-1500',
+            c: '0600-1830',
+          },
+        },
+      ],
+      date: '2026-11-17',
+      shiftType: 'afternoon',
+      audience: 'inspector',
+    })
+    expect(result.workerIds).toEqual(['a', 'c'])
+    expect(result.workerWindows).toEqual({
+      a: '0600-1730',
+      c: '0600-1830',
+    })
+    expect(result.gateManagerWorkerId).toBe('a')
+    expect(result.sourceFound).toBe(true)
+    expect(result.sourceHadWindows).toBe(true)
+  })
+
+  it('reports when morning exists but has no personal hours saved', () => {
+    const result = collectContinuingAttendance({
+      history: [
+        {
+          date: '2026-11-17',
+          shiftType: 'morning',
+          updatedAt: '2026-11-17T10:00:00.000Z',
+          presentWorkerIds: ['a'],
+        },
+      ],
+      date: '2026-11-17',
+      shiftType: 'afternoon',
+    })
+    expect(result.workerIds).toEqual([])
+    expect(result.sourceFound).toBe(true)
+    expect(result.sourceHadWindows).toBe(false)
   })
 })
 

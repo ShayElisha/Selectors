@@ -150,6 +150,7 @@ import {
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
 import {
+  collectContinuingAttendance,
   roundCutsForWindows,
   windowFitsShift,
 } from '../lib/shiftCatalog'
@@ -523,6 +524,10 @@ interface AppContextValue {
     opts?: {
       gateManagerWorkerId?: string | null
       workerWindows?: Record<string, string>
+      windowAdjustments?: Record<
+        string,
+        { lateMinutes?: number; earlyMinutes?: number }
+      >
     },
   ) => void
   /** Set תקן for a lane in the current shift only (does not change the lane catalog). */
@@ -1804,31 +1809,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const shiftType = catalog.includes(clock.model.id as ShiftType)
       ? (clock.model.id as ShiftType)
       : (catalog[0] ?? 'morning')
-
-    adoptCleanDraft({
-      id: uuid(),
+    const continuing = collectContinuingAttendance({
+      history: data.history,
       date: clock.date,
       shiftType,
       audience: lockedAudience,
-      assignmentMode,
-      activeLaneIds: [],
-      presentWorkerIds: [],
-      assignments: [],
-      rounds: [],
-      workerWindows: {},
-      windowAdjustments: {},
-      defaultLateMinutes: undefined,
-      staggerRounds: staggerRef.current[module],
-      warnings: [],
-      unassignedWorkerIds: [],
-      explanations: [],
-      quality: undefined,
-      staffingOverrides: {},
-      headcountStandard: undefined,
+      catalog: data.workerWindowPresets,
     })
+
+    adoptCleanDraft(
+      withGateManagerSync(
+        {
+          id: uuid(),
+          date: clock.date,
+          shiftType,
+          audience: lockedAudience,
+          assignmentMode,
+          activeLaneIds: [],
+          presentWorkerIds: continuing.workerIds,
+          gateManagerWorkerId: continuing.gateManagerWorkerId,
+          assignments: [],
+          rounds: [],
+          workerWindows: continuing.workerWindows,
+          windowAdjustments: continuing.windowAdjustments,
+          defaultLateMinutes: undefined,
+          staggerRounds: staggerRef.current[module],
+          warnings: [],
+          unassignedWorkerIds: [],
+          explanations: [],
+          quality: undefined,
+          staffingOverrides: {},
+          headcountStandard: undefined,
+        },
+        data.lanes,
+      ),
+    )
     setShiftStep('lanes')
     setView('shift')
-  }, [adoptCleanDraft, assignmentModes, data.shiftModels, setShiftStep, setView, user?.module])
+  }, [
+    adoptCleanDraft,
+    assignmentModes,
+    data.history,
+    data.lanes,
+    data.shiftModels,
+    data.workerWindowPresets,
+    setShiftStep,
+    setView,
+    user?.module,
+  ])
 
   const discardDraft = useCallback(() => {
     draftBaselineRef.current = null
@@ -1858,26 +1886,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const dateChanged =
           nextPatch.date != null && nextPatch.date !== d.date
         if (!typeChanged && !dateChanged) return { ...d, ...nextPatch }
-        return {
-          ...d,
-          ...nextPatch,
-          id: uuid(),
-          signOff: undefined,
-          assignments: [],
-          rounds: [],
-          explanations: [],
-          quality: undefined,
-          warnings: [],
-          unassignedWorkerIds: [],
-          presentWorkerIds: [],
-          workerWindows: {},
-          windowAdjustments: {},
-          defaultLateMinutes: undefined,
-          gateManagerWorkerId: undefined,
-        }
+        const nextDate = nextPatch.date ?? d.date
+        const nextType = (nextPatch.shiftType ?? d.shiftType) as ShiftType
+        const continuing = collectContinuingAttendance({
+          history: data.history,
+          date: nextDate,
+          shiftType: nextType,
+          audience: d.audience ?? 'inspector',
+          catalog: data.workerWindowPresets,
+        })
+        return withGateManagerSync(
+          {
+            ...d,
+            ...nextPatch,
+            id: uuid(),
+            signOff: undefined,
+            assignments: [],
+            rounds: [],
+            explanations: [],
+            quality: undefined,
+            warnings: [],
+            unassignedWorkerIds: [],
+            presentWorkerIds: continuing.workerIds,
+            workerWindows: continuing.workerWindows,
+            windowAdjustments: continuing.windowAdjustments,
+            defaultLateMinutes: undefined,
+            gateManagerWorkerId: continuing.gateManagerWorkerId,
+          },
+          data.lanes,
+        )
       })
     },
-    [],
+    [data.history, data.lanes, data.workerWindowPresets],
   )
 
   const toggleLane = useCallback((laneId: string) => {
@@ -1948,6 +1988,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       opts?: {
         gateManagerWorkerId?: string | null
         workerWindows?: Record<string, string>
+        windowAdjustments?: Record<
+          string,
+          { lateMinutes?: number; earlyMinutes?: number }
+        >
       },
     ) => {
       setDraft((d) => {
@@ -2006,6 +2050,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             gateManagerWorkerId,
             assignments,
             ...(opts?.workerWindows ? { workerWindows: opts.workerWindows } : {}),
+            ...(opts?.windowAdjustments
+              ? {
+                  windowAdjustments: {
+                    ...(d.windowAdjustments ?? {}),
+                    ...opts.windowAdjustments,
+                  },
+                }
+              : {}),
           },
           data.lanes,
         )

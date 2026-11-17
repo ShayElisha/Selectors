@@ -60,11 +60,9 @@ import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRounds'
 import {
-  continuesIntoShift,
-  earlierShiftsToContinue,
+  collectContinuingAttendance,
   presetsOverlappingShift,
   shiftFollowsMorning,
-  workerWindowById,
 } from '../lib/shiftCatalog'
 import {
   formatShiftModelWindow,
@@ -573,64 +571,45 @@ export function ShiftPage() {
     morningShift,
   ])
 
+  // Backup: if history arrives after the draft was created empty, seed continuers.
   useEffect(() => {
     if (!draft) return
-    const sourceTypes = earlierShiftsToContinue(draft.shiftType)
-    if (sourceTypes.length === 0) return
     if (draft.presentWorkerIds.length > 0) return
-    const audience = draft.audience ?? 'inspector'
-    const ids: string[] = []
-    const workerWindows: Record<string, string> = {}
-    let continueGateManagerId: string | null = null
-    for (const sourceType of sourceTypes) {
-      const matches = data.history.filter(
-        (shift) => shift.date === draft.date && shift.shiftType === sourceType,
-      )
-      const sameAudience = matches.filter(
-        (shift) => (shift.audience ?? 'inspector') === audience,
-      )
-      const source = (sameAudience.length > 0 ? sameAudience : matches).sort(
-        (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-      )[0]
-      if (!source) continue
-      const consider = (id: string) => {
-        const saved = source.workerWindows?.[id]
-        if (
-          !continuesIntoShift(
-            sourceType,
-            saved,
-            draft.shiftType,
-            data.workerWindowPresets,
-          )
-        ) {
-          return false
-        }
-        if (!ids.includes(id)) ids.push(id)
-        if (
-          saved &&
-          workerWindowById(saved, data.workerWindowPresets) &&
-          !workerWindows[id]
-        ) {
-          workerWindows[id] = saved
-        }
-        return true
-      }
-      for (const id of source.presentWorkerIds) {
-        consider(id)
-      }
-      const sourceGate = source.gateManagerWorkerId?.trim()
-      if (sourceGate && consider(sourceGate) && !continueGateManagerId) {
-        continueGateManagerId = sourceGate
-      }
-    }
-    if (ids.length === 0) return
-    applyPresentSelection(ids, {
-      workerWindows,
-      ...(continueGateManagerId
-        ? { gateManagerWorkerId: continueGateManagerId }
+    const continuing = collectContinuingAttendance({
+      history: data.history,
+      date: draft.date,
+      shiftType: draft.shiftType,
+      audience: draft.audience ?? 'inspector',
+      catalog: data.workerWindowPresets,
+    })
+    if (continuing.workerIds.length === 0) return
+    applyPresentSelection(continuing.workerIds, {
+      workerWindows: continuing.workerWindows,
+      windowAdjustments: continuing.windowAdjustments,
+      ...(continuing.gateManagerWorkerId
+        ? { gateManagerWorkerId: continuing.gateManagerWorkerId }
         : {}),
     })
   }, [draft, data.history, data.workerWindowPresets, applyPresentSelection])
+
+  const continuingPreview = useMemo(() => {
+    if (!draft) {
+      return {
+        workerIds: [] as string[],
+        workerWindows: {} as Record<string, string>,
+        windowAdjustments: {},
+        sourceFound: false,
+        sourceHadWindows: false,
+      }
+    }
+    return collectContinuingAttendance({
+      history: data.history,
+      date: draft.date,
+      shiftType: draft.shiftType,
+      audience: draft.audience ?? 'inspector',
+      catalog: data.workerWindowPresets,
+    })
+  }, [draft, data.history, data.workerWindowPresets])
 
   const handleAutoAssign = async () => {
     if (assigning) return
@@ -1334,6 +1313,49 @@ export function ShiftPage() {
                   >
                     כמו במשמרת הקודמת
                   </button>
+                  {continuingPreview.workerIds.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const merged = [
+                          ...new Set([
+                            ...draft.presentWorkerIds,
+                            ...continuingPreview.workerIds,
+                          ]),
+                        ]
+                        applyPresentSelection(merged, {
+                          workerWindows: {
+                            ...(draft.workerWindows ?? {}),
+                            ...continuingPreview.workerWindows,
+                          },
+                          windowAdjustments: continuingPreview.windowAdjustments,
+                          ...(continuingPreview.gateManagerWorkerId
+                            ? {
+                                gateManagerWorkerId:
+                                  continuingPreview.gateManagerWorkerId,
+                              }
+                            : {}),
+                        })
+                        notify.success(
+                          `סומנו ${continuingPreview.workerIds.length} ממשיכים מהמשמרת הקודמת`,
+                        )
+                      }}
+                      className="ui-btn ui-btn-ghost min-h-9 !px-2.5 !py-1 text-xs"
+                      title="סמן מי שהשעות האישיות שלו ממשיכות למשמרת הזו"
+                    >
+                      ממשיכים מהבוקר
+                      {continuingPreview.workerIds.length
+                        ? ` (${continuingPreview.workerIds.length})`
+                        : ''}
+                    </button>
+                  ) : morningShift && !continuingPreview.sourceHadWindows ? (
+                    <span
+                      className="text-[11px] font-medium text-ink-soft"
+                      title="שמרו שוב את משמרת הבוקר אחרי בחירת שעות אישיות"
+                    >
+                      אין שעות שמורות בבוקר להמשך
+                    </span>
+                  ) : null}
                   {morningShift?.gateManagerWorkerId &&
                   draft.gateManagerWorkerId !==
                     morningShift.gateManagerWorkerId ? (
