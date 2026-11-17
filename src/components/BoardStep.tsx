@@ -878,11 +878,7 @@ export function BoardStep({
           <LateMinutesControl
             variant="chip"
             ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
-            value={
-              draft.windowAdjustments?.[workerId]?.lateMinutes ??
-              draft.defaultLateMinutes ??
-              0
-            }
+            value={draft.windowAdjustments?.[workerId]?.lateMinutes ?? 0}
             onChange={(lateMinutes) =>
               setWindowAdjustment(workerId, { lateMinutes })
             }

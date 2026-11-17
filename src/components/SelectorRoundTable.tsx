@@ -311,9 +311,7 @@ export function SelectorRoundTable({
                                 variant="chip"
                                 ariaLabel={`איחור בנתיב ${lane.name}`}
                                 value={
-                                  windowAdjustments?.[workerId]?.lateMinutes ??
-                                  defaultLateMinutes ??
-                                  0
+                                  windowAdjustments?.[workerId]?.lateMinutes ?? 0
                                 }
                                 onChange={(lateMinutes) =>
                                   onLateChange(workerId, lateMinutes)

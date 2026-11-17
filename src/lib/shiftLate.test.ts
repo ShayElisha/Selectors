@@ -11,7 +11,7 @@ describe('shiftLate', () => {
     expect(clampShiftLateMinutes(12)).toBe(0)
   })
 
-  it('uses personal late over shift default', () => {
+  it('uses personal late only (ignores shift default)', () => {
     expect(
       effectiveLateMinutes({
         workerId: 'w1',
@@ -32,16 +32,22 @@ describe('shiftLate', () => {
         defaultLateMinutes: 30,
         windowAdjustments: {},
       }),
-    ).toBe(30)
+    ).toBe(0)
   })
 
-  it('builds effective adjustment', () => {
+  it('builds effective adjustment from personal values', () => {
     expect(
       effectiveWindowAdjustment({
         workerId: 'w1',
         defaultLateMinutes: 45,
         windowAdjustments: { w1: { earlyMinutes: 15 } },
       }),
-    ).toEqual({ lateMinutes: 45, earlyMinutes: 15 })
+    ).toEqual({ earlyMinutes: 15 })
+    expect(
+      effectiveWindowAdjustment({
+        workerId: 'w1',
+        windowAdjustments: { w1: { lateMinutes: 30, earlyMinutes: 15 } },
+      }),
+    ).toEqual({ lateMinutes: 30, earlyMinutes: 15 })
   })
 })
