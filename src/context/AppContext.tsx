@@ -149,7 +149,10 @@ import {
   setSelectorCell,
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
-import { roundCutsForWindows } from '../lib/shiftCatalog'
+import {
+  roundCutsForWindows,
+  windowFitsShift,
+} from '../lib/shiftCatalog'
 import {
   assignmentModeOf,
   DEFAULT_ASSIGNMENT_MODES,
@@ -197,6 +200,7 @@ import type {
   View,
   Worker,
   ShiftModel,
+  WorkerWindowPreset,
   CustomsBroker,
   CustomsBrokerContact,
   IncidentRecord,
@@ -685,6 +689,7 @@ interface AppContextValue {
   deleteInspectorQuestion: (id: string) => void
   reorderInspectorQuestions: (orderedIds: string[]) => void
   saveShiftModels: (models: ShiftModel[]) => void
+  saveWorkerWindowPresets: (presets: WorkerWindowPreset[]) => void
   upsertCustomsBroker: (broker: { id?: string; name: string }) => void
   deleteCustomsBroker: (id: string) => void
   upsertCustomsBrokerContact: (
@@ -707,6 +712,7 @@ const emptyData: AppData = {
   customsBrokers: [],
   incidents: [],
   shiftModels: [],
+  workerWindowPresets: [],
   revision: 0,
 }
 
@@ -2564,6 +2570,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (workerId: string, windowId: string | null) => {
       setDraft((d) => {
         if (!d) return d
+        if (
+          windowId &&
+          !windowFitsShift(windowId, d.shiftType, data.workerWindowPresets)
+        )
+          return d
         const workerWindows = { ...(d.workerWindows ?? {}) }
         if (!windowId) delete workerWindows[workerId]
         else workerWindows[workerId] = windowId
@@ -2610,7 +2621,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.history, data.lanes, data.shiftModels, data.workers, user?.module],
+    [
+      data.history,
+      data.lanes,
+      data.shiftModels,
+      data.workerWindowPresets,
+      data.workers,
+      user?.module,
+    ],
   )
 
   const setWindowAdjustment = useCallback(
@@ -2864,7 +2882,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             worker.status === 'active' &&
             !guestIds.has(worker.id) &&
             !lockedIds.has(worker.id) &&
-            !manualIds.has(worker.id),
+            !manualIds.has(worker.id) &&
+            windowFitsShift(
+              d.workerWindows?.[worker.id],
+              d.shiftType,
+              data.workerWindowPresets,
+            ),
         )
         // Multi-start search with real progress: thousands of board checks,
         // painted through the assigning loader instead of an instant result.
@@ -3089,6 +3112,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     data.history,
     data.lanes,
     data.shiftModels,
+    data.workerWindowPresets,
     data.workers,
     setProgress,
     setShiftStep,
@@ -3199,6 +3223,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               roundCutsForWindows(
                 d.shiftType,
                 d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
+                data.workerWindowPresets,
               ),
               d.presentWorkerIds.map((id) => d.workerWindows?.[id]),
               roundMinutesRef.current[activeModule(user)],
@@ -4753,6 +4778,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [patchData],
   )
 
+  const saveWorkerWindowPresets = useCallback(
+    (presets: WorkerWindowPreset[]) => {
+      patchData((prev) => ({
+        ...prev,
+        workerWindowPresets: presets.map((preset, order) => ({
+          ...preset,
+          order,
+        })),
+      }))
+    },
+    [patchData],
+  )
+
   const upsertCustomsBroker = useCallback(
     (broker: { id?: string; name: string }) => {
       const name = broker.name.trim()
@@ -5011,6 +5049,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteInspectorQuestion,
       reorderInspectorQuestions,
       saveShiftModels,
+      saveWorkerWindowPresets,
       upsertCustomsBroker,
       deleteCustomsBroker,
       upsertCustomsBrokerContact,
@@ -5127,6 +5166,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteInspectorQuestion,
       reorderInspectorQuestions,
       saveShiftModels,
+      saveWorkerWindowPresets,
       upsertCustomsBroker,
       deleteCustomsBroker,
       upsertCustomsBrokerContact,

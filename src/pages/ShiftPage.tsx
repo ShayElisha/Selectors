@@ -594,9 +594,21 @@ export function ShiftPage() {
       if (!source) continue
       for (const id of source.presentWorkerIds) {
         const saved = source.workerWindows?.[id]
-        if (!continuesIntoShift(sourceType, saved, draft.shiftType)) continue
+        if (
+          !continuesIntoShift(
+            sourceType,
+            saved,
+            draft.shiftType,
+            data.workerWindowPresets,
+          )
+        )
+          continue
         if (!ids.includes(id)) ids.push(id)
-        if (saved && workerWindowById(saved) && !workerWindows[id]) {
+        if (
+          saved &&
+          workerWindowById(saved, data.workerWindowPresets) &&
+          !workerWindows[id]
+        ) {
           workerWindows[id] = saved
         }
       }
@@ -1528,6 +1540,7 @@ export function ShiftPage() {
                                 windowId={draft.workerWindows?.[w.id] ?? ''}
                                 windowPresets={presetsOverlappingShift(
                                   draft.shiftType,
+                                  data.workerWindowPresets,
                                 )}
                                 onWindowChange={(windowId) =>
                                   setWorkerWindow(w.id, windowId)

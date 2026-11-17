@@ -367,6 +367,11 @@ export interface AppData {
   customsBrokers: CustomsBroker[]
   /** Shift windows for this module. Empty means the built-in defaults. */
   shiftModels?: ShiftModel[]
+  /**
+   * Personal hour presets for attendance (בחר משמרת).
+   * Empty means the built-in DEFAULT_WORKER_WINDOWS list.
+   */
+  workerWindowPresets?: WorkerWindowPreset[]
   /** Optimistic-lock revision from Mongo */
   revision?: number
 }
@@ -458,6 +463,15 @@ export interface ShiftModel {
   order: number
 }
 
+/** Personal hour presets offered on attendance (editable per module). */
+export interface WorkerWindowPreset {
+  id: string
+  label: string
+  start: number
+  end: number
+  order?: number
+}
+
 export type View =
   | 'home'
   | 'shift'
@@ -471,6 +485,7 @@ export type View =
   | 'briefings'
   | 'incidents'
   | 'shiftModels'
+  | 'workerWindows'
   | 'customsBrokers'
   | 'settings'
   | 'cancellations'

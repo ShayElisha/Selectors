@@ -13,6 +13,7 @@ export const VIEW_PATH: Record<View, string> = {
   briefings: '/briefings',
   incidents: '/incidents',
   shiftModels: '/shift-models',
+  workerWindows: '/worker-windows',
   customsBrokers: '/customs-brokers',
   settings: '/settings',
   cancellations: '/cancellations',
@@ -51,6 +52,7 @@ export function viewFromPath(pathname: string): View {
   if (path === '/briefings') return 'briefings'
   if (path === '/incidents') return 'incidents'
   if (path === '/shift-models') return 'shiftModels'
+  if (path === '/worker-windows') return 'workerWindows'
   if (path === '/customs-brokers') return 'customsBrokers'
   if (path === '/settings') return 'settings'
   if (path === '/cancellations') return 'cancellations'
