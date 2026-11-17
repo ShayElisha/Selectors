@@ -1736,11 +1736,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(usesRounds(d)
         ? {
             rounds: d.rounds ?? [],
-            ...(Object.keys(d.workerWindows ?? {}).length > 0
-              ? { workerWindows: d.workerWindows }
-              : {}),
             ...(d.staggerRounds ? { staggerRounds: true } : {}),
           }
+        : {}),
+      // Personal hours apply to inspectors too (board weight, afternoon continue).
+      ...(Object.keys(d.workerWindows ?? {}).length > 0
+        ? { workerWindows: d.workerWindows }
         : {}),
       ...(Object.keys(d.windowAdjustments ?? {}).length > 0
         ? { windowAdjustments: d.windowAdjustments }
