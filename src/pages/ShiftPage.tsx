@@ -54,7 +54,6 @@ import {
   selectorStaff,
 } from '../lib/gateManager'
 import { IntensityBadge, Ltr, TraineeBadge } from '../components/ui'
-import { LateMinutesControl } from '../components/LateMinutesControl'
 import { AttendanceWorkerExtras } from '../components/AttendanceWorkerExtras'
 import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
@@ -153,7 +152,6 @@ export function ShiftPage() {
     removeLaneFromShift,
     setWorkerWindow,
     setWindowAdjustment,
-    setDefaultLateMinutes,
     recordShiftDrop,
     undoShiftDrop,
     addBoardLane,
@@ -1271,30 +1269,22 @@ export function ShiftPage() {
             </div>
           ) : (
             <>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line/70 pb-3">
-                <div>
+              <div className="mb-3 space-y-2.5 border-b border-line/70 pb-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <h2 className="ui-title">סימון נוכחות</h2>
-                  <p className="mt-1 inline-flex rounded-full bg-brand/8 px-2.5 py-1 text-[13px] font-bold text-brand-deep tabular-nums">
+                  <p className="inline-flex rounded-full bg-brand/8 px-2.5 py-1 text-[12px] font-bold text-brand-deep tabular-nums">
                     נוכחים: {draft.presentWorkerIds.length} מתוך{' '}
                     {attendanceWorkers.length}
                     {draft.gateManagerWorkerId
                       ? ' · כולל מנהל משמרת'
                       : ''}
                   </p>
-                  <LateMinutesControl
-                    className="mt-3"
-                    variant="bar"
-                    label="איחור כללי למשמרת"
-                    hint="חל על כל הנוכחים · אפשר לשנות לאדם למטה"
-                    value={draft.defaultLateMinutes ?? 0}
-                    onChange={(minutes) => setDefaultLateMinutes(minutes, true)}
-                  />
                 </div>
-                <div className="flex flex-wrap gap-1.5 rounded-xl bg-surface/70 p-1 ring-1 ring-line/70">
+                <div className="flex flex-wrap items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setAllActiveWorkers(true)}
-                    className="ui-btn ui-btn-secondary min-h-10 !py-1.5 text-xs"
+                    className="ui-btn ui-btn-secondary min-h-9 !px-2.5 !py-1 text-xs"
                   >
                     כל הפעילים
                   </button>
@@ -1313,7 +1303,7 @@ export function ShiftPage() {
                           lastSameType.gateManagerWorkerId ?? null,
                       })
                     }}
-                    className="ui-btn ui-btn-ghost min-h-10 !py-1.5 text-xs disabled:opacity-60"
+                    className="ui-btn ui-btn-ghost min-h-9 !px-2.5 !py-1 text-xs disabled:opacity-60"
                   >
                     כמו במשמרת הקודמת
                   </button>
@@ -1325,7 +1315,7 @@ export function ShiftPage() {
                       onClick={() =>
                         setGateManager(morningShift.gateManagerWorkerId!)
                       }
-                      className="ui-btn ui-btn-secondary min-h-10 !py-1.5 text-xs"
+                      className="ui-btn ui-btn-ghost min-h-9 !px-2.5 !py-1 text-xs"
                       title="המשך מנהל המשמרת מהבוקר"
                     >
                       מנהל משמרת מהבוקר
@@ -1334,7 +1324,7 @@ export function ShiftPage() {
                   <button
                     type="button"
                     onClick={() => setAllActiveWorkers(false)}
-                    className="ui-btn ui-btn-ghost min-h-10 !py-1.5 text-xs"
+                    className="ui-btn ui-btn-ghost min-h-9 !px-2.5 !py-1 text-xs"
                   >
                     ניקוי
                   </button>
@@ -1345,25 +1335,26 @@ export function ShiftPage() {
                       setGuestPickerOpen(true)
                       void loadGuestCatalog()
                     }}
-                    className="ui-btn ui-btn-secondary min-h-10 !py-1.5 text-xs"
+                    className="ui-btn ui-btn-ghost min-h-9 !px-2.5 !py-1 text-xs"
+                    title="הוסף מאורח ממחלקה אחרת"
                   >
-                    הוסף מאורח ממחלקה אחרת
+                    הוסף מאורח
                   </button>
                 </div>
-              </div>
-              <div className="relative mb-4">
-                <Search
-                  className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
-                  aria-hidden
-                />
-                <input
-                  type="search"
-                  value={attendanceQuery}
-                  onChange={(e) => setAttendanceQuery(e.target.value)}
-                  placeholder="חיפוש לפי שם"
-                  aria-label={`חיפוש ${people.plural}`}
-                  className="ui-field min-h-11 w-full pe-3 ps-10"
-                />
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    value={attendanceQuery}
+                    onChange={(e) => setAttendanceQuery(e.target.value)}
+                    placeholder="חיפוש לפי שם"
+                    aria-label={`חיפוש ${people.plural}`}
+                    className="ui-field min-h-10 w-full pe-3 ps-10"
+                  />
+                </div>
               </div>
               <ul className="grid items-start gap-2 sm:grid-cols-2">
                 {filteredAttendance.map((w) => {
@@ -1554,9 +1545,7 @@ export function ShiftPage() {
                                 }
                                 lateMinutes={
                                   draft.windowAdjustments?.[w.id]
-                                    ?.lateMinutes ??
-                                  draft.defaultLateMinutes ??
-                                  0
+                                    ?.lateMinutes ?? 0
                                 }
                                 onLateChange={(lateMinutes) =>
                                   setWindowAdjustment(w.id, { lateMinutes })

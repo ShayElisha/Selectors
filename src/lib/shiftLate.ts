@@ -17,24 +17,28 @@ export function clampShiftLateMinutes(value: unknown): ShiftLateMinutes {
 }
 
 /**
- * Effective late for a worker: personal override wins; otherwise shift default.
+ * Effective late for a worker: personal override only.
+ * Shift-wide default late was removed from the product.
  */
 export function effectiveLateMinutes(opts: {
   workerId: string
   windowAdjustments?: Record<string, WindowAdjustment> | null
+  /** @deprecated Ignored — kept for call-site compatibility with old drafts. */
   defaultLateMinutes?: number | null
 }): number {
+  void opts.defaultLateMinutes
   const personal = opts.windowAdjustments?.[opts.workerId]
   if (personal && Object.prototype.hasOwnProperty.call(personal, 'lateMinutes')) {
     return clampShiftLateMinutes(personal.lateMinutes)
   }
-  return clampShiftLateMinutes(opts.defaultLateMinutes)
+  return 0
 }
 
-/** Merge shift default into a worker adjustment for algorithm / badges. */
+/** Merge personal late/early for algorithm / badges. */
 export function effectiveWindowAdjustment(opts: {
   workerId: string
   windowAdjustments?: Record<string, WindowAdjustment> | null
+  /** @deprecated Ignored — kept for call-site compatibility with old drafts. */
   defaultLateMinutes?: number | null
 }): WindowAdjustment | undefined {
   const personal = opts.windowAdjustments?.[opts.workerId]
