@@ -55,6 +55,7 @@ import {
 } from '../lib/gateManager'
 import { IntensityBadge, Ltr, TraineeBadge } from '../components/ui'
 import { LateMinutesControl } from '../components/LateMinutesControl'
+import { AttendanceWorkerExtras } from '../components/AttendanceWorkerExtras'
 import { BoardStep } from '../components/BoardStep'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
@@ -1440,35 +1441,6 @@ export function ShiftPage() {
                               {w.trainingRole === 'trainee' ? (
                                 <TraineeBadge />
                               ) : null}
-                              {on && !isGate && draft.workerWindows?.[w.id] ? (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-bold text-ink-soft ring-1 ring-line/80">
-                                  {workerWindowById(draft.workerWindows[w.id])
-                                    ?.label ?? draft.workerWindows[w.id]}
-                                </span>
-                              ) : null}
-                              {on && !isGate && w.trainingRole !== 'trainee' ? (
-                                (() => {
-                                  const mentorPair = (
-                                    draft.trainingPairs ?? []
-                                  ).find((item) => item.mentorId === w.id)
-                                  const placement = draft.manualPlacements?.find(
-                                    (item) => item.workerId === w.id,
-                                  )
-                                  const pinnedLaneId =
-                                    mentorPair?.laneId ?? placement?.laneId
-                                  return pinnedLaneId ? (
-                                    <span className="inline-flex items-center gap-1 rounded-md bg-ok-soft px-1.5 py-0.5 text-[10px] font-bold text-ok ring-1 ring-ok/20">
-                                      📌{' '}
-                                      {
-                                        data.lanes.find(
-                                          (l) => l.id === pinnedLaneId,
-                                        )?.name
-                                      }
-                                      {mentorPair ? ' · חונכות' : ''}
-                                    </span>
-                                  ) : null
-                                })()
-                              ) : null}
                               {guestIdSet.has(w.id) ? (
                                 <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-bold text-accent">
                                   אורח
@@ -1546,107 +1518,59 @@ export function ShiftPage() {
                         ) : null}
                         </div>
                         {on && !isGate ? (
-                          <div className="px-2.5 pb-2 space-y-1.5">
-                            <select
-                              value={draft.workerWindows?.[w.id] ?? ''}
-                              aria-label={`משמרת של ${w.fullName}`}
-                              onChange={(e) => {
-                                const windowId = e.target.value
-                                if (!windowId) return
-                                setWorkerWindow(w.id, windowId)
-                              }}
-                              className="ui-field w-full py-1.5 text-[13px]"
-                            >
-                              {!draft.workerWindows?.[w.id] ? (
-                                <option value="">בחר משמרת</option>
-                              ) : null}
-                              {presetsOverlappingShift(draft.shiftType).map(
-                                (preset) => (
-                                  <option key={preset.id} value={preset.id}>
-                                    {preset.label}
-                                  </option>
-                                ),
-                              )}
-                            </select>
-                            {module === 'inspectors' &&
-                            w.trainingRole !== 'trainee' ? (
-                              (() => {
-                                const mentorPair = (
-                                  draft.trainingPairs ?? []
-                                ).find((pair) => pair.mentorId === w.id)
-                                const preferredLaneId =
-                                  mentorPair?.laneId ??
-                                  draft.manualPlacements?.find(
-                                    (p) => p.workerId === w.id,
-                                  )?.laneId ??
-                                  ''
-                                return (
-                                  <select
-                                    className="ui-field w-full py-1.5 text-[13px]"
-                                    aria-label={
-                                      mentorPair
-                                        ? `נתיב חונכות עבור ${w.fullName}`
-                                        : `נתיב מועדף עבור ${w.fullName}`
-                                    }
-                                    value={preferredLaneId}
-                                    onChange={(e) => {
-                                      const laneId = e.target.value || null
-                                      setManualPlacement(w.id, laneId)
-                                    }}
-                                  >
-                                    {mentorPair ? null : (
-                                      <option value="">שיבוץ אוטומטי</option>
-                                    )}
-                                    {data.lanes
-                                      .filter(
-                                        (lane) =>
-                                          draft.activeLaneIds.includes(
-                                            lane.id,
-                                          ) && !isGateManagerLane(lane),
-                                      )
-                                      .map((lane) => (
-                                        <option key={lane.id} value={lane.id}>
-                                          📌 {lane.name}
-                                        </option>
-                                      ))}
-                                  </select>
-                                )
-                              })()
-                            ) : null}
-                            <div className="mt-2 space-y-2">
-                              <LateMinutesControl
-                                variant="chip"
-                                ariaLabel={`איחור של ${w.fullName}`}
-                                value={
-                                  draft.windowAdjustments?.[w.id]?.lateMinutes ??
+                          (() => {
+                            const mentorPair = (draft.trainingPairs ?? []).find(
+                              (pair) => pair.mentorId === w.id,
+                            )
+                            const preferredLaneId =
+                              mentorPair?.laneId ??
+                              draft.manualPlacements?.find(
+                                (p) => p.workerId === w.id,
+                              )?.laneId ??
+                              ''
+                            const showLaneSelect =
+                              module === 'inspectors' &&
+                              w.trainingRole !== 'trainee'
+                            return (
+                              <AttendanceWorkerExtras
+                                workerName={w.fullName}
+                                windowId={draft.workerWindows?.[w.id] ?? ''}
+                                windowPresets={presetsOverlappingShift(
+                                  draft.shiftType,
+                                )}
+                                onWindowChange={(windowId) =>
+                                  setWorkerWindow(w.id, windowId)
+                                }
+                                showLaneSelect={showLaneSelect}
+                                laneId={showLaneSelect ? preferredLaneId : ''}
+                                laneLockedByMentoring={Boolean(mentorPair)}
+                                lanes={data.lanes.filter(
+                                  (lane) =>
+                                    draft.activeLaneIds.includes(lane.id) &&
+                                    !isGateManagerLane(lane),
+                                )}
+                                onLaneChange={(laneId) =>
+                                  setManualPlacement(w.id, laneId)
+                                }
+                                lateMinutes={
+                                  draft.windowAdjustments?.[w.id]
+                                    ?.lateMinutes ??
                                   draft.defaultLateMinutes ??
                                   0
                                 }
-                                onChange={(lateMinutes) =>
+                                onLateChange={(lateMinutes) =>
                                   setWindowAdjustment(w.id, { lateMinutes })
                                 }
+                                earlyMinutes={
+                                  draft.windowAdjustments?.[w.id]
+                                    ?.earlyMinutes ?? 0
+                                }
+                                onEarlyChange={(earlyMinutes) =>
+                                  setWindowAdjustment(w.id, { earlyMinutes })
+                                }
                               />
-                              <label className="block text-[11px] text-ink-soft">
-                                יציאה מוקדמת
-                                <select
-                                  className="ui-field mt-0.5 w-full py-1.5 text-[12px]"
-                                  aria-label={`יציאה מוקדמת של ${w.fullName}`}
-                                  value={draft.windowAdjustments?.[w.id]?.earlyMinutes ?? 0}
-                                  onChange={(e) =>
-                                    setWindowAdjustment(w.id, {
-                                      earlyMinutes: Number(e.target.value),
-                                    })
-                                  }
-                                >
-                                  <option value={0}>עד הסוף</option>
-                                  <option value={15}>15 דק׳</option>
-                                  <option value={30}>30 דק׳</option>
-                                  <option value={45}>45 דק׳</option>
-                                  <option value={60}>שעה</option>
-                                </select>
-                              </label>
-                            </div>
-                          </div>
+                            )
+                          })()
                         ) : null}
                         {w.trainingRole === 'trainee' && on && !isGate ? (
                           <div className="border-t border-brand/15 px-2.5 py-2">
