@@ -55,6 +55,11 @@ import {
 import {
   ensureBoardQualityNotice,
   ensureCrossModuleConflictFromMessage,
+  ensureHardLaneStreakNotices,
+  ensureNewManagerNotice,
+  ensureQualityDropAfterManualNotice,
+  ensureSaveConflictNotice,
+  findHardLaneStreaks,
 } from '../lib/managerNotifications'
 import {
   assignmentFixKind,
@@ -417,6 +422,11 @@ export interface ShiftDraft {
   explanations: PlacementExplanation[]
   /** Quality breakdown for the latest untouched automatic board. */
   quality?: AssignmentResult['quality']
+  /**
+   * Last auto-assign score kept after manual edits clear `quality`.
+   * Used to warn when the board score drops after hand edits.
+   */
+  lastAutoQualityScore?: number
   /** Personal hours keyed by worker id. */
   workerWindows: Record<string, string>
   windowAdjustments: Record<string, WindowAdjustment>
@@ -1161,6 +1171,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 'נתוני השרת השתנו שוב בזמן השמירה. השינוי המקומי נשמר במסך; נסה לשמור שוב בעוד רגע.'
               setError(conflictMessage)
               toast.error(conflictMessage)
+              ensureSaveConflictNotice({ message: conflictMessage })
               throw e
             }
             pendingSaveRef.current = rebased
@@ -1170,6 +1181,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
           setError(msg)
+          // Avoid bell spam on transient network blips; conflict storm is handled above.
           throw e
         }
       }
@@ -2986,6 +2998,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             placed.warnings[0] ? ` · ${placed.warnings[0]}` : ''
           } · durationMs=${durationMs}`,
         )
+        const autoScore =
+          placed.quality?.legal && placed.quality.score != null
+            ? placed.quality.score
+            : undefined
         return withGateManagerSync(
           {
             ...d,
@@ -2997,6 +3013,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             warnings: placed.warnings,
             explanations: placed.explanations,
             quality: placed.quality,
+            ...(autoScore != null ? { lastAutoQualityScore: autoScore } : {}),
           },
           data.lanes,
         )
@@ -3232,6 +3249,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       setDraft((current) => {
         if (!current || current.signOff?.signedAt || usesRounds(current)) return current
+        const score =
+          placed.quality?.legal && placed.quality.score != null
+            ? placed.quality.score
+            : undefined
         return withGateManagerSync(
           {
             ...current,
@@ -3246,6 +3267,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             warnings: placed.warnings,
             explanations: placed.explanations,
             quality: placed.quality,
+            ...(score != null ? { lastAutoQualityScore: score } : {}),
           },
           data.lanes,
         )
@@ -4099,6 +4121,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setError(message)
       throw new Error(message)
     }
+    const previousAutoScore = synced.lastAutoQualityScore
+    const currentScore =
+      synced.quality?.legal && synced.quality.score != null
+        ? synced.quality.score
+        : null
+    if (previousAutoScore != null) {
+      ensureQualityDropAfterManualNotice({
+        shiftId: synced.id,
+        previousScore: previousAutoScore,
+        currentScore,
+        date: synced.date,
+        shiftType: synced.shiftType,
+      })
+    }
+
     const schedule = toSchedule(synced)
     setSyncing(true)
     setError(null)
@@ -4128,11 +4165,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       draftBaselineRef.current = snapshotDraft(synced)
       setDraftDirty(false)
       clearDraftStorage()
+
+      const hardStreaks = findHardLaneStreaks({
+        history: nextHistory,
+        lanes: next.lanes,
+        audience: synced.audience ?? 'inspector',
+        workerIds: synced.presentWorkerIds,
+        minStreak: 3,
+      })
+      if (hardStreaks.length > 0) {
+        const nameById = new Map(next.workers.map((w) => [w.id, w.fullName]))
+        ensureHardLaneStreakNotices(
+          hardStreaks.map((row) => ({
+            ...row,
+            workerName: nameById.get(row.workerId) || row.workerId,
+          })),
+          { shiftId: synced.id },
+        )
+      }
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
         const message = e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה'
         setError(message)
         ensureCrossModuleConflictFromMessage(message, { shiftId: synced.id })
+        ensureSaveConflictNotice({ message, shiftId: synced.id })
       }
       throw e
     } finally {
@@ -4350,6 +4406,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       dataRef.current = optimistic
       setData(optimistic)
+      if (created.isManager || created.isOrgManager) {
+        ensureNewManagerNotice({
+          workerId: created.id,
+          workerName: created.fullName,
+        })
+      }
       void (async () => {
         try {
           await flushPersist()
@@ -4376,12 +4438,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const module = activeModule(userRef.current)
       const next = normalizeWorkerRoles(w, staffKindForModule(module))
       const previous = dataRef.current
+      const before = previous.workers.find((x) => x.id === next.id)
+      const wasManager = Boolean(before?.isManager || before?.isOrgManager)
+      const isManagerNow = Boolean(next.isManager || next.isOrgManager)
       const optimistic: AppData = {
         ...previous,
         workers: previous.workers.map((x) => (x.id === next.id ? next : x)),
       }
       dataRef.current = optimistic
       setData(optimistic)
+      if (!wasManager && isManagerNow) {
+        ensureNewManagerNotice({
+          workerId: next.id,
+          workerName: next.fullName,
+        })
+      }
       void (async () => {
         try {
           await flushPersist()

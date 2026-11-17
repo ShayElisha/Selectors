@@ -25,6 +25,11 @@ function clockValue(minutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 
+function displayLabel(preset: WorkerWindowPreset): string {
+  const named = String(preset.name || '').trim()
+  return named || workerWindowLabelFromTimes(preset.start, preset.end)
+}
+
 export function WorkerWindowsPage() {
   const { data, module, saveWorkerWindowPresets } = useApp()
   const presets = useMemo(
@@ -35,14 +40,20 @@ export function WorkerWindowsPage() {
   const [end, setEnd] = useState('15:00')
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  /** Local name drafts so spaces work while typing; persist only on blur. */
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({})
 
   const persist = (next: WorkerWindowPreset[]) => {
     saveWorkerWindowPresets(
-      next.map((preset, order) => ({
-        ...preset,
-        label: preset.name || workerWindowLabelFromTimes(preset.start, preset.end),
-        order,
-      })),
+      next.map((preset, order) => {
+        const named = String(preset.name || '').trim() || undefined
+        return {
+          ...preset,
+          name: named,
+          label: named || workerWindowLabelFromTimes(preset.start, preset.end),
+          order,
+        }
+      }),
     )
   }
 
@@ -79,22 +90,40 @@ export function WorkerWindowsPage() {
     notify.success('חלון השעות נוסף')
   }
 
-  const update = (id: string, patch: Partial<Pick<WorkerWindowPreset, 'start' | 'end' | 'name'>>) => {
+  const update = (
+    id: string,
+    patch: Partial<Pick<WorkerWindowPreset, 'start' | 'end' | 'name'>>,
+  ) => {
     persist(
       presets.map((preset) => {
         if (preset.id !== id) return preset
         const startMinutes = patch.start ?? preset.start
         const endMinutes = patch.end ?? preset.end
-        const customName = patch.name !== undefined ? patch.name : preset.name
+        const rawName =
+          patch.name !== undefined ? patch.name : (preset.name ?? '')
+        const customName = String(rawName).trim() || undefined
         return {
           ...preset,
           start: startMinutes,
           end: endMinutes,
           name: customName,
-          label: customName || workerWindowLabelFromTimes(startMinutes, endMinutes),
+          label:
+            customName ||
+            workerWindowLabelFromTimes(startMinutes, endMinutes),
         }
       }),
     )
+  }
+
+  const commitNameDraft = (id: string) => {
+    if (!Object.prototype.hasOwnProperty.call(nameDrafts, id)) return
+    const raw = nameDrafts[id] ?? ''
+    update(id, { name: raw })
+    setNameDrafts((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }
 
   const remove = (preset: WorkerWindowPreset) => {
@@ -102,7 +131,12 @@ export function WorkerWindowsPage() {
       notify.error('חייבת להישאר לפחות אפשרות שעות אחת')
       return
     }
-    if (!confirm(`למחוק את ${preset.label}?`)) return
+    if (!confirm(`למחוק את ${displayLabel(preset)}?`)) return
+    setNameDrafts((prev) => {
+      const next = { ...prev }
+      delete next[preset.id]
+      return next
+    })
     persist(presets.filter((item) => item.id !== preset.id))
     notify.success('חלון השעות נמחק')
   }
@@ -137,18 +171,38 @@ export function WorkerWindowsPage() {
                     id={`win-name-${preset.id}`}
                     className="ui-field"
                     type="text"
-                    placeholder="למשל: בוקר, צהריים"
-                    value={preset.name || ''}
+                    placeholder="למשל: בוקר ארוך, צהריים קצר"
+                    value={
+                      Object.prototype.hasOwnProperty.call(nameDrafts, preset.id)
+                        ? nameDrafts[preset.id]
+                        : preset.name || ''
+                    }
                     onChange={(e) => {
-                      const value = e.target.value.trim()
-                      update(preset.id, { name: value || undefined })
+                      const value = e.target.value
+                      setNameDrafts((prev) => ({
+                        ...prev,
+                        [preset.id]: value,
+                      }))
+                    }}
+                    onBlur={() => commitNameDraft(preset.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.currentTarget.blur()
+                      }
                     }}
                   />
                   <p className="mt-1 text-[11px] text-ink-soft">
-                    {preset.name ? (
-                      <>שעות: <Ltr>{workerWindowLabelFromTimes(preset.start, preset.end)}</Ltr></>
+                    {String(preset.name || '').trim() ? (
+                      <>
+                        שעות:{' '}
+                        <Ltr>
+                          {workerWindowLabelFromTimes(preset.start, preset.end)}
+                        </Ltr>
+                      </>
                     ) : (
-                      <Ltr>{workerWindowLabelFromTimes(preset.start, preset.end)}</Ltr>
+                      <Ltr>
+                        {workerWindowLabelFromTimes(preset.start, preset.end)}
+                      </Ltr>
                     )}
                   </p>
                 </div>
@@ -182,7 +236,7 @@ export function WorkerWindowsPage() {
                   type="button"
                   className="ui-btn ui-btn-ghost justify-self-start sm:justify-self-end"
                   onClick={() => remove(preset)}
-                  aria-label={`מחיקת ${preset.label}`}
+                  aria-label={`מחיקת ${displayLabel(preset)}`}
                 >
                   <Trash2 className="size-4" aria-hidden />
                 </button>
@@ -203,7 +257,7 @@ export function WorkerWindowsPage() {
               id="new-win-name"
               className="ui-field"
               type="text"
-              placeholder="למשל: בוקר, צהריים, לילה"
+              placeholder="למשל: בוקר ארוך, צהריים, לילה"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />

@@ -2,12 +2,20 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearManagerNotices,
   ensureBoardQualityNotice,
+  ensureCriticalFaultNotices,
   ensureCrossModuleConflictFromMessage,
   ensureCrossModuleConflictNotices,
+  ensureHardLaneStreakNotices,
+  ensureMissingWindowsNotice,
+  ensureNewManagerNotice,
   ensurePendingEquipmentNotices,
   ensurePendingFaultNotices,
+  ensureQualityDropAfterManualNotice,
+  ensureSaveConflictNotice,
   ensureShiftEndNotice,
   ensureShiftOverdueNotice,
+  ensureWorkerNoticeSendFailedNotice,
+  findHardLaneStreaks,
   isActingGateManager,
   listManagerNotices,
   markAllManagerNoticesRead,
@@ -191,5 +199,98 @@ describe('managerNotifications', () => {
         { shiftId: 's1' },
       )?.kind,
     ).toBe('cross_module')
+  })
+
+  it('stores save-conflict, missing-windows, and quality-drop notices', () => {
+    expect(
+      ensureSaveConflictNotice({ message: 'קונפליקט גרסה', shiftId: 's1' })
+        ?.kind,
+    ).toBe('save_conflict')
+    expect(
+      ensureMissingWindowsNotice({
+        shiftId: 's1',
+        date: '2026-11-16',
+        shiftType: 'morning',
+        missingNames: ['דני', 'נועה'],
+      })?.kind,
+    ).toBe('missing_windows')
+    expect(
+      ensureQualityDropAfterManualNotice({
+        shiftId: 's1',
+        previousScore: 90,
+        currentScore: null,
+      })?.kind,
+    ).toBe('quality_drop')
+    expect(
+      ensureQualityDropAfterManualNotice({
+        shiftId: 's2',
+        previousScore: 90,
+        currentScore: 88,
+      }),
+    ).toBeNull()
+  })
+
+  it('detects hard-lane streaks of three and creates notices', () => {
+    const lanes = [
+      { id: 'hard', name: 'קשה', intensity: 'hard' as const },
+      { id: 'easy', name: 'קל', intensity: 'easy' as const },
+    ]
+    const history = [
+      {
+        id: 'a',
+        date: '2026-11-14',
+        shiftType: 'morning' as const,
+        assignments: [{ laneId: 'hard', workerIds: ['w1'] }],
+      },
+      {
+        id: 'b',
+        date: '2026-11-15',
+        shiftType: 'morning' as const,
+        assignments: [{ laneId: 'hard', workerIds: ['w1'] }],
+      },
+      {
+        id: 'c',
+        date: '2026-11-16',
+        shiftType: 'morning' as const,
+        assignments: [{ laneId: 'hard', workerIds: ['w1'] }],
+      },
+    ]
+    const streaks = findHardLaneStreaks({ history, lanes, minStreak: 3 })
+    expect(streaks).toEqual([
+      { workerId: 'w1', count: 3, lastLaneNames: ['קשה'] },
+    ])
+    const notices = ensureHardLaneStreakNotices(
+      streaks.map((row) => ({ ...row, workerName: 'דני' })),
+      { shiftId: 'c' },
+    )
+    expect(notices[0]?.kind).toBe('hard_lane_streak')
+  })
+
+  it('stores critical-fault, new-manager, and notice-send-failed', () => {
+    const critical: IncidentRecord = {
+      id: 'inc-crit',
+      kind: 'fault',
+      title: 'שריפה',
+      description: '',
+      severity: 'critical',
+      status: 'open',
+      reportedByName: 'דני',
+      createdAt: '2026-11-16T10:00:00.000Z',
+      createdBy: 'דני',
+      updatedAt: '2026-11-16T10:00:00.000Z',
+      updatedBy: 'דני',
+    }
+    expect(ensureCriticalFaultNotices([critical])[0]?.kind).toBe(
+      'critical_fault',
+    )
+    expect(
+      ensureNewManagerNotice({ workerId: 'w9', workerName: 'מיכל' })?.kind,
+    ).toBe('new_manager')
+    expect(
+      ensureWorkerNoticeSendFailedNotice({
+        message: 'timeout',
+        title: 'עדכון',
+      })?.kind,
+    ).toBe('notice_send_failed')
   })
 })
