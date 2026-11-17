@@ -140,13 +140,41 @@ export function windowCoversRound(
   return roundStart >= span.start + late && roundEnd <= span.end - early
 }
 
-export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPreset[] {
+/**
+ * Whether a personal window may be used on this official shift.
+ * - No window → whole shift (eligible).
+ * - Native window starts at/near the shift start (or earlier for morning).
+ * - Long morning windows may continue into afternoon only via continuesIntoShift.
+ */
+export function windowFitsShift(
+  windowId: string | undefined,
+  shiftType: ShiftType,
+): boolean {
+  if (!windowId) return true
+  const preset = workerWindowById(windowId)
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
-  if (!shift) return WORKER_WINDOWS
-  return WORKER_WINDOWS.filter((preset) => {
-    const span = windowInterval(preset, shiftType)
-    return span.start < shift.end && span.end > shift.start
-  })
+  if (!preset || !shift) return false
+  const span = windowInterval(preset, shiftType)
+  if (!(span.start < shift.end && span.end > shift.start)) return false
+
+  const nativeSlack = 15
+  const native =
+    span.start >= shift.start - nativeSlack &&
+    span.start <= shift.start + nativeSlack
+  if (native) return span.end > shift.start
+
+  if (span.start < shift.start && span.end > shift.start) {
+    const earlier = earlierShiftsToContinue(shiftType)
+    if (earlier.length === 0) return true
+    return earlier.some((source) =>
+      continuesIntoShift(source, windowId, shiftType),
+    )
+  }
+  return false
+}
+
+export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPreset[] {
+  return WORKER_WINDOWS.filter((preset) => windowFitsShift(preset.id, shiftType))
 }
 
 /**

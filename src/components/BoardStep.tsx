@@ -47,6 +47,7 @@ import { LaneStaffingControl } from './LaneStaffingControl'
 import {
   timingBadgesForWorker,
 } from '../lib/shiftTimingBadges'
+import { windowFitsShift } from '../lib/shiftCatalog'
 import { explainWhyNotSelected } from '../lib/whyNotSelected'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { PeopleLabels } from '../auth'
@@ -589,6 +590,13 @@ export function BoardStep({
       }
     }
     if (workerId) {
+      const windowId = draft.workerWindows?.[workerId]
+      if (!windowFitsShift(windowId, draft.shiftType)) {
+        const name =
+          data.workers.find((w) => w.id === workerId)?.fullName ?? workerId
+        notify.error('מחוץ לשעות', `${name} לא זמין/ה במשמרת הזו לפי השעות שנבחרו`)
+        return
+      }
       const other = workerLaneNameElsewhere(
         workerId,
         draft.assignments,
@@ -721,7 +729,11 @@ export function BoardStep({
     std: number,
   ) => {
     const present = rosterWorkers.filter(
-      (w) => draft.presentWorkerIds.includes(w.id) && w.isInspector,
+      (w) =>
+        draft.presentWorkerIds.includes(w.id) &&
+        w.isInspector &&
+        (w.id === workerId ||
+          windowFitsShift(draft.workerWindows?.[w.id], draft.shiftType)),
     )
     const workers = present
       .slice()

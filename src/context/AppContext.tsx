@@ -149,7 +149,7 @@ import {
   setSelectorCell,
   unassignedSelectorIds,
 } from '../lib/selectorRounds'
-import { roundCutsForWindows } from '../lib/shiftCatalog'
+import { roundCutsForWindows, windowFitsShift } from '../lib/shiftCatalog'
 import {
   assignmentModeOf,
   DEFAULT_ASSIGNMENT_MODES,
@@ -2564,6 +2564,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (workerId: string, windowId: string | null) => {
       setDraft((d) => {
         if (!d) return d
+        if (windowId && !windowFitsShift(windowId, d.shiftType)) return d
         const workerWindows = { ...(d.workerWindows ?? {}) }
         if (!windowId) delete workerWindows[workerId]
         else workerWindows[workerId] = windowId
@@ -2864,7 +2865,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             worker.status === 'active' &&
             !guestIds.has(worker.id) &&
             !lockedIds.has(worker.id) &&
-            !manualIds.has(worker.id),
+            !manualIds.has(worker.id) &&
+            windowFitsShift(d.workerWindows?.[worker.id], d.shiftType),
         )
         // Multi-start search with real progress: thousands of board checks,
         // painted through the assigning loader instead of an instant result.
