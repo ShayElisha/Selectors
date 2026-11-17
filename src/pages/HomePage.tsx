@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -70,6 +70,7 @@ import type { Intensity, ShiftHandoffNote, ShiftSchedule } from '../types'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
+import { workerWindowById } from '../lib/shiftCatalog'
 
 /** Optional health snapshot if/when persisted on ShiftSchedule. */
 export interface ShiftHealthSnapshot {
@@ -253,6 +254,18 @@ export function HomePage() {
       .slice(0, 3)
   }, [data.history, currentShift?.id])
 
+  const personalWindowLabel = useCallback(
+    (workerId: string) => {
+      if (!currentShift) return 'כל המשמרת'
+      const preset = workerWindowById(
+        currentShift.workerWindows?.[workerId],
+        data.workerWindowPresets,
+      )
+      return preset?.label ?? 'כל המשמרת'
+    },
+    [currentShift, data.workerWindowPresets],
+  )
+
   const currentTableRows = useMemo(() => {
     if (!currentShift) return []
     const rows = currentShift.activeLaneIds
@@ -268,6 +281,7 @@ export function HomePage() {
               id,
               name: worker?.fullName ?? id,
               trainingRole: worker?.trainingRole,
+              windowLabel: personalWindowLabel(id),
             }
           })
         return {
@@ -292,6 +306,7 @@ export function HomePage() {
         id: string
         name: string
         trainingRole?: 'trainee' | 'mentor'
+        windowLabel: string
       }[]
     }[]
     const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
@@ -300,7 +315,7 @@ export function HomePage() {
         (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
         a.laneName.localeCompare(b.laneName, 'he'),
     )
-  }, [currentShift, data.lanes, data.workers])
+  }, [currentShift, data.lanes, data.workers, personalWindowLabel])
 
   const currentUnassigned = useMemo(() => {
     if (!currentShift) return []
@@ -315,9 +330,10 @@ export function HomePage() {
           id,
           name: worker?.fullName ?? id,
           trainingRole: worker?.trainingRole,
+          windowLabel: personalWindowLabel(id),
         }
       })
-  }, [currentShift, data.workers])
+  }, [currentShift, data.workers, personalWindowLabel])
 
   const resumeShift = () => {
     if (!draft) return
@@ -898,13 +914,14 @@ export function HomePage() {
               />
             ) : (
               <>
-                <div className="max-w-3xl overflow-hidden rounded-2xl border border-line shadow-sm">
+                <div className="max-w-4xl overflow-hidden rounded-2xl border border-line shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full table-fixed border-collapse text-center text-[13px]">
                       <colgroup>
-                        <col className="w-[32%]" />
-                        <col className="w-[22%]" />
-                        <col className="w-[46%]" />
+                        <col className="w-[24%]" />
+                        <col className="w-[16%]" />
+                        <col className="w-[34%]" />
+                        <col className="w-[26%]" />
                       </colgroup>
                       <thead>
                         <tr className="border-b border-line bg-brand/[0.045]">
@@ -916,6 +933,9 @@ export function HomePage() {
                           </th>
                           <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                             בודקים
+                          </th>
+                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                            משמרת
                           </th>
                         </tr>
                       </thead>
@@ -978,6 +998,23 @@ export function HomePage() {
                                   ) : null}
                                 </div>
                               </td>
+                              <td className="px-3 py-2 align-middle text-center">
+                                {row.workers.length === 0 ? (
+                                  <span className="text-[12px] text-ink-soft">—</span>
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center gap-1">
+                                    {row.workers.map((person) => (
+                                      <span
+                                        key={person.id}
+                                        className="inline-flex max-w-full items-center rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft ring-1 ring-line"
+                                        title={`${person.name}: ${person.windowLabel}`}
+                                      >
+                                        <Ltr>{person.windowLabel}</Ltr>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
                             </tr>
                           )
                         })}
@@ -989,11 +1026,17 @@ export function HomePage() {
                   <p className="mt-3 text-[13px] text-ink-soft">
                     לא שובצו:{' '}
                     {currentUnassigned.map((person) => (
-                      <span key={person.id} className="me-1.5 inline-block">
+                      <span
+                        key={person.id}
+                        className="me-1.5 inline-flex items-center gap-1"
+                      >
                         <PersonChip
                           name={person.name}
                           trainingRole={person.trainingRole}
                         />
+                        <span className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft ring-1 ring-line">
+                          <Ltr>{person.windowLabel}</Ltr>
+                        </span>
                       </span>
                     ))}
                   </p>
