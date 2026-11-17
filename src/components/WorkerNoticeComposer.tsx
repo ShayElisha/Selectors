@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BellRing, Mail } from 'lucide-react'
 import { createWorkerNoticeRemote } from '../api'
 import { SectionCard } from './ui'
+import { ensureWorkerNoticeSendFailedNotice } from '../lib/managerNotifications'
 import { notify } from '../lib/notify'
 
 /** Manager UI: broadcast a notice to the worker portal bell. */
@@ -28,7 +29,9 @@ export function WorkerNoticeComposer({
       setBody('')
       notify.success('ההודעה נשלחה להתראות העובדים')
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'שליחת ההודעה נכשלה')
+      const message = e instanceof Error ? e.message : 'שליחת ההודעה נכשלה'
+      ensureWorkerNoticeSendFailedNotice({ message, title: t })
+      notify.error(message)
     } finally {
       setBusy(false)
     }

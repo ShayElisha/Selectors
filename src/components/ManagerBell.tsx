@@ -7,11 +7,15 @@ import {
 } from '../api'
 import { useApp } from '../context/AppContext'
 import {
+  ensureCriticalFaultNotices,
   ensureCrossModuleConflictNotices,
+  ensureHardLaneStreakNotices,
+  ensureMissingWindowsNotice,
   ensurePendingEquipmentNotices,
   ensurePendingFaultNotices,
   ensureShiftEndNotice,
   ensureShiftOverdueNotice,
+  findHardLaneStreaks,
   isActingGateManager,
   listManagerNotices,
   markAllManagerNoticesRead,
@@ -106,6 +110,7 @@ export function ManagerBell() {
     }
 
     ensurePendingFaultNotices(data.incidents)
+    ensureCriticalFaultNotices(data.incidents)
 
     try {
       const equipment = await fetchManagerEquipmentRequestsRemote('pending')
@@ -131,10 +136,59 @@ export function ManagerBell() {
       } catch {
         /* ignore check failures */
       }
+
+      const nameById = new Map(data.workers.map((w) => [w.id, w.fullName]))
+      const missingNames = shift.presentWorkerIds
+        .filter((id) => id !== shift.gateManagerWorkerId)
+        .filter((id) => !String(shift.workerWindows?.[id] || '').trim())
+        .map((id) => nameById.get(id) || id)
+      ensureMissingWindowsNotice({
+        shiftId: shift.id,
+        date: shift.date,
+        shiftType: shift.shiftType,
+        missingNames,
+      })
+
+      const historyWithDraft = [
+        ...data.history.filter((item) => item.id !== shift.id),
+        {
+          id: shift.id,
+          date: shift.date,
+          shiftType: shift.shiftType,
+          audience: shift.audience,
+          assignments: shift.assignments,
+          rounds: shift.rounds,
+        },
+      ]
+      const hardStreaks = findHardLaneStreaks({
+        history: historyWithDraft,
+        lanes: data.lanes,
+        audience: shift.audience ?? 'inspector',
+        workerIds: shift.presentWorkerIds,
+        minStreak: 3,
+      })
+      if (hardStreaks.length > 0) {
+        ensureHardLaneStreakNotices(
+          hardStreaks.map((row) => ({
+            ...row,
+            workerName: nameById.get(row.workerId) || row.workerId,
+          })),
+          { shiftId: shift.id },
+        )
+      }
     }
 
     refresh()
-  }, [draft, data.history, data.workers, data.incidents, user?.id, user?.phone, refresh])
+  }, [
+    draft,
+    data.history,
+    data.workers,
+    data.lanes,
+    data.incidents,
+    user?.id,
+    user?.phone,
+    refresh,
+  ])
 
   useEffect(() => {
     void syncNotices()
@@ -188,16 +242,25 @@ export function ManagerBell() {
     markManagerNoticeRead(notice.id)
     refresh()
     const view = (notice.view ||
-      (notice.kind === 'fault'
+      (notice.kind === 'fault' || notice.kind === 'critical_fault'
         ? 'incidents'
         : notice.kind === 'equipment'
           ? 'equipment'
-          : notice.kind === 'shift_end' ||
-              notice.kind === 'shift_overdue' ||
-              notice.kind === 'board_quality' ||
-              notice.kind === 'cross_module'
-            ? 'shift'
-            : null)) as View | null
+          : notice.kind === 'new_manager'
+            ? 'workers'
+            : notice.kind === 'hard_lane_streak'
+              ? 'tracking'
+              : notice.kind === 'notice_send_failed'
+                ? 'settings'
+                : notice.kind === 'shift_end' ||
+                    notice.kind === 'shift_overdue' ||
+                    notice.kind === 'board_quality' ||
+                    notice.kind === 'cross_module' ||
+                    notice.kind === 'missing_windows' ||
+                    notice.kind === 'quality_drop' ||
+                    notice.kind === 'save_conflict'
+                  ? 'shift'
+                  : null)) as View | null
     if (view) {
       setOpen(false)
       setView(view)
