@@ -1,4 +1,6 @@
-import type { ShiftType } from '../types'
+import type { ShiftType, WorkerWindowPreset } from '../types'
+
+export type { WorkerWindowPreset }
 
 /** Minutes from local midnight. Values above 24h are the next morning. */
 export type ClockRange = { start: number; end: number }
@@ -19,15 +21,29 @@ export const SELECTABLE_SHIFT_TYPES: ShiftType[] = [
   'night',
 ]
 
-export interface WorkerWindowPreset {
-  id: string
-  label: string
-  start: number
-  end: number
+function clockDigits(minutes: number): string {
+  const day = 24 * 60
+  const m = ((minutes % day) + day) % day
+  const h = Math.floor(m / 60)
+  const min = m % 60
+  return `${String(h).padStart(2, '0')}${String(min).padStart(2, '0')}`
 }
 
-/** Personal hours chosen on attendance. End is exclusive of later rounds. */
-export const WORKER_WINDOWS: WorkerWindowPreset[] = [
+function clockLabel(minutes: number): string {
+  const digits = clockDigits(minutes)
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`
+}
+
+export function workerWindowIdFromTimes(start: number, end: number): string {
+  return `${clockDigits(start)}-${clockDigits(end)}`
+}
+
+export function workerWindowLabelFromTimes(start: number, end: number): string {
+  return `${clockLabel(start)}–${clockLabel(end)}`
+}
+
+/** Built-in personal hours when the org has not saved a custom list yet. */
+export const DEFAULT_WORKER_WINDOWS: WorkerWindowPreset[] = [
   { id: '0445-1500', label: '04:45–15:00', start: 4 * 60 + 45, end: 15 * 60 },
   { id: '0445-1645', label: '04:45–16:45', start: 4 * 60 + 45, end: 16 * 60 + 45 },
   { id: '0445-1730', label: '04:45–17:30', start: 4 * 60 + 45, end: 17 * 60 + 30 },
@@ -39,6 +55,59 @@ export const WORKER_WINDOWS: WorkerWindowPreset[] = [
   { id: '1430-2130', label: '14:30–21:30', start: 14 * 60 + 30, end: 21 * 60 + 30 },
   { id: '1800-0630', label: '18:00–06:30', start: 18 * 60, end: 6 * 60 + 30 },
 ]
+
+/** @deprecated Prefer DEFAULT_WORKER_WINDOWS / resolveWorkerWindows. */
+export const WORKER_WINDOWS = DEFAULT_WORKER_WINDOWS
+
+export function normalizeWorkerWindowPresets(
+  raw: unknown,
+): WorkerWindowPreset[] {
+  if (!Array.isArray(raw)) return []
+  const out: WorkerWindowPreset[] = []
+  const seen = new Set<string>()
+  raw.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return
+    const row = item as Partial<WorkerWindowPreset>
+    const start = Number(row.start)
+    const end = Number(row.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return
+    if (start === end) return
+    const startMinutes = Math.max(0, Math.round(start))
+    const endMinutes = Math.max(0, Math.round(end))
+    const id =
+      String(row.id || '').trim() ||
+      workerWindowIdFromTimes(startMinutes, endMinutes)
+    if (!id || seen.has(id)) return
+    seen.add(id)
+    const label =
+      String(row.label || '').trim() ||
+      workerWindowLabelFromTimes(startMinutes, endMinutes)
+    out.push({
+      id,
+      label,
+      start: startMinutes,
+      end: endMinutes,
+      order: Number.isFinite(Number((row as { order?: number }).order))
+        ? Number((row as { order?: number }).order)
+        : index,
+    })
+  })
+  return out.sort(
+    (a, b) =>
+      (a.order ?? 0) - (b.order ?? 0) ||
+      a.start - b.start ||
+      a.end - b.end ||
+      a.label.localeCompare(b.label, 'he'),
+  )
+}
+
+/** Saved presets for this module, or the built-in list when none were saved. */
+export function resolveWorkerWindows(
+  saved?: WorkerWindowPreset[] | null,
+): WorkerWindowPreset[] {
+  const normalized = normalizeWorkerWindowPresets(saved)
+  return normalized.length > 0 ? normalized : DEFAULT_WORKER_WINDOWS
+}
 
 /** Afternoon A continues morning; afternoon B continues morning and afternoon A. */
 export function earlierShiftsToContinue(shiftType: ShiftType): ShiftType[] {
@@ -60,8 +129,9 @@ export function continuesIntoShift(
   sourceType: ShiftType,
   windowId: string | undefined,
   targetType: ShiftType,
+  catalog?: WorkerWindowPreset[] | null,
 ): boolean {
-  const preset = workerWindowById(windowId)
+  const preset = workerWindowById(windowId, catalog)
   if (!preset) return false
   const source = MAIN_SHIFT_BOUNDS[sourceType]
   const target = MAIN_SHIFT_BOUNDS[targetType]
@@ -90,9 +160,16 @@ export function laneOpenDuring(
   })
 }
 
-export function workerWindowById(id: string | undefined): WorkerWindowPreset | undefined {
+export function workerWindowById(
+  id: string | undefined,
+  catalog?: WorkerWindowPreset[] | null,
+): WorkerWindowPreset | undefined {
   if (!id) return undefined
-  return WORKER_WINDOWS.find((w) => w.id === id)
+  const list = resolveWorkerWindows(catalog)
+  return (
+    list.find((w) => w.id === id) ??
+    DEFAULT_WORKER_WINDOWS.find((w) => w.id === id)
+  )
 }
 
 /** Map a clock time onto a shift that may run past midnight. */
@@ -127,8 +204,9 @@ export function windowCoversRound(
   roundStart: number,
   roundEnd: number,
   adjustment?: { lateMinutes?: number; earlyMinutes?: number },
+  catalog?: WorkerWindowPreset[] | null,
 ): boolean {
-  const preset = workerWindowById(windowId)
+  const preset = workerWindowById(windowId, catalog)
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
   const late = clampWindowStep(adjustment?.lateMinutes)
   const early = clampWindowStep(adjustment?.earlyMinutes)
@@ -149,9 +227,10 @@ export function windowCoversRound(
 export function windowFitsShift(
   windowId: string | undefined,
   shiftType: ShiftType,
+  catalog?: WorkerWindowPreset[] | null,
 ): boolean {
   if (!windowId) return true
-  const preset = workerWindowById(windowId)
+  const preset = workerWindowById(windowId, catalog)
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
   if (!preset || !shift) return false
   const span = windowInterval(preset, shiftType)
@@ -167,14 +246,19 @@ export function windowFitsShift(
     const earlier = earlierShiftsToContinue(shiftType)
     if (earlier.length === 0) return true
     return earlier.some((source) =>
-      continuesIntoShift(source, windowId, shiftType),
+      continuesIntoShift(source, windowId, shiftType, catalog),
     )
   }
   return false
 }
 
-export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPreset[] {
-  return WORKER_WINDOWS.filter((preset) => windowFitsShift(preset.id, shiftType))
+export function presetsOverlappingShift(
+  shiftType: ShiftType,
+  catalog?: WorkerWindowPreset[] | null,
+): WorkerWindowPreset[] {
+  return resolveWorkerWindows(catalog).filter((preset) =>
+    windowFitsShift(preset.id, shiftType, catalog),
+  )
 }
 
 /**
@@ -184,26 +268,30 @@ export function presetsOverlappingShift(shiftType: ShiftType): WorkerWindowPrese
 export function boardStartMinutes(
   shiftType: ShiftType,
   windowIds: Array<string | undefined>,
+  catalog?: WorkerWindowPreset[] | null,
 ): number {
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
   if (!shift) return 6 * 60
   let start = shift.start
   const early = 4 * 60 + 45
-  if (!windowIds.some((id) => workerWindowById(id)?.start === early)) return start
+  if (!windowIds.some((id) => workerWindowById(id, catalog)?.start === early))
+    return start
   const mapped = onShiftClock(early, shiftType)
   if (mapped < start && start - mapped <= 3 * 60) start = mapped
   return start
 }
+
 export function roundCutsForWindows(
   shiftType: ShiftType,
   windowIds: Array<string | undefined>,
+  catalog?: WorkerWindowPreset[] | null,
 ): number[] {
   const shift = MAIN_SHIFT_BOUNDS[shiftType]
   if (!shift) return []
   const cuts = new Set<number>()
   let earlyArrival = false
   for (const id of windowIds) {
-    const preset = workerWindowById(id)
+    const preset = workerWindowById(id, catalog)
     if (!preset) continue
     if (preset.start === 4 * 60 + 45) earlyArrival = true
     const span = windowInterval(preset, shiftType)
@@ -212,7 +300,7 @@ export function roundCutsForWindows(
     }
   }
   const six = onShiftClock(6 * 60, shiftType)
-  const openedAt = boardStartMinutes(shiftType, windowIds)
+  const openedAt = boardStartMinutes(shiftType, windowIds, catalog)
   if (earlyArrival && six > openedAt && six < shift.end) cuts.add(six)
   return [...cuts].sort((a, b) => a - b)
 }

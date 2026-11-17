@@ -60,6 +60,7 @@ export function createSeedData() {
     customsBrokers: [],
     incidents: [],
     shiftModels: [],
+    workerWindowPresets: [],
   };
 }
 
@@ -116,6 +117,38 @@ function normalizeWorker(w, fallbackKind = "selector") {
   }
   // Never accept passwordHash / mustChangePassword from the client.
   return worker;
+}
+
+function normalizeWorkerWindowPresets(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  raw.forEach((item, index) => {
+    if (!item || typeof item !== "object") return;
+    const start = Number(item.start);
+    const end = Number(item.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return;
+    const startMinutes = Math.max(0, Math.round(start));
+    const endMinutes = Math.max(0, Math.round(end));
+    const id = String(item.id || "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const label = String(item.label || "").trim() || id;
+    out.push({
+      id,
+      label,
+      start: startMinutes,
+      end: endMinutes,
+      order: Number.isFinite(Number(item.order)) ? Number(item.order) : index,
+    });
+  });
+  return out.sort(
+    (a, b) =>
+      (a.order ?? 0) - (b.order ?? 0) ||
+      a.start - b.start ||
+      a.end - b.end ||
+      String(a.label).localeCompare(String(b.label), "he"),
+  );
 }
 
 function normalizeShiftModels(raw) {
@@ -413,6 +446,7 @@ export function normalizeData(raw, fallbackKind = "selector") {
     incidents,
     customsBrokers: normalizeCustomsBrokersList(raw?.customsBrokers),
     shiftModels: normalizeShiftModels(raw?.shiftModels),
+    workerWindowPresets: normalizeWorkerWindowPresets(raw?.workerWindowPresets),
     revision: Number.isFinite(Number(raw?.revision)) ? Number(raw.revision) : 0,
   };
 }
@@ -819,6 +853,7 @@ const MODEL_COLLECTIONS = {
   questionBank: "questions",
   customsBrokers: "customs_brokers",
   shiftModels: "shift_models",
+  workerWindowPresets: "worker_window_presets",
   incidents: "incidents",
 };
 
@@ -921,6 +956,7 @@ async function assembleState(
     questionBank,
     customsBrokers,
     shiftModels,
+    workerWindowPresets,
     incidents,
   ] = await Promise.all([
     read(MODEL_COLLECTIONS.workers),
@@ -930,6 +966,7 @@ async function assembleState(
     read(MODEL_COLLECTIONS.questionBank),
     read(MODEL_COLLECTIONS.customsBrokers),
     read(MODEL_COLLECTIONS.shiftModels),
+    read(MODEL_COLLECTIONS.workerWindowPresets),
     read(MODEL_COLLECTIONS.incidents),
   ]);
   const history = scope?.orgId
@@ -947,6 +984,7 @@ async function assembleState(
       questionBank: fromOrderedDocs(questionBank),
       customsBrokers: fromOrderedDocs(customsBrokers),
       shiftModels: fromOrderedDocs(shiftModels),
+      workerWindowPresets: fromOrderedDocs(workerWindowPresets),
       incidents: fromOrderedDocs(incidents),
       revision: Number.isFinite(Number(revision)) ? Number(revision) : 0,
     },
@@ -1021,6 +1059,12 @@ async function replaceModels(
     [
       MODEL_COLLECTIONS.shiftModels,
       orderedDocs(snapshot.shiftModels || []).map((doc) =>
+        stampScope(doc, scope),
+      ),
+    ],
+    [
+      MODEL_COLLECTIONS.workerWindowPresets,
+      orderedDocs(snapshot.workerWindowPresets || []).map((doc) =>
         stampScope(doc, scope),
       ),
     ],
@@ -1121,6 +1165,7 @@ function snapshotOf(source) {
     questionBank: source.questionBank,
     customsBrokers: source.customsBrokers,
     shiftModels: source.shiftModels,
+    workerWindowPresets: source.workerWindowPresets,
     incidents: source.incidents,
   };
 }
@@ -1212,6 +1257,7 @@ function emptyState() {
     questionBank: [],
     customsBrokers: [],
     shiftModels: [],
+    workerWindowPresets: [],
     incidents: [],
     revision: 0,
   });
@@ -1728,6 +1774,7 @@ export async function writeState(data, options = {}) {
     questionBank: payload.questionBank ?? [],
     customsBrokers: payload.customsBrokers ?? [],
     shiftModels: payload.shiftModels ?? [],
+    workerWindowPresets: payload.workerWindowPresets ?? [],
     incidents: payload.incidents ?? [],
   };
   const historyChanged =

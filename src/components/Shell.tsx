@@ -20,6 +20,7 @@ import {
   Settings2,
   BookOpen,
   Clock,
+  Timer,
   Briefcase,
   SlidersHorizontal,
   KeyRound,
@@ -82,6 +83,7 @@ const MANAGE: NavItem[] = [
   { id: 'lanes', label: 'נתיבים', icon: LayoutGrid },
   { id: 'certs', label: 'הסמכות', icon: BadgeCheck },
   { id: 'shiftModels', label: 'משמרות', icon: Clock },
+  { id: 'workerWindows', label: 'שעות אישיות', icon: Timer },
 ]
 
 const SETTINGS_NAV: NavItem = {
@@ -97,6 +99,7 @@ const MOBILE_MORE: View[] = [
   'lanes',
   'certs',
   'shiftModels',
+  'workerWindows',
   'tracking',
   'reports',
   'analytics',
@@ -371,7 +374,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {
           id: 'manage' as const,
           label: 'ניהול',
-          hint: 'נתיבים, הסמכות ומשמרות',
+          hint: 'נתיבים, הסמכות, משמרות ושעות',
           icon: LayoutGrid,
           items: moreManage,
         },

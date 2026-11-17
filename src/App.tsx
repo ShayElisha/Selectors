@@ -29,6 +29,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { BriefingsPage } from './pages/BriefingsPage'
 import { IncidentsPage } from './pages/IncidentsPage'
 import { ShiftModelsPage } from './pages/ShiftModelsPage'
+import { WorkerWindowsPage } from './pages/WorkerWindowsPage'
 import { CustomsBrokersPage } from './pages/CustomsBrokersPage'
 import { OrgSettingsPage } from './pages/OrgSettingsPage'
 import { LoginPage } from './pages/LoginPage'
@@ -137,6 +138,7 @@ function ProtectedShell() {
         <Route path="briefings" element={<BriefingsPage />} />
         <Route path="incidents" element={<IncidentsPage />} />
         <Route path="shift-models" element={<ShiftModelsPage />} />
+        <Route path="worker-windows" element={<WorkerWindowsPage />} />
         <Route path="customs-brokers" element={<CustomsBrokersPage />} />
         <Route path="settings" element={<OrgSettingsPage />} />
         <Route path="pay" element={<ManagerPayPage />} />

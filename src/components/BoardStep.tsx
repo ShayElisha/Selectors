@@ -591,7 +591,7 @@ export function BoardStep({
     }
     if (workerId) {
       const windowId = draft.workerWindows?.[workerId]
-      if (!windowFitsShift(windowId, draft.shiftType)) {
+      if (!windowFitsShift(windowId, draft.shiftType, data.workerWindowPresets)) {
         const name =
           data.workers.find((w) => w.id === workerId)?.fullName ?? workerId
         notify.error('מחוץ לשעות', `${name} לא זמין/ה במשמרת הזו לפי השעות שנבחרו`)
@@ -733,7 +733,11 @@ export function BoardStep({
         draft.presentWorkerIds.includes(w.id) &&
         w.isInspector &&
         (w.id === workerId ||
-          windowFitsShift(draft.workerWindows?.[w.id], draft.shiftType)),
+          windowFitsShift(
+            draft.workerWindows?.[w.id],
+            draft.shiftType,
+            data.workerWindowPresets,
+          )),
     )
     const workers = present
       .slice()
