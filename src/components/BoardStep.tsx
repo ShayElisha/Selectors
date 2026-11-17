@@ -816,6 +816,7 @@ export function BoardStep({
         windowAdjustments: draft.windowAdjustments,
         defaultLateMinutes: draft.defaultLateMinutes,
         earlyLeaveAt: draft.earlyLeaveAt,
+        workerWindows: draft.workerWindows,
       })
       for (const badge of timing) details.push(badge.shortLabel)
       return details.join(' · ')
@@ -827,6 +828,7 @@ export function BoardStep({
           windowAdjustments: draft.windowAdjustments,
           defaultLateMinutes: draft.defaultLateMinutes,
           earlyLeaveAt: draft.earlyLeaveAt,
+          workerWindows: draft.workerWindows,
         })
       : []
 

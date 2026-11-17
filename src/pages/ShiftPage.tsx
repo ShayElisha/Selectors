@@ -62,8 +62,8 @@ import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRoun
 import {
   continuesIntoShift,
   earlierShiftsToContinue,
+  presetsOverlappingShift,
   shiftFollowsMorning,
-  WORKER_WINDOWS,
   workerWindowById,
 } from '../lib/shiftCatalog'
 import {
@@ -1440,6 +1440,12 @@ export function ShiftPage() {
                               {w.trainingRole === 'trainee' ? (
                                 <TraineeBadge />
                               ) : null}
+                              {on && !isGate && draft.workerWindows?.[w.id] ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-bold text-ink-soft ring-1 ring-line/80">
+                                  {workerWindowById(draft.workerWindows[w.id])
+                                    ?.label ?? draft.workerWindows[w.id]}
+                                </span>
+                              ) : null}
                               {on && !isGate && w.trainingRole !== 'trainee' ? (
                                 (() => {
                                   const mentorPair = (
@@ -1540,28 +1546,30 @@ export function ShiftPage() {
                         ) : null}
                         </div>
                         {on && !isGate ? (
-                          <div className="px-2.5 pb-2">
-                            {module !== 'inspectors' ? (
-                              <select
-                                value={draft.workerWindows?.[w.id] ?? ''}
-                                aria-label={`משמרת של ${w.fullName}`}
-                                onChange={(e) => {
-                                  const windowId = e.target.value
-                                  if (!windowId) return
-                                  setWorkerWindow(w.id, windowId)
-                                }}
-                                className="ui-field w-full py-1.5 text-[13px]"
-                              >
-                                {!draft.workerWindows?.[w.id] ? (
-                                  <option value="">בחר משמרת</option>
-                                ) : null}
-                                {WORKER_WINDOWS.map((preset) => (
+                          <div className="px-2.5 pb-2 space-y-1.5">
+                            <select
+                              value={draft.workerWindows?.[w.id] ?? ''}
+                              aria-label={`משמרת של ${w.fullName}`}
+                              onChange={(e) => {
+                                const windowId = e.target.value
+                                if (!windowId) return
+                                setWorkerWindow(w.id, windowId)
+                              }}
+                              className="ui-field w-full py-1.5 text-[13px]"
+                            >
+                              {!draft.workerWindows?.[w.id] ? (
+                                <option value="">בחר משמרת</option>
+                              ) : null}
+                              {presetsOverlappingShift(draft.shiftType).map(
+                                (preset) => (
                                   <option key={preset.id} value={preset.id}>
                                     {preset.label}
                                   </option>
-                                ))}
-                              </select>
-                            ) : w.trainingRole !== 'trainee' ? (
+                                ),
+                              )}
+                            </select>
+                            {module === 'inspectors' &&
+                            w.trainingRole !== 'trainee' ? (
                               (() => {
                                 const mentorPair = (
                                   draft.trainingPairs ?? []
@@ -2350,6 +2358,7 @@ export function ShiftPage() {
             )}
             overrides={draft.staffingOverrides}
             windowAdjustments={draft.windowAdjustments}
+            workerWindows={draft.workerWindows}
             defaultLateMinutes={draft.defaultLateMinutes}
             earlyLeaveAt={draft.earlyLeaveAt}
             layout={roundsLayout}

@@ -1,6 +1,10 @@
 import { AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react'
 import { INTENSITY_LABELS } from '../constants'
 import { avatarColor } from '../lib/avatarColor'
+import {
+  timingBadgeClass,
+  type TimingBadge,
+} from '../lib/shiftTimingBadges'
 import type { Intensity } from '../types'
 
 /** Isolate LTR spans (times, ratios) inside RTL layout. */
@@ -200,7 +204,7 @@ export function Skeleton({ className = '' }: { className?: string }) {
 export function TimingBadges({
   badges,
 }: {
-  badges: { kind: 'late' | 'early' | 'left'; label: string; shortLabel: string }[]
+  badges: TimingBadge[]
 }) {
   if (!badges.length) return null
   return (
@@ -209,13 +213,7 @@ export function TimingBadges({
         <span
           key={`${badge.kind}-${badge.shortLabel}`}
           title={badge.label}
-          className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold ring-1 ${
-            badge.kind === 'late'
-              ? 'bg-warn-soft text-warn ring-warn/25'
-              : badge.kind === 'left'
-                ? 'bg-hard-soft text-hard ring-hard/25'
-                : 'bg-accent-soft text-accent ring-accent/25'
-          }`}
+          className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold ring-1 ${timingBadgeClass(badge.kind)}`}
         >
           {badge.shortLabel}
         </span>
