@@ -106,6 +106,11 @@ export function clearManagerNotices() {
   writeAll([])
 }
 
+/** Drop save-conflict noise — conflicts are retried silently in the client. */
+export function clearSaveConflictNotices() {
+  writeAll(readAll().filter((notice) => notice.kind !== 'save_conflict'))
+}
+
 function noticeId(kind: string, key: string) {
   return `${kind}:${key}`
 }

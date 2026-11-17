@@ -53,12 +53,12 @@ import {
   collectRecentQualityScores,
 } from '../lib/boardQualityAlert'
 import {
+  clearSaveConflictNotices,
   ensureBoardQualityNotice,
   ensureCrossModuleConflictFromMessage,
   ensureHardLaneStreakNotices,
   ensureNewManagerNotice,
   ensureQualityDropAfterManualNotice,
-  ensureSaveConflictNotice,
   findHardLaneStreaks,
 } from '../lib/managerNotifications'
 import {
@@ -1110,6 +1110,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const drainPersist = useCallback(async () => {
     if (persistInFlightRef.current) {
       await persistFlightRef.current
+      if (pendingSaveRef.current) {
+        return drainPersist()
+      }
       return
     }
     // Nothing queued — skip the syncing spinner and empty work loop.
@@ -1125,6 +1128,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncing(true)
     let failed: unknown = null
     let conflictRetries = 0
+    const MAX_CONFLICT_RETRIES = 12
     try {
       while (pendingSaveRef.current) {
         const snapshot = pendingSaveRef.current
@@ -1141,6 +1145,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setData(saved)
           saveAppDataCache(saved)
           setError(null)
+          clearSaveConflictNotices()
+          conflictRetries = 0
         } catch (e) {
           if (e instanceof ApiError && e.status === 401) {
             handleAuthFailure()
@@ -1155,7 +1161,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             pendingSaveRef.current = null
             const rebased = normalizeAppData(
               {
-                ...mergeConcurrentAppData(persistedDataRef.current, latestLocal, server),
+                ...mergeConcurrentAppData(
+                  persistedDataRef.current,
+                  latestLocal,
+                  server,
+                ),
                 revision: server.revision,
               },
               activeModule(loadSession()),
@@ -1166,22 +1176,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setData(rebased)
             saveAppDataCache(rebased)
             conflictRetries += 1
-            if (conflictRetries >= 3) {
-              const conflictMessage =
-                'נתוני השרת השתנו שוב בזמן השמירה. השינוי המקומי נשמר במסך; נסה לשמור שוב בעוד רגע.'
-              setError(conflictMessage)
-              toast.error(conflictMessage)
-              ensureSaveConflictNotice({ message: conflictMessage })
-              throw e
-            }
             pendingSaveRef.current = rebased
             setError(null)
-            // Silent auto-merge retry — avoid alarming toasts on routine races.
+            // Keep retrying silently — never toast/bell on routine revision races.
+            if (conflictRetries >= MAX_CONFLICT_RETRIES) {
+              const delay = Math.min(4000, 250 * conflictRetries)
+              window.setTimeout(() => {
+                if (!pendingSaveRef.current) {
+                  pendingSaveRef.current = dataRef.current
+                }
+                void drainPersist().catch(() => undefined)
+              }, delay)
+              break
+            }
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, Math.min(400, 40 * conflictRetries)),
+            )
             continue
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
           setError(msg)
-          // Avoid bell spam on transient network blips; conflict storm is handled above.
           throw e
         }
       }
@@ -1239,7 +1253,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await flushPersist()
       let revision = dataRef.current.revision ?? 0
       let lastError: unknown = null
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 10; attempt++) {
         try {
           return await action(revision)
         } catch (e) {
@@ -1257,6 +1271,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : await readServerRevision()
           if (next === revision && attempt > 0) break
           revision = next
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, Math.min(400, 40 * (attempt + 1))),
+          )
         }
       }
       throw lastError instanceof Error ? lastError : new Error('הפעולה נכשלה')
@@ -4188,7 +4205,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const message = e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה'
         setError(message)
         ensureCrossModuleConflictFromMessage(message, { shiftId: synced.id })
-        ensureSaveConflictNotice({ message, shiftId: synced.id })
+        // Revision races are retried by runWithFreshRevision — no bell noise.
       }
       throw e
     } finally {
