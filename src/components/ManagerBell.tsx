@@ -138,43 +138,63 @@ export function ManagerBell() {
       }
 
       const nameById = new Map(data.workers.map((w) => [w.id, w.fullName]))
-      const missingNames = shift.presentWorkerIds
-        .filter((id) => id !== shift.gateManagerWorkerId)
-        .filter((id) => !String(shift.workerWindows?.[id] || '').trim())
-        .map((id) => nameById.get(id) || id)
-      ensureMissingWindowsNotice({
-        shiftId: shift.id,
-        date: shift.date,
-        shiftType: shift.shiftType,
-        missingNames,
-      })
+      // Only warn once there are present workers — empty attendance is normal
+      // while the manager is still setting up the shift.
+      if (shift.presentWorkerIds.length > 0) {
+        const missingNames = shift.presentWorkerIds
+          .filter((id) => id !== shift.gateManagerWorkerId)
+          .filter((id) => !String(shift.workerWindows?.[id] || '').trim())
+          .map((id) => nameById.get(id) || id)
+        // Avoid noisy alerts while most of the roster is still being filled in.
+        if (
+          missingNames.length > 0 &&
+          missingNames.length >= Math.min(3, shift.presentWorkerIds.length)
+        ) {
+          ensureMissingWindowsNotice({
+            shiftId: shift.id,
+            date: shift.date,
+            shiftType: shift.shiftType,
+            missingNames,
+          })
+        }
+      }
 
-      const historyWithDraft = [
-        ...data.history.filter((item) => item.id !== shift.id),
-        {
-          id: shift.id,
-          date: shift.date,
-          shiftType: shift.shiftType,
-          audience: shift.audience,
-          assignments: shift.assignments,
-          rounds: shift.rounds,
-        },
-      ]
-      const hardStreaks = findHardLaneStreaks({
-        history: historyWithDraft,
-        lanes: data.lanes,
-        audience: shift.audience ?? 'inspector',
-        workerIds: shift.presentWorkerIds,
-        minStreak: 3,
-      })
-      if (hardStreaks.length > 0) {
-        ensureHardLaneStreakNotices(
-          hardStreaks.map((row) => ({
-            ...row,
-            workerName: nameById.get(row.workerId) || row.workerId,
-          })),
-          { shiftId: shift.id },
-        )
+      // Hard-lane streaks need completed history placements; skip empty boards.
+      const hasPlacements =
+        (shift.assignments?.some((row) => row.workerIds.some(Boolean)) ??
+          false) ||
+        (shift.rounds?.some((round) =>
+          round.assignments.some((row) => row.workerIds.some(Boolean)),
+        ) ??
+          false)
+      if (hasPlacements) {
+        const historyWithDraft = [
+          ...data.history.filter((item) => item.id !== shift.id),
+          {
+            id: shift.id,
+            date: shift.date,
+            shiftType: shift.shiftType,
+            audience: shift.audience,
+            assignments: shift.assignments,
+            rounds: shift.rounds,
+          },
+        ]
+        const hardStreaks = findHardLaneStreaks({
+          history: historyWithDraft,
+          lanes: data.lanes,
+          audience: shift.audience ?? 'inspector',
+          workerIds: shift.presentWorkerIds,
+          minStreak: 3,
+        })
+        if (hardStreaks.length > 0) {
+          ensureHardLaneStreakNotices(
+            hardStreaks.map((row) => ({
+              ...row,
+              workerName: nameById.get(row.workerId) || row.workerId,
+            })),
+            { shiftId: shift.id },
+          )
+        }
       }
     }
 

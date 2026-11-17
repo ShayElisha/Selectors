@@ -1181,7 +1181,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
           setError(msg)
-          ensureSaveConflictNotice({ message: msg })
+          // Avoid bell spam on transient network blips; conflict storm is handled above.
           throw e
         }
       }

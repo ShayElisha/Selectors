@@ -389,9 +389,8 @@ export function ensureSaveConflictNotice(opts: {
   now?: Date
 }): ManagerNotice {
   const at = (opts.now ?? new Date()).toISOString()
-  const key = opts.shiftId
-    ? `shift:${opts.shiftId}:${at.slice(0, 16)}`
-    : `data:${at.slice(0, 16)}`
+  // Stable id so keystroke/save storms do not flood the bell.
+  const key = opts.shiftId ? `shift:${opts.shiftId}` : 'data'
   return upsertNotice({
     id: noticeId('save_conflict', key),
     at,
