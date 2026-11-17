@@ -15,6 +15,7 @@ import {
   X,
   BarChart3,
   ChevronDown,
+  ChevronRight,
   Circle,
   Settings2,
   BookOpen,
@@ -246,6 +247,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
     orgProfile,
   } = useApp()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [moreSection, setMoreSection] = useState<
+    'root' | 'operations' | 'reports' | 'manage' | 'settings'
+  >('root')
   const [profileOpen, setProfileOpen] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -327,9 +331,70 @@ export function Shell({ children }: { children: React.ReactNode }) {
     [module, user?.isOrgManager],
   )
   const moreActive = useMemo(() => moreViews.includes(view), [moreViews, view])
+  const moreOperations = useMemo(
+    () => OPERATIONS.filter((item) => moreViews.includes(item.id)),
+    [moreViews],
+  )
+  const moreReports = useMemo(
+    () => reportNav.filter((item) => moreViews.includes(item.id)),
+    [moreViews, reportNav],
+  )
+  const moreManage = useMemo(
+    () =>
+      MANAGE.filter(
+        (item) => item.id !== 'workers' && moreViews.includes(item.id),
+      ),
+    [moreViews],
+  )
+  const moreSettings = useMemo(() => {
+    const items: NavItem[] = []
+    if (user?.isOrgManager) items.push(SETTINGS_NAV)
+    return items
+  }, [user?.isOrgManager])
+  const moreCategories = useMemo(
+    () =>
+      [
+        {
+          id: 'operations' as const,
+          label: 'תפעול',
+          hint: 'אירועים, מפות ומסירה',
+          icon: Siren,
+          items: moreOperations,
+        },
+        {
+          id: 'reports' as const,
+          label: 'דוחות',
+          hint: 'סטטיסטיקה, שכר ויומן',
+          icon: FileSpreadsheet,
+          items: moreReports,
+        },
+        {
+          id: 'manage' as const,
+          label: 'ניהול',
+          hint: 'נתיבים, הסמכות ומשמרות',
+          icon: LayoutGrid,
+          items: moreManage,
+        },
+        {
+          id: 'settings' as const,
+          label: 'הגדרות',
+          hint: 'הגדרות שיבוץ ועזרה',
+          icon: SlidersHorizontal,
+          items: moreSettings,
+        },
+      ].filter((category) => category.id === 'settings' || category.items.length > 0),
+    [moreOperations, moreReports, moreManage, moreSettings],
+  )
+  const activeMoreCategory = moreCategories.find((category) =>
+    category.items.some((item) => item.id === view),
+  )
   const operationsActive = OPERATIONS.some((item) => item.id === view)
   const reportsActive = reportNav.some((item) => item.id === view)
   const manageActive = manageNav.some((item) => item.id === view)
+
+  useEffect(() => {
+    if (!moreOpen) setMoreSection('root')
+  }, [moreOpen])
   const statusText = syncLabel(loading, refreshing, syncing)
   const online = !loading && !refreshing && !syncing
 
@@ -743,8 +808,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
             onClick={() => setMoreOpen(false)}
           />
           <div className="absolute inset-x-0 bottom-0 animate-fade-up rounded-t-2xl border border-line bg-card p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-panel-hover)]">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="ui-title">עוד</h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              {moreSection === 'root' ? (
+                <h2 className="ui-title">עוד</h2>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setMoreSection('root')}
+                  className="inline-flex min-h-10 items-center gap-1 rounded-xl px-1.5 text-sm font-bold text-ink transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  aria-label="חזרה לקטגוריות"
+                >
+                  <ChevronRight className="size-4 text-ink-soft" aria-hidden />
+                  {moreCategories.find((category) => category.id === moreSection)
+                    ?.label ?? 'עוד'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMoreOpen(false)}
@@ -754,41 +832,90 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <X className="size-4" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {[...ALL_NAV, SETTINGS_NAV]
-                .filter((n) => moreViews.includes(n.id))
-                .map((item) => {
-                const Icon = item.icon
-                const active = itemActive(item.id)
-                return (
+
+            {moreSection === 'root' ? (
+              <div className="grid grid-cols-2 gap-2.5">
+                {moreCategories.map((category) => {
+                  const Icon = category.icon
+                  const active = activeMoreCategory?.id === category.id
+                  const count =
+                    category.id === 'settings'
+                      ? category.items.length + 1
+                      : category.items.length
+                  return (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => setMoreSection(category.id)}
+                      className={`flex min-h-[5.5rem] flex-col items-start justify-between gap-3 rounded-2xl border px-3.5 py-3 text-start transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                        active
+                          ? 'border-brand/25 bg-brand/10 text-brand'
+                          : 'border-line bg-surface text-ink hover:border-brand/20'
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex size-9 items-center justify-center rounded-xl ${
+                          active ? 'bg-brand text-white' : 'bg-card text-ink-soft ring-1 ring-line/80'
+                        }`}
+                      >
+                        <Icon className="size-4" aria-hidden />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[15px] font-bold leading-tight">
+                          {category.label}
+                        </span>
+                        <span
+                          className={`mt-0.5 block text-[11px] font-medium leading-snug ${
+                            active ? 'text-brand/80' : 'text-ink-soft'
+                          }`}
+                        >
+                          {count} פריטים · {category.hint}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="grid gap-1.5">
+                {(
+                  moreCategories.find((category) => category.id === moreSection)
+                    ?.items ?? []
+                ).map((item) => {
+                  const Icon = item.icon
+                  const active = itemActive(item.id)
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => go(item.id)}
+                      aria-current={active ? 'page' : undefined}
+                      className={`flex min-h-12 items-center gap-3 rounded-xl border px-3.5 py-3 text-sm font-semibold transition ${
+                        active
+                          ? 'border-brand/20 bg-brand/10 text-brand'
+                          : 'border-line bg-surface text-ink hover:border-brand/20'
+                      }`}
+                    >
+                      <Icon className="size-[18px] shrink-0" aria-hidden />
+                      <span className="min-w-0 flex-1 text-start">{item.label}</span>
+                    </button>
+                  )
+                })}
+                {moreSection === 'settings' ? (
                   <button
-                    key={item.id}
                     type="button"
-                    onClick={() => go(item.id)}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex items-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition ${
-                      active
-                        ? 'border-brand/20 bg-brand/10 text-brand'
-                        : 'border-line bg-surface text-ink hover:border-brand/20'
-                    }`}
+                    onClick={() => {
+                      setMoreOpen(false)
+                      navigate('/help')
+                    }}
+                    className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-3 text-sm font-semibold text-ink transition hover:border-brand/20"
                   >
-                    <Icon className="size-[18px] shrink-0" aria-hidden />
-                    {item.label}
+                    <CircleHelp className="size-[18px] shrink-0" aria-hidden />
+                    <span className="min-w-0 flex-1 text-start">עזרה</span>
                   </button>
-                )
-              })}
-              <button
-                type="button"
-                onClick={() => {
-                  setMoreOpen(false)
-                  navigate('/help')
-                }}
-                className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-ink transition hover:border-brand/20"
-              >
-                <CircleHelp className="size-[18px] shrink-0" aria-hidden />
-                עזרה
-              </button>
-            </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       )}
