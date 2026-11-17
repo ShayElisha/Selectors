@@ -262,6 +262,32 @@ export function presetsOverlappingShift(
 }
 
 /**
+ * Share of one official shift covered by a worker's personal hours
+ * (window + late/early). Full overlap → 1; partial hours → fraction.
+ * Used for single-board (inspector) load / statistics weighting.
+ */
+export function boardHoursWeight(opts: {
+  shiftType: ShiftType
+  windowId?: string | null
+  lateMinutes?: number | null
+  earlyMinutes?: number | null
+}): number {
+  const shift = MAIN_SHIFT_BOUNDS[opts.shiftType]
+  if (!shift) return 1
+  const late = clampWindowStep(opts.lateMinutes)
+  const early = clampWindowStep(opts.earlyMinutes)
+  const preset = workerWindowById(opts.windowId ?? undefined)
+  const personal = preset
+    ? windowInterval(preset, opts.shiftType)
+    : { start: shift.start, end: shift.end }
+  const start = Math.max(personal.start + late, shift.start)
+  const end = Math.min(personal.end - early, shift.end)
+  const worked = Math.max(0, end - start)
+  const full = Math.max(1, shift.end - shift.start)
+  return Math.min(1, worked / full)
+}
+
+/**
  * Morning board normally starts at 06:00. People who arrive at 04:45
  * need a leading round so they can sit with the night shift until 06:00.
  */

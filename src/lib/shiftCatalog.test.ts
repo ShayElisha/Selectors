@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  boardHoursWeight,
   continuesIntoShift,
   laneOpenDuring,
   presetsOverlappingShift,
@@ -33,6 +34,30 @@ describe('continuesIntoShift', () => {
     expect(laneOpenDuring(hours, 8 * 60, 10 * 60)).toBe(false)
     expect(laneOpenDuring(hours, 10 * 60, 12 * 60)).toBe(true)
     expect(laneOpenDuring(undefined, 8 * 60, 10 * 60)).toBe(true)
+  })
+})
+
+describe('boardHoursWeight', () => {
+  it('is 1 for a full personal morning window', () => {
+    expect(boardHoursWeight({ shiftType: 'morning', windowId: '0600-1500' })).toBe(1)
+    expect(boardHoursWeight({ shiftType: 'morning' })).toBe(1)
+  })
+
+  it('scales partial overlap and late/early minutes', () => {
+    expect(
+      boardHoursWeight({
+        shiftType: 'morning',
+        windowId: '1430-2130',
+      }),
+    ).toBeCloseTo(30 / (15 * 60 - 6 * 60))
+    expect(
+      boardHoursWeight({
+        shiftType: 'morning',
+        windowId: '0600-1500',
+        lateMinutes: 60,
+        earlyMinutes: 30,
+      }),
+    ).toBeCloseTo((9 * 60 - 90) / (9 * 60))
   })
 })
 

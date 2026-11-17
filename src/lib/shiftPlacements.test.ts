@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { placementLoadOnDay } from '../algorithm'
 import type { Lane, ShiftSchedule } from '../types'
+import { MAIN_SHIFT_BOUNDS } from './shiftCatalog'
 import { shiftPlacements } from './shiftPlacements'
 
 function inspectorShift(): ShiftSchedule {
@@ -17,10 +18,34 @@ function inspectorShift(): ShiftSchedule {
 }
 
 describe('shiftPlacements', () => {
-  it('counts an inspector lane placement as a full shift', () => {
+  it('counts a full inspector lane placement as one shift', () => {
     expect(shiftPlacements(inspectorShift())).toEqual([
       { laneId: 'a', workerId: 'w1', weight: 1 },
     ])
+  })
+
+  it('weights inspector hours by personal window overlap with the shift', () => {
+    const shift: ShiftSchedule = {
+      ...inspectorShift(),
+      workerWindows: { w1: '1430-2130' },
+    }
+    const placed = shiftPlacements(shift)
+    const morning = MAIN_SHIFT_BOUNDS.morning
+    const overlap = morning.end - (14 * 60 + 30)
+    expect(placed[0]!.weight).toBeCloseTo(overlap / (morning.end - morning.start))
+  })
+
+  it('reduces inspector weight for late and early leave minutes', () => {
+    const shift: ShiftSchedule = {
+      ...inspectorShift(),
+      workerWindows: { w1: '0600-1500' },
+      windowAdjustments: { w1: { lateMinutes: 60, earlyMinutes: 30 } },
+    }
+    const morning = MAIN_SHIFT_BOUNDS.morning
+    const worked = morning.end - morning.start - 60 - 30
+    expect(shiftPlacements(shift)[0]!.weight).toBeCloseTo(
+      worked / (morning.end - morning.start),
+    )
   })
 
   it('splits a selector shift across rounds by duration', () => {
@@ -50,7 +75,7 @@ describe('shiftPlacements', () => {
     expect(placed.reduce((n, p) => n + p.weight, 0)).toBe(1)
   })
 
-  it('gives a full selector shift the same load as one inspector placement', () => {
+  it('gives a full selector shift the same load as one full inspector placement', () => {
     const hard: Lane = {
       id: 'hard',
       name: 'קשה',
@@ -63,6 +88,7 @@ describe('shiftPlacements', () => {
     const inspector: ShiftSchedule = {
       ...base,
       assignments: [{ laneId: 'hard', workerIds: ['w1'] }],
+      workerWindows: { w1: '0600-1500' },
     }
     const selector: ShiftSchedule = {
       ...base,
