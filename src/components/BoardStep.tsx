@@ -1669,7 +1669,46 @@ export function BoardStep({
                 <div className="mt-3 space-y-2">
                   {slots.map((workerId, slotIndex) => {
                     if (isGateLane) {
-                      return <div key={slotIndex}>{gateManagerSelect}</div>
+                      const gateId = draft.gateManagerWorkerId
+                      const gateTiming = gateId
+                        ? timingBadgesForWorker({
+                            workerId: gateId,
+                            windowAdjustments: draft.windowAdjustments,
+                            defaultLateMinutes: draft.defaultLateMinutes,
+                            earlyLeaveAt: draft.earlyLeaveAt,
+                            workerWindows: draft.workerWindows,
+                          })
+                        : []
+                      return (
+                        <div key={slotIndex} className="flex min-w-0 flex-col gap-1.5">
+                          {gateManagerSelect}
+                          {gateId && !locked ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <LateMinutesControl
+                                variant="board"
+                                ariaLabel={`איחור של מנהל שער`}
+                                value={
+                                  draft.windowAdjustments?.[gateId]
+                                    ?.lateMinutes ?? 0
+                                }
+                                onChange={(lateMinutes) =>
+                                  setWindowAdjustment(gateId, { lateMinutes })
+                                }
+                              />
+                              {gateTiming.filter((badge) => badge.kind !== 'late')
+                                .length ? (
+                                <TimingBadges
+                                  badges={gateTiming.filter(
+                                    (badge) => badge.kind !== 'late',
+                                  )}
+                                />
+                              ) : null}
+                            </div>
+                          ) : gateTiming.length ? (
+                            <TimingBadges badges={gateTiming} />
+                          ) : null}
+                        </div>
+                      )
                     }
                     return (
                       <div key={slotIndex} className="flex min-w-0 items-center gap-2">
