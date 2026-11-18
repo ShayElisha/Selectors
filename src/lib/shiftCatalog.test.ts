@@ -110,6 +110,39 @@ describe('collectContinuingAttendance', () => {
     expect(result.sourceFound).toBe(true)
     expect(result.sourceHadWindows).toBe(false)
   })
+
+  it('uses the nearest previous shift hours when a worker appears in multiple shifts', () => {
+    const result = collectContinuingAttendance({
+      history: [
+        {
+          date: '2026-11-17',
+          shiftType: 'morning',
+          audience: 'inspector',
+          updatedAt: '2026-11-17T10:00:00.000Z',
+          presentWorkerIds: ['a'],
+          workerWindows: { a: '0600-1830' },
+          windowAdjustments: { a: { lateMinutes: 10 } },
+        },
+        {
+          date: '2026-11-17',
+          shiftType: 'afternoonA',
+          audience: 'inspector',
+          updatedAt: '2026-11-17T15:00:00.000Z',
+          presentWorkerIds: ['a'],
+          workerWindows: { a: '1430-2130' },
+          windowAdjustments: { a: { lateMinutes: 20 } },
+        },
+      ],
+      date: '2026-11-17',
+      shiftType: 'afternoonB',
+      audience: 'inspector',
+      catalog: testWindowPresets,
+    })
+
+    expect(result.workerIds).toEqual(['a'])
+    expect(result.workerWindows).toEqual({ a: '1430-2130' })
+    expect(result.windowAdjustments).toEqual({ a: { lateMinutes: 20 } })
+  })
 })
 
 describe('boardHoursWeight', () => {
