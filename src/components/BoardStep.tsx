@@ -187,6 +187,7 @@ export function BoardStep({
     updateLaneNotes,
     setGateManager,
     setWindowAdjustment,
+    setWorkerWindow,
     setLaneStaffingStandard,
     user,
     draftDirty,
@@ -897,6 +898,22 @@ export function BoardStep({
         )}
         {workerId && !locked ? (
           <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              value={draft.workerWindows?.[workerId] || ''}
+              onChange={(e) => {
+                const windowId = e.target.value || null
+                setWorkerWindow(workerId, windowId)
+              }}
+              className="rounded-md border border-line bg-paper px-2 py-1 text-[11px] text-ink hover:border-brand focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/20"
+              title="שעות אישיות"
+            >
+              <option value="">כל המשמרת</option>
+              {data.workerWindowPresets?.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
             <LateMinutesControl
               variant="board"
               ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
