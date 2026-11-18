@@ -4145,12 +4145,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         saveShiftRemote(schedule, revision),
       )
       const prev = dataRef.current
+      const savedShifts = [saved.shift, ...(saved.updatedShifts ?? [])]
+      const savedById = new Map(savedShifts.map((item) => [item.id, item]))
       const nextHistory = (() => {
-        const idx = prev.history.findIndex((item) => item.id === saved.shift.id)
-        if (idx === -1) return [saved.shift, ...prev.history]
-        return prev.history.map((item, i) =>
-          i === idx ? saved.shift : item,
+        const found = prev.history.some((item) => item.id === saved.shift.id)
+        const updated = prev.history.map(
+          (item) => savedById.get(item.id) ?? item,
         )
+        return found ? updated : [saved.shift, ...updated]
       })()
       const next = {
         ...prev,
@@ -4249,12 +4251,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           signOff: normalizeSignOff(saved.shift.signOff) ?? pending.signOff,
         }
         const prev = dataRef.current
+        const savedShifts = [saved.shift, ...(saved.updatedShifts ?? [])]
+        const savedById = new Map(savedShifts.map((item) => [item.id, item]))
         const nextHistory = (() => {
-          const idx = prev.history.findIndex((item) => item.id === saved.shift.id)
-          if (idx === -1) return [saved.shift, ...prev.history]
-          return prev.history.map((item, i) =>
-            i === idx ? saved.shift : item,
+          const found = prev.history.some((item) => item.id === saved.shift.id)
+          const updated = prev.history.map(
+            (item) => savedById.get(item.id) ?? item,
           )
+          return found ? updated : [saved.shift, ...updated]
         })()
         const next = {
           ...prev,

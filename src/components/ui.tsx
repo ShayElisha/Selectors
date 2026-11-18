@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { INTENSITY_LABELS } from '../constants'
 import { avatarColor } from '../lib/avatarColor'
+import { workerWindowLabelFromTimes } from '../lib/shiftCatalog'
 import {
   timingBadgeClass,
   type TimingBadge,
@@ -429,9 +430,9 @@ export function WorkerHoursChip({
                 >
                   {preset.label}
                 </span>
-                {preset.start && preset.end && (
+                {Number.isFinite(preset.start) && Number.isFinite(preset.end) && (
                   <Ltr className="text-xs text-ink-soft">
-                    {preset.start}–{preset.end}
+                    {workerWindowLabelFromTimes(preset.start, preset.end)}
                   </Ltr>
                 )}
               </div>

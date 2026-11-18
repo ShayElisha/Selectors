@@ -5,6 +5,7 @@ import {
   continuesIntoShift,
   laneOpenDuring,
   presetsOverlappingShift,
+  workerWindowLabelFromTimes,
   windowFitsShift,
   type WorkerWindowPreset,
 } from './shiftCatalog'
@@ -22,6 +23,12 @@ const testWindowPresets: WorkerWindowPreset[] = [
   { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30, order: 8 },
   { id: '1800-0630', label: 'לילה', name: 'לילה', start: 18 * 60, end: 6 * 60 + 30, order: 9 },
 ]
+
+describe('workerWindowLabelFromTimes', () => {
+  it('formats stored clock minutes as real clock times', () => {
+    expect(workerWindowLabelFromTimes(360, 900)).toBe('06:00–15:00')
+  })
+})
 
 describe('continuesIntoShift', () => {
   it('keeps morning staff in afternoon A only while their hours last', () => {

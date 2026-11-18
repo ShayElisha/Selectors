@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import { scopeForRequest } from './scope.js'
 import { requireWorkerActor } from './workerPortal.js'
+import {
+  hasOpenWorkerContinuation,
+  workerHoursInterval,
+} from './workerShiftContinuity.js'
 
 function httpError(message, status) {
   const err = new Error(message)
@@ -423,10 +427,15 @@ export function deleteManagerPayEntry(req, entryId) {
 }
 
 /**
- * Create pay entries for all workers in a signed-off shift who have personal hours selected.
- * Calculates actual hours based on personal hours, late arrival, and early leave.
+ * Create pay entries for workers in a signed-off shift.
+ * Uses personal hours when selected, otherwise the configured shift window.
  */
-export async function createPayEntriesForShift(shift, workerWindowPresets, scope) {
+export async function createPayEntriesForShift(
+  shift,
+  workerWindowPresets,
+  scope,
+  shiftModels = [],
+) {
   if (!scope || scope.module !== 'inspectors') {
     // Pay entries are only for inspectors module
     return
@@ -437,15 +446,6 @@ export async function createPayEntriesForShift(shift, workerWindowPresets, scope
     ? shift.presentWorkerIds
     : []
   const workerWindows = shift.workerWindows || {}
-  const windowAdjustments = shift.windowAdjustments || {}
-  const earlyLeaveAt = shift.earlyLeaveAt || {}
-
-  // Helper to find window preset by ID
-  const findPreset = (windowId) => {
-    if (!windowId || !Array.isArray(workerWindowPresets)) return null
-    return workerWindowPresets.find((p) => p.id === windowId)
-  }
-
   // Helper to format minutes as HH:MM
   const formatClock = (minutes) => {
     const day = 24 * 60
@@ -465,35 +465,25 @@ export async function createPayEntriesForShift(shift, workerWindowPresets, scope
 
   for (const workerId of presentWorkers) {
     const windowId = workerWindows[workerId]
-    if (!windowId) {
-      // Skip workers without selected personal hours
-      continue
-    }
-
-    const preset = findPreset(windowId)
-    if (!preset) {
+    if (
+      windowId &&
+      !workerWindowPresets?.some((preset) => preset.id === windowId)
+    ) {
       console.warn(`Worker ${workerId} has window ${windowId} but preset not found`)
       continue
     }
 
-    // Calculate actual start time (personal start + late minutes)
-    const adjustment = windowAdjustments[workerId] || {}
-    const lateMinutes = Math.max(0, Number(adjustment.lateMinutes) || 0)
-    const earlyMinutes = Math.max(0, Number(adjustment.earlyMinutes) || 0)
-    let actualStart = preset.start + lateMinutes
-    let actualEnd = preset.end - earlyMinutes
-
-    // If worker left early, use that time instead
-    const leftAt = earlyLeaveAt[workerId]
-    if (leftAt != null && Number.isFinite(leftAt)) {
-      actualEnd = Math.min(actualEnd, Number(leftAt))
-    }
-
-    // Ensure start is before end
-    if (actualStart >= actualEnd) {
-      console.warn(`Worker ${workerId}: start ${actualStart} >= end ${actualEnd}, skipping`)
+    const interval = workerHoursInterval(
+      shift,
+      workerId,
+      workerWindowPresets,
+      shiftModels,
+    )
+    if (!interval) {
+      console.warn(`Worker ${workerId} has invalid work hours, skipping`)
       continue
     }
+    const { start: actualStart, end: actualEnd } = interval
 
     const startClock = formatClock(actualStart)
     const endClock = formatClock(actualEnd)
@@ -501,6 +491,7 @@ export async function createPayEntriesForShift(shift, workerWindowPresets, scope
     // Create the pay entry
     const entry = {
       id: randomUUID(),
+      sourceShiftId: String(shift.id || ''),
       date: shiftDate,
       start: startClock,
       end: endClock,
@@ -560,5 +551,90 @@ export async function createPayEntriesForShift(shift, workerWindowPresets, scope
     } catch (err) {
       console.error(`Failed to create pay entry for worker ${workerId}:`, err)
     }
+  }
+}
+
+/**
+ * Defer an inspector's pay row while they continue into a later open shift.
+ * Rechecking all closed shifts means closing the final shift also releases
+ * the earlier shift's pending payroll row.
+ */
+export async function createPayEntriesForCompletedShifts(
+  history,
+  workerWindowPresets,
+  shiftModels,
+  scope,
+  workers = [],
+) {
+  if (!scope || scope.module !== 'inspectors') return
+  const workerById = new Map(
+    (workers ?? []).map((worker) => [worker.id, worker]),
+  )
+
+  const collection = await payCollection()
+  for (const shift of history ?? []) {
+    if (!shift?.signOff?.signedAt) continue
+    for (const workerId of shift.presentWorkerIds ?? []) {
+      const worker = workerById.get(workerId)
+      const isInspector =
+        worker &&
+        worker.isInspector !== false &&
+        (!worker.staffKind || worker.staffKind === 'inspector')
+      if (
+        !isInspector ||
+        workerId === shift.gateManagerWorkerId ||
+        !hasOpenWorkerContinuation(
+          shift,
+          workerId,
+          history,
+          workerWindowPresets,
+          shiftModels,
+        )
+      ) {
+        continue
+      }
+
+      const doc = await loadDoc(String(scope.orgId), workerId)
+      const sourceShiftId = String(shift.id || '')
+      const entries = doc.entries.filter(
+        (entry) => entry.sourceShiftId !== sourceShiftId,
+      )
+      if (entries.length === doc.entries.length) continue
+      await collection.updateOne(
+        { orgId: String(scope.orgId), workerId },
+        { $set: { entries, updatedAt: new Date().toISOString() } },
+      )
+    }
+  }
+
+  for (const shift of history ?? []) {
+    if (!shift?.signOff?.signedAt) continue
+    const readyWorkerIds = (shift.presentWorkerIds ?? []).filter(
+      (workerId) => {
+        const worker = workerById.get(workerId)
+        const isInspector =
+          worker &&
+          worker.isInspector !== false &&
+          (!worker.staffKind || worker.staffKind === 'inspector')
+        return (
+          workerId !== shift.gateManagerWorkerId &&
+          isInspector &&
+          !hasOpenWorkerContinuation(
+            shift,
+            workerId,
+            history,
+            workerWindowPresets,
+            shiftModels,
+          )
+        )
+      },
+    )
+    if (readyWorkerIds.length === 0) continue
+    await createPayEntriesForShift(
+      { ...shift, presentWorkerIds: readyWorkerIds },
+      workerWindowPresets,
+      scope,
+      shiftModels,
+    )
   }
 }

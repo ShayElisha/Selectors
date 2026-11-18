@@ -11,6 +11,8 @@ vi.mock('./scope.js', () => ({ scopeForRequest }))
 vi.mock('./workerPortal.js', () => ({ requireWorkerActor }))
 
 import {
+  createPayEntriesForCompletedShifts,
+  createPayEntriesForShift,
   addWorkerPayEntry,
   saveWorkerPayRate,
 } from './workerPay.js'
@@ -75,6 +77,138 @@ describe('worker pay entries', () => {
           rates: [
             expect.objectContaining({ id: 'a', name: 'רגיל', amount: 55 }),
             expect.objectContaining({ id: 'b', name: 'ב׳', amount: 70 }),
+          ],
+        }),
+      }),
+      { upsert: true },
+    )
+  })
+
+  it('waits for the final continuing shift to close before writing pay entries', async () => {
+    const morning = {
+      id: 'morning',
+      date: '2026-11-18',
+      shiftType: 'morning',
+      audience: 'inspector',
+      presentWorkerIds: ['w1'],
+      workerWindows: { w1: 'long' },
+      signOff: { signedAt: '2026-11-18T14:30:00.000Z' },
+    }
+    const afternoon = {
+      id: 'afternoon',
+      date: '2026-11-18',
+      shiftType: 'afternoon',
+      audience: 'inspector',
+      presentWorkerIds: ['w1'],
+      workerWindows: { w1: 'long' },
+    }
+    const presets = [{ id: 'long', start: 360, end: 1110 }]
+    const models = [
+      { id: 'morning', startMinutes: 360, endMinutes: 870 },
+      { id: 'afternoon', startMinutes: 870, endMinutes: 1290 },
+    ]
+    const scope = { orgId: 'org-1', module: 'inspectors' }
+
+    await createPayEntriesForCompletedShifts(
+      [morning, afternoon],
+      presets,
+      models,
+      scope,
+      [{ id: 'w1', isInspector: true, staffKind: 'inspector' }],
+    )
+    expect(collection.updateOne).not.toHaveBeenCalled()
+
+    afternoon.signOff = { signedAt: '2026-11-18T21:30:00.000Z' }
+    await createPayEntriesForCompletedShifts(
+      [morning, afternoon],
+      presets,
+      models,
+      scope,
+      [{ id: 'w1', isInspector: true, staffKind: 'inspector' }],
+    )
+    expect(collection.updateOne).toHaveBeenCalled()
+  })
+
+  it('removes its auto-generated pay row when a continuation is created later', async () => {
+    const morning = {
+      id: 'morning',
+      date: '2026-11-18',
+      shiftType: 'morning',
+      audience: 'inspector',
+      presentWorkerIds: ['w1'],
+      workerWindows: { w1: 'long' },
+      signOff: { signedAt: '2026-11-18T14:30:00.000Z' },
+    }
+    const afternoon = {
+      id: 'afternoon',
+      date: '2026-11-18',
+      shiftType: 'afternoon',
+      audience: 'inspector',
+      presentWorkerIds: ['w1'],
+      workerWindows: { w1: 'long' },
+    }
+
+    collection.findOne.mockResolvedValueOnce({
+      orgId: 'org-1',
+      workerId: 'w1',
+      basis: 'hourly',
+      amount: 60,
+      rates: [],
+      entries: [
+        {
+          id: 'auto-entry',
+          sourceShiftId: 'morning',
+          date: '2026-11-18',
+          start: '06:00',
+          end: '18:30',
+          kind: 'work',
+        },
+      ],
+    })
+
+    await createPayEntriesForCompletedShifts(
+      [morning, afternoon],
+      [{ id: 'long', start: 360, end: 1110 }],
+      [
+        { id: 'morning', startMinutes: 360, endMinutes: 870 },
+        { id: 'afternoon', startMinutes: 870, endMinutes: 1290 },
+      ],
+      { orgId: 'org-1', module: 'inspectors' },
+      [{ id: 'w1', isInspector: true, staffKind: 'inspector' }],
+    )
+
+    expect(collection.updateOne).toHaveBeenCalledWith(
+      { orgId: 'org-1', workerId: 'w1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ entries: [] }),
+      }),
+    )
+  })
+
+  it('creates a full-shift pay entry when no personal hours are selected', async () => {
+    await createPayEntriesForShift(
+      {
+        id: 'morning',
+        date: '2026-11-18',
+        shiftType: 'morning',
+        presentWorkerIds: ['w1'],
+      },
+      [],
+      { orgId: 'org-1', module: 'inspectors' },
+      [{ id: 'morning', startMinutes: 360, endMinutes: 870 }],
+    )
+
+    expect(collection.updateOne).toHaveBeenCalledWith(
+      { orgId: 'org-1', workerId: 'w1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          entries: [
+            expect.objectContaining({
+              date: '2026-11-18',
+              start: '06:00',
+              end: '14:30',
+              kind: 'work',
+            }),
           ],
         }),
       }),

@@ -25,7 +25,8 @@ import {
   upsertManagerAccount,
 } from "./orgs.js";
 import { openWorkerPii, sealWorkerPii } from "./piiCrypto.js";
-import { createPayEntriesForShift } from "./workerPay.js";
+import { createPayEntriesForCompletedShifts } from "./workerPay.js";
+import { syncContinuedWorkerHours } from "./workerShiftContinuity.js";
 
 function publicModules(modules) {
   return {
@@ -2374,29 +2375,32 @@ export async function upsertShift(id, body, actor, options = {}) {
   } else if (previous) {
     schedule.editCount = Number(previous.editCount ?? 0);
   }
-  const history = isNew
-    ? [schedule, ...state.history]
-    : state.history.map((h, i) =>
-        i === idx ? { ...previous, ...schedule } : h,
-      );
-
   let saved = null;
+  let savedSchedule = schedule;
+  let savedHistory = null;
+  let savedWorkerWindowPresets = [];
+  let savedShiftModels = [];
+  let savedWorkers = [];
+  let updatedSchedules = [];
   for (let attempt = 0; attempt < 5 && !saved; attempt++) {
     if (attempt > 0) invalidateStateCache(scope);
     const latest = attempt === 0 ? state : await readState(scope);
     const foundNow = latest.history.find((h) => h.id === schedule.id);
     if (isShiftSignedOff(foundNow)) signedShiftError("לערוך");
-    const latestHistory =
-      attempt === 0
-        ? history
-        : (() => {
-            const found = latest.history.findIndex((h) => h.id === schedule.id);
-            return found === -1
-              ? [schedule, ...latest.history]
-              : latest.history.map((h, i) =>
-                  i === found ? { ...h, ...schedule } : h,
-                );
-          })();
+    const latestPrevious = foundNow ?? null;
+    savedSchedule = {
+      ...schedule,
+      editCount: latestPrevious
+        ? closing
+          ? Number(latestPrevious.editCount ?? 0)
+          : Number(latestPrevious.editCount ?? 0) + 1
+        : 0,
+    };
+    const latestHistory = latestPrevious
+      ? latest.history.map((item) =>
+          item.id === schedule.id ? { ...latestPrevious, ...savedSchedule } : item,
+        )
+      : [savedSchedule, ...latest.history];
     const duplicate = latestHistory.find(
       (h) =>
         h.id !== schedule.id &&
@@ -2411,41 +2415,65 @@ export async function upsertShift(id, body, actor, options = {}) {
       err.status = 400;
       throw err;
     }
+    const syncResult =
+      scope?.module === "inspectors" && latestPrevious
+        ? syncContinuedWorkerHours({
+            previous: latestPrevious,
+            next: savedSchedule,
+            history: latestHistory,
+            workerWindowPresets: latest.workerWindowPresets,
+            shiftModels: latest.shiftModels,
+            updatedAt: savedSchedule.updatedAt || new Date().toISOString(),
+          })
+        : { updates: [], lockedShiftIds: [] };
+    if (syncResult.lockedShiftIds.length > 0) {
+      const err = new Error(
+        "לא ניתן לשנות שעות אישיות: משמרת ההמשך של אחד הבודקים כבר נסגרה.",
+      );
+      err.status = 409;
+      throw err;
+    }
+    const relatedById = new Map(
+      syncResult.updates.map((item) => [item.id, item]),
+    );
+    const historyWithRelated = latestHistory.map(
+      (item) => relatedById.get(item.id) ?? item,
+    );
     const nextRevision = await claimRevision(scope, latest.revision ?? 0);
     if (nextRevision == null) continue;
     const target = targetForScope(scope);
     const db = await getDb(target);
-    const stored = stampScope({ ...schedule }, scope);
-    delete stored._id;
     const versionActor = actor
       ? {
           id: String(actor.id || ""),
           fullName: String(actor.fullName || ""),
         }
       : null;
-    // Baseline uses a stable id + $setOnInsert so we never need a countDocuments
-    // round-trip on every save (that scan was a frequent save-latency hit).
     const versionDocs = [];
-    if (previous) {
+    const schedulesToWrite = [savedSchedule, ...syncResult.updates];
+    for (const changed of schedulesToWrite) {
+      const old = latest.history.find((item) => item.id === changed.id);
+      if (old) {
+        versionDocs.push({
+          _id: `baseline:${shiftDocId(scope, changed.id)}`,
+          shiftId: changed.id,
+          createdAt: String(
+            old.updatedAt || old.createdAt || new Date().toISOString(),
+          ),
+          actor: null,
+          schedule: { ...old },
+          ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
+        });
+      }
       versionDocs.push({
-        _id: `baseline:${shiftDocId(scope, schedule.id)}`,
-        shiftId: schedule.id,
-        createdAt: String(
-          previous.updatedAt || previous.createdAt || new Date().toISOString(),
-        ),
-        actor: null,
-        schedule: { ...previous },
+        _id: randomUUID(),
+        shiftId: changed.id,
+        createdAt: changed.updatedAt || new Date().toISOString(),
+        actor: versionActor,
+        schedule: { ...changed },
         ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
       });
     }
-    versionDocs.push({
-      _id: randomUUID(),
-      shiftId: schedule.id,
-      createdAt: schedule.updatedAt || new Date().toISOString(),
-      actor: versionActor,
-      schedule: { ...schedule },
-      ...(scope ? { orgId: scope.orgId, module: scope.module } : {}),
-    });
     await withDbTransaction(async (session) => {
       const txOpts = session ? { session } : {};
       for (const version of versionDocs) {
@@ -2457,34 +2485,44 @@ export async function upsertShift(id, body, actor, options = {}) {
             { upsert: true, ...txOpts },
           );
       }
-      await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
-        { _id: shiftDocId(scope, schedule.id) },
-        {
-          $set: stored,
-          $setOnInsert: { listOrder: -Date.now() },
-        },
-        { upsert: true, ...txOpts },
-      );
+      for (const changed of schedulesToWrite) {
+        const stored = stampScope({ ...changed }, scope);
+        delete stored._id;
+        await db.collection(MODEL_COLLECTIONS.shifts).updateOne(
+          { _id: shiftDocId(scope, changed.id) },
+          {
+            $set: stored,
+            $setOnInsert: { listOrder: -Date.now() },
+          },
+          { upsert: true, ...txOpts },
+        );
+      }
     }, target);
     const savedState = {
       ...latest,
-      history: latestHistory,
+      history: historyWithRelated,
       revision: nextRevision,
     };
     rememberState(scope, savedState);
+    updatedSchedules = syncResult.updates;
+    savedHistory = historyWithRelated;
+    savedWorkerWindowPresets = latest.workerWindowPresets ?? [];
+    savedShiftModels = latest.shiftModels ?? [];
+    savedWorkers = latest.workers ?? [];
     // Compact saves skip publicData(full state) — decrypting every worker on
     // each shift save was a major latency hit. Cache still holds full state.
     saved = options.compact
       ? {
           revision: nextRevision,
-          shift: { ...schedule, id: schedule.id },
+          shift: { ...savedSchedule, id: savedSchedule.id },
+          ...(updatedSchedules.length > 0 ? { updatedShifts: updatedSchedules } : {}),
         }
       : publicData(savedState);
   }
   if (!saved) throw conflictError(await readState(scope));
 
-  const header = shiftAuditHeader(schedule);
-  const movement = summarizeAssignmentChanges(previous, schedule, {
+  const header = shiftAuditHeader(savedSchedule);
+  const movement = summarizeAssignmentChanges(previous, savedSchedule, {
     workers: state.workers,
     lanes: state.lanes,
   });
@@ -2495,7 +2533,7 @@ export async function upsertShift(id, body, actor, options = {}) {
     action: closing ? "shift_signoff" : isNew ? "shift_save" : "shift_update",
     actor,
     details: closing
-      ? `נסגרה משמרת ${schedule.date} · ${schedule.shiftType} · ${schedule.signOff.signerName}`
+      ? `נסגרה משמרת ${savedSchedule.date} · ${savedSchedule.shiftType} · ${savedSchedule.signOff.signerName}`
       : details,
     orgId: scope?.orgId,
     module: scope?.module,
@@ -2510,7 +2548,7 @@ export async function upsertShift(id, body, actor, options = {}) {
       .then(({ notifyWorkersOfAssignmentChanges }) =>
         notifyWorkersOfAssignmentChanges({
           previous,
-          next: schedule,
+          next: savedSchedule,
           scope,
           actor,
           lanes: state.lanes,
@@ -2523,6 +2561,20 @@ export async function upsertShift(id, body, actor, options = {}) {
           err?.message || err,
         );
       });
+  }
+
+  if (savedHistory) {
+    try {
+      await createPayEntriesForCompletedShifts(
+        savedHistory,
+        savedWorkerWindowPresets,
+        savedShiftModels,
+        scope,
+        savedWorkers,
+      );
+    } catch (err) {
+      console.error("Failed to create pay entries:", err);
+    }
   }
 
   return saved;
@@ -2951,14 +3003,15 @@ export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
     module: scope?.module,
   });
 
-  // Create pay entries for workers with selected hours
+  // Only release payroll after each continuing worker's final shift is closed.
   try {
-    for (const id of unique) {
-      const shift = saved.history.find((s) => s.id === id);
-      if (shift && shift.signOff) {
-        await createPayEntriesForShift(shift, saved.workerWindowPresets, scope);
-      }
-    }
+    await createPayEntriesForCompletedShifts(
+      saved.history,
+      saved.workerWindowPresets,
+      saved.shiftModels,
+      scope,
+      saved.workers,
+    )
   } catch (err) {
     // Log but don't fail the sign-off if pay entry creation fails
     console.error("Failed to create pay entries:", err);
