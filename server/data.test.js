@@ -164,6 +164,7 @@ vi.mock('./workerPay.js', () => ({ createPayEntriesForCompletedShifts }))
 import {
   deleteShift,
   readState,
+  saveWorkerWindowPresetCollection,
   signOffShiftsBulk,
   upsertShift,
   writeState,
@@ -656,20 +657,16 @@ describe('state and shift persistence', () => {
     expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId).revision).toBe(1)
   })
 
-  it('generates IDs for workerWindowPresets when missing', async () => {
-    const initial = await readState(scope)
-
-    const saved = await writeState(
-      {
-        ...initial,
-        workerWindowPresets: [
-          { start: 360, end: 900, name: 'בוקר', label: 'בוקר', order: 0 },
-          { start: 870, end: 1290, name: 'צהריים', label: 'צהריים', order: 1 },
-        ],
-      },
-      { scope, actor: { id: 'manager-1', fullName: 'Manager' } },
+  it('saves worker-hour presets through their dedicated collection writer', async () => {
+    const saved = await saveWorkerWindowPresetCollection(
+      [
+        { start: 360, end: 900, name: 'בוקר', label: 'בוקר', order: 0 },
+        { start: 870, end: 1290, name: 'צהריים', label: 'צהריים', order: 1 },
+      ],
+      { scope, expectedRevision: 1 },
     )
 
+    expect(saved.revision).toBe(2)
     expect(saved.workerWindowPresets).toHaveLength(2)
     expect(saved.workerWindowPresets[0]).toMatchObject({
       id: '0600-1500',
@@ -690,5 +687,54 @@ describe('state and shift persistence', () => {
     expect(loaded.workerWindowPresets).toHaveLength(2)
     expect(loaded.workerWindowPresets[0].id).toBe('0600-1500')
     expect(loaded.workerWindowPresets[1].id).toBe('1430-2130')
+  })
+
+  it('does not let a full-state save erase worker-hour presets', async () => {
+    const existing = [
+      { id: '0600-1500', label: 'בוקר', start: 360, end: 900, order: 0 },
+    ]
+    seedState({ workerWindowPresets: existing })
+    const initial = await readState(scope)
+
+    const saved = await writeState(
+      { ...initial, workerWindowPresets: [] },
+      { scope, expectedRevision: 1 },
+    )
+
+    expect(saved.workerWindowPresets).toEqual(existing)
+    expect((await readState(scope)).workerWindowPresets).toEqual(existing)
+    expect(buckets.get('selectors:worker_window_presets')).toHaveLength(1)
+    expect(
+      operations
+        .get('selectors:worker_window_presets')
+        .some(([name]) => name === 'deleteMany' || name === 'bulkWrite'),
+    ).toBe(false)
+  })
+
+  it('rejects an empty worker-hour catalog without deleting saved options', async () => {
+    const existing = [
+      { id: '0600-1500', label: 'בוקר', start: 360, end: 900, order: 0 },
+    ]
+    seedState({ workerWindowPresets: existing })
+
+    await expect(
+      saveWorkerWindowPresetCollection([], { scope, expectedRevision: 1 }),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(buckets.get('selectors:worker_window_presets')).toHaveLength(1)
+  })
+
+  it('rejects stale worker-hour edits without replacing the current catalog', async () => {
+    const existing = [
+      { id: '0600-1500', label: 'בוקר', start: 360, end: 900, order: 0 },
+    ]
+    seedState({ workerWindowPresets: existing })
+
+    await expect(
+      saveWorkerWindowPresetCollection(
+        [{ id: '0700-1500', label: 'חדש', start: 420, end: 900 }],
+        { scope, expectedRevision: 0 },
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+    expect((await readState(scope)).workerWindowPresets).toEqual(existing)
   })
 })

@@ -96,6 +96,16 @@ export function saveAppDataRemote(data: AppData): Promise<AppData> {
   })
 }
 
+export function saveWorkerWindowPresetsRemote(
+  presets: NonNullable<AppData['workerWindowPresets']>,
+  expectedRevision?: number,
+): Promise<AppData> {
+  return request<AppData>('/api/worker-window-presets', {
+    method: 'PUT',
+    body: JSON.stringify({ presets, expectedRevision }),
+  })
+}
+
 export function upsertWorkerRemote(worker: Worker): Promise<AppData> {
   const hasId = Boolean(String(worker.id || '').trim())
   if (!hasId) {

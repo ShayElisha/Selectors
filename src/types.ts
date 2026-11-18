@@ -374,7 +374,7 @@ export interface AppData {
   shiftModels?: ShiftModel[]
   /**
    * Personal hour presets for attendance (בחר משמרת).
-   * Empty means the built-in DEFAULT_WORKER_WINDOWS list.
+   * Empty means there are no configured personal-hour options.
    */
   workerWindowPresets?: WorkerWindowPreset[]
   /** Optimistic-lock revision from Mongo */

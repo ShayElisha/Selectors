@@ -31,7 +31,7 @@ function displayLabel(preset: WorkerWindowPreset): string {
 }
 
 export function WorkerWindowsPage() {
-  const { data, module, saveWorkerWindowPresets, flushPersist } = useApp()
+  const { data, module, saveWorkerWindowPresets } = useApp()
   const presets = useMemo(
     () => {
       const resolved = resolveWorkerWindows(data.workerWindowPresets)
@@ -52,7 +52,7 @@ export function WorkerWindowsPage() {
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
 
-  const persist = async (next: WorkerWindowPreset[]) => {
+  const persist = async (next: WorkerWindowPreset[]): Promise<boolean> => {
     const normalized = next.map((preset, order) => {
       const named = String(preset.name || '').trim() || undefined
       return {
@@ -62,9 +62,15 @@ export function WorkerWindowsPage() {
         order,
       }
     })
-    saveWorkerWindowPresets(normalized)
-    // Flush immediately to avoid conflicts
-    await flushPersist()
+    try {
+      await saveWorkerWindowPresets(normalized)
+      return true
+    } catch (error) {
+      notify.error(
+        error instanceof Error ? error.message : 'שמירת חלונות השעות נכשלה',
+      )
+      return false
+    }
   }
 
   const add = async () => {
@@ -84,7 +90,7 @@ export function WorkerWindowsPage() {
       return
     }
     const trimmedName = name.trim()
-    await persist([
+    const saved = await persist([
       ...presets,
       {
         id,
@@ -95,6 +101,7 @@ export function WorkerWindowsPage() {
         order: presets.length,
       },
     ])
+    if (!saved) return
     setError(null)
     setName('')
     notify.success('חלון השעות נוסף')
@@ -127,7 +134,7 @@ export function WorkerWindowsPage() {
       return
     }
     const customName = editName.trim() || undefined
-    await persist(
+    const saved = await persist(
       presets.map((preset) => {
         if (preset.id !== editingId) return preset
         return {
@@ -141,6 +148,7 @@ export function WorkerWindowsPage() {
         }
       }),
     )
+    if (!saved) return
     notify.success('השעות עודכנו')
     cancelEdit()
   }
@@ -151,7 +159,8 @@ export function WorkerWindowsPage() {
       return
     }
     if (!confirm(`למחוק את ${displayLabel(preset)}?`)) return
-    await persist(presets.filter((item) => item.id !== preset.id))
+    const saved = await persist(presets.filter((item) => item.id !== preset.id))
+    if (!saved) return
     notify.success('חלון השעות נמחק')
   }
 

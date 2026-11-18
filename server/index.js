@@ -34,6 +34,7 @@ import {
   signOffShiftsBulk,
   upsertWorkerRecord,
   deleteWorkerRecord,
+  saveWorkerWindowPresetCollection,
   writeState,
   seedWorkerWindowsForAllOrgs,
 } from './data.js'
@@ -964,6 +965,24 @@ app.put('/api/data', async (req, res) => {
           expectedRevision === undefined || expectedRevision === ''
             ? undefined
             : Number(expectedRevision),
+      }),
+    )
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/worker-window-presets', async (req, res) => {
+  try {
+    const { scope } = await scopeForRequest(req)
+    const body = req.body || {}
+    res.json(
+      await saveWorkerWindowPresetCollection(body.presets, {
+        scope,
+        expectedRevision:
+          body.expectedRevision === undefined
+            ? undefined
+            : Number(body.expectedRevision),
       }),
     )
   } catch (err) {

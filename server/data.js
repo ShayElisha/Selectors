@@ -1047,6 +1047,7 @@ async function replaceModels(
   target = "selectors",
   historyRevision = revision,
   writeHistory = true,
+  writeWorkerWindowPresets = true,
 ) {
   const db = await getDb(target);
   const certPrefix = scope ? `${scope.orgId}:${scope.module}:cert` : "cert";
@@ -1116,6 +1117,12 @@ async function replaceModels(
   const opts = session ? { session } : {};
   for (const [name, rawDocs] of models) {
     if (name === MODEL_COLLECTIONS.shifts && !writeHistory) continue;
+    if (
+      name === MODEL_COLLECTIONS.workerWindowPresets &&
+      !writeWorkerWindowPresets
+    ) {
+      continue;
+    }
     const col = db.collection(name);
     const docs = dedupeById(rawDocs);
     const ids = docs.map((d) => d._id);
@@ -1816,6 +1823,9 @@ export async function writeState(data, options = {}) {
   };
   if (options.action !== "data_reset") {
     payload.history = keepSignedShifts(payload.history, prev?.history);
+    // Presets have their own write endpoint. A full-state snapshot may be
+    // stale, so it must never replace this catalog.
+    payload.workerWindowPresets = prev.workerWindowPresets ?? [];
   }
   const nextRevision = currentRevision + 1;
   const toStore = {
@@ -1867,6 +1877,7 @@ export async function writeState(data, options = {}) {
       target,
       historyRevision,
       historyChanged,
+      options.action === "data_reset",
     );
     if (options.action === "data_reset") {
       const db = await getDb(target);
@@ -1905,6 +1916,70 @@ export async function writeState(data, options = {}) {
 
   invalidateStateCache(scope);
   return publicData(result);
+}
+
+export async function saveWorkerWindowPresetCollection(rawPresets, options = {}) {
+  const scope = options.scope;
+  if (!scope?.orgId || !scope?.module) {
+    const err = new Error("חסר הקשר ארגון");
+    err.status = 400;
+    throw err;
+  }
+  if (!Array.isArray(rawPresets) || rawPresets.length === 0) {
+    const err = new Error("חייבת להישאר לפחות אפשרות שעות אחת");
+    err.status = 400;
+    throw err;
+  }
+  const presets = normalizeWorkerWindowPresets(rawPresets);
+  if (presets.length !== rawPresets.length) {
+    const err = new Error("פרטי חלונות השעות אינם תקינים");
+    err.status = 400;
+    throw err;
+  }
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) invalidateStateCache(scope);
+    const latest = await readState(scope);
+    if (
+      options.expectedRevision != null &&
+      Number(options.expectedRevision) !== Number(latest.revision ?? 0)
+    ) {
+      throw conflictError(latest);
+    }
+    const nextRevision = await claimOperationalRevision(
+      scope,
+      latest.revision ?? 0,
+    );
+    if (nextRevision == null) continue;
+
+    const target = targetForScope(scope);
+    const db = await getDb(target);
+    const docs = orderedDocs(presets).map((doc) => stampScope(doc, scope));
+    await withDbTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const collection = db.collection(MODEL_COLLECTIONS.workerWindowPresets);
+      const ids = docs.map((doc) => doc._id);
+      await collection.deleteMany(
+        { ...scopeFilter(scope), _id: { $nin: ids } },
+        opts,
+      );
+      await collection.bulkWrite(
+        docs.map(({ _id, ...doc }) => ({
+          replaceOne: { filter: { _id }, replacement: doc, upsert: true },
+        })),
+        { ordered: false, ...opts },
+      );
+    }, target);
+
+    const savedState = {
+      ...latest,
+      workerWindowPresets: fromOrderedDocs(docs),
+      revision: nextRevision,
+    };
+    rememberState(scope, savedState);
+    return publicData(savedState);
+  }
+  throw conflictError(await readState(scope));
 }
 
 /**
