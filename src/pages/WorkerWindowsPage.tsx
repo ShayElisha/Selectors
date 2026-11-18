@@ -63,7 +63,7 @@ export function WorkerWindowsPage() {
       }
     })
     saveWorkerWindowPresets(normalized)
-    notify.info(`שומר ${normalized.length} שעות אישיות...`, { duration: 2000 })
+    notify.info(`שומר ${normalized.length} שעות אישיות...`)
   }
 
   const add = () => {
