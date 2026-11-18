@@ -324,8 +324,6 @@ export interface ShiftSchedule {
   shiftEvents?: ShiftChangeEvent[]
   /** Clock time someone left the shift, keyed by worker id. Load uses the hours until then. */
   earlyLeaveAt?: Record<string, number>
-  /** Lanes manually reopened in the live kiosk after all assigned workers ended their hours. */
-  reopenedLaneIds?: string[]
   /** Early leaves and cancellations, with the reason the manager wrote. */
   shiftDrops?: ShiftDrop[]
   /** Times the board was saved after the first version (set on server). */

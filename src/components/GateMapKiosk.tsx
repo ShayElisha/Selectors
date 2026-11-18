@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
-  CircleSlash,
   Info,
   Shield,
   X,
@@ -14,17 +13,14 @@ import { isGateManagerLane } from '../lib/gateManager'
 import { visibleExplanationReasons } from './AssignmentExplainDialog'
 import { Ltr, TraineeBadge } from './ui'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
-import { workerShiftHasEnded } from '../lib/workerShiftStatus'
 import type {
   Intensity,
   Lane,
   LaneAssignment,
   SelectorRound,
-  ShiftModel,
   ShiftSchedule,
   StaffingStandard,
   Worker,
-  WorkerWindowPreset,
 } from '../types'
 
 export type GatePerson = {
@@ -40,8 +36,6 @@ export type GateIsland = {
   required: StaffingStandard
   workers: GatePerson[]
   missing: number
-  closed: boolean
-  reopened: boolean
   notes?: string
 }
 
@@ -91,9 +85,6 @@ function islandsFromAssignments(
   lanes: Lane[],
   workers: Worker[],
   assignments: LaneAssignment[],
-  models: ShiftModel[],
-  presets: WorkerWindowPreset[],
-  now: number,
 ): GateIsland[] {
   const order = new Map(lanes.map((lane, index) => [lane.id, index]))
   const islands: GateIsland[] = []
@@ -103,28 +94,14 @@ function islandsFromAssignments(
     const row = assignments.find((item) => item.laneId === laneId)
     const assignedIds = row?.workerIds ?? []
     const assigned = peopleFromIds(assignedIds, workers)
-    const availableWorkers = assigned.filter(
-      (person) =>
-        !workerShiftHasEnded(shift, person.id, models, presets, now),
-    )
-    const reopened = shift.reopenedLaneIds?.includes(laneId) ?? false
-    const closed =
-      !reopened &&
-      assigned.length > 0 &&
-      availableWorkers.length === 0 &&
-      assigned.every((person) =>
-        workerShiftHasEnded(shift, person.id, models, presets, now),
-      )
     const required = effectiveStaffingStandard(lane, shift.staffingOverrides)
     islands.push({
       laneId,
       name: lane.name,
       intensity: lane.intensity,
       required,
-      workers: availableWorkers,
-      missing: Math.max(0, required - availableWorkers.length),
-      closed,
-      reopened,
+      workers: assigned,
+      missing: Math.max(0, required - assigned.length),
       notes: row?.notes,
     })
   }
@@ -153,9 +130,7 @@ function IslandNode({
       type="button"
       className={`gate-island gate-island--${island.intensity} ${
         island.missing > 0 ? 'gate-island--gap' : filled ? 'gate-island--ok' : ''
-      } ${empty ? 'gate-island--empty' : ''} ${
-        island.closed ? 'gate-island--closed' : ''
-      } ${selected ? 'is-selected' : ''}`}
+      } ${empty ? 'gate-island--empty' : ''} ${selected ? 'is-selected' : ''}`}
       style={{ animationDelay: `${delayMs}ms` }}
       onClick={onSelect}
       aria-pressed={selected}
@@ -175,9 +150,7 @@ function IslandNode({
             }`}
             aria-hidden
           >
-            {island.closed ? (
-              <CircleSlash className="size-5" />
-            ) : island.missing > 0 ? (
+            {island.missing > 0 ? (
               <AlertTriangle className="size-5" />
             ) : (
               <CheckCircle2 className="size-5" />
@@ -186,13 +159,7 @@ function IslandNode({
         </header>
         <ul className="gate-island__people">
           {island.workers.length === 0 ? (
-            <li className="gate-island__vacant">
-              {island.closed
-                ? 'סגור — שעות העובדים הסתיימו'
-                : island.reopened
-                  ? 'פתוח ידנית בקיוסק'
-                  : 'פנוי'}
-            </li>
+            <li className="gate-island__vacant">פנוי</li>
           ) : (
             island.workers.map((person) => (
               <li key={person.id} className="gate-island__person">
@@ -223,10 +190,9 @@ export function GateMapKiosk({
   lanes: Lane[]
   workers: Worker[]
 }) {
-  const { data, syncing, setKioskLaneOpen } = useApp()
+  const { data } = useApp()
   const [now, setNow] = useState(() => Date.now())
   const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null)
-  const [toggleError, setToggleError] = useState<string | null>(null)
   const rounds = shift.rounds ?? []
   const hasRounds = rounds.length > 0
 
@@ -254,18 +220,12 @@ export function GateMapKiosk({
         lanes,
         workers,
         currentAssignments,
-        data.shiftModels ?? [],
-        data.workerWindowPresets ?? [],
-        now,
       ),
     [
       shift,
       lanes,
       workers,
       currentAssignments,
-      data.shiftModels,
-      data.workerWindowPresets,
-      now,
     ],
   )
 
@@ -335,17 +295,8 @@ export function GateMapKiosk({
 
   const selected = islands.find((island) => island.laneId === selectedLaneId) ?? null
 
-  const gateManagerEnded = shift.gateManagerWorkerId
-    ? workerShiftHasEnded(
-        shift,
-        shift.gateManagerWorkerId,
-        data.shiftModels ?? [],
-        data.workerWindowPresets ?? [],
-        now,
-      )
-    : false
   const ramashName =
-    shift.gateManagerWorkerId && !gateManagerEnded
+    shift.gateManagerWorkerId
       ? workers.find((worker) => worker.id === shift.gateManagerWorkerId)
           ?.fullName
       : undefined
@@ -357,14 +308,7 @@ export function GateMapKiosk({
     .filter(
       (id) =>
         !assignedIds.has(id) &&
-        id !== shift.gateManagerWorkerId &&
-        !workerShiftHasEnded(
-          shift,
-          id,
-          data.shiftModels ?? [],
-          data.workerWindowPresets ?? [],
-          now,
-        ),
+        id !== shift.gateManagerWorkerId,
     )
     .map((id) => {
       const worker = workers.find((item) => item.id === id)
@@ -573,41 +517,6 @@ export function GateMapKiosk({
               )}
               {selected.notes ? (
                 <p className="gate-detail__notes">{selected.notes}</p>
-              ) : null}
-              {selected.closed || selected.reopened ? (
-                <div className="gate-detail__lane-control">
-                  <p>
-                    {selected.closed
-                      ? 'העובדים שהוקצו לעמדה סיימו את שעותיהם ואין מחליף.'
-                      : 'העמדה פתוחה ידנית בקיוסק בלבד; השיבוץ לא השתנה.'}
-                  </p>
-                  <button
-                    type="button"
-                    className="ui-btn ui-btn-secondary"
-                    disabled={syncing}
-                    onClick={() => {
-                      setToggleError(null)
-                      void setKioskLaneOpen(
-                        shift.id,
-                        selected.laneId,
-                        selected.closed,
-                      ).catch((error: unknown) => {
-                        setToggleError(
-                          error instanceof Error ? error.message : 'עדכון הנתיב נכשל',
-                        )
-                      })
-                    }}
-                  >
-                    {selected.closed
-                      ? 'פתח עמדה בקיוסק'
-                      : 'החזר לסגירה אוטומטית'}
-                  </button>
-                  {toggleError ? (
-                    <p role="alert" className="gate-detail__lane-error">
-                      {toggleError}
-                    </p>
-                  ) : null}
-                </div>
               ) : null}
             </div>
           </div>
