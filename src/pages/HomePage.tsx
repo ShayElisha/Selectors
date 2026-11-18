@@ -18,6 +18,7 @@ import {
   Wrench,
   Map as MapIcon,
 } from 'lucide-react'
+import { AddWorkerWindowDialog } from '../components/AddWorkerWindowDialog'
 import {
   BoardKiosk,
   BoardKioskEnterButton,
@@ -153,6 +154,7 @@ export function HomePage() {
   /** Reserved for when health is persisted on ShiftSchedule — not filled today. */
   const [shiftHealth] = useState<ShiftHealthSnapshot | null>(null)
   const [healthOpen, setHealthOpen] = useState(false)
+  const [showAddWindowDialog, setShowAddWindowDialog] = useState(false)
   const boardKioskRef = useRef<BoardKioskHandle>(null)
 
   useEffect(() => {
@@ -687,6 +689,15 @@ export function HomePage() {
               </button>
               <button
                 type="button"
+                onClick={() => setShowAddWindowDialog(true)}
+                className="ui-btn ui-btn-secondary gap-2"
+                title="הוסף שעות אישיות חדשות"
+              >
+                <Plus className="size-4" aria-hidden />
+                שעות אישיות
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   if (confirm('לבטל את טיוטת השיבוץ? הפעולה לא ניתנת לשחזור.')) {
                     discardDraft()
@@ -724,6 +735,15 @@ export function HomePage() {
               >
                 <Plus className="size-4" aria-hidden />
                 משמרת חדשה
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddWindowDialog(true)}
+                className="ui-btn ui-btn-secondary gap-2"
+                title="הוסף שעות אישיות חדשות"
+              >
+                <Plus className="size-4" aria-hidden />
+                שעות אישיות
               </button>
               {showSelectorEntry && (
                 <button
@@ -1376,6 +1396,15 @@ export function HomePage() {
       </SectionCard>
 
       {user?.role === 'org_manager' ? <WorkerNoticeComposer /> : null}
+
+      {showAddWindowDialog && (
+        <AddWorkerWindowDialog
+          onClose={() => setShowAddWindowDialog(false)}
+          onAdded={() => {
+            setShowAddWindowDialog(false)
+          }}
+        />
+      )}
     </div>
   )
 }
