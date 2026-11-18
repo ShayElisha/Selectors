@@ -23,6 +23,7 @@ export function workerShiftEnd(
   const shiftStart = model?.startMinutes ?? fallback!.start
   let shiftEnd = model?.endMinutes ?? fallback!.end
   if (shiftEnd <= shiftStart) shiftEnd += 24 * 60
+  const crossesMidnight = shiftEnd > 24 * 60
 
   const preset = workerWindowById(shift.workerWindows?.[workerId], presets)
   let end = shiftEnd
@@ -30,7 +31,7 @@ export function workerShiftEnd(
     const start = preset.start
     end = preset.end
     if (end <= start) end += 24 * 60
-    if (shiftStart >= 12 * 60 && start < 12 * 60 && preset.end > preset.start) {
+    if (crossesMidnight && start < 12 * 60 && preset.end > preset.start) {
       end += 24 * 60
     }
   }
@@ -44,7 +45,7 @@ export function workerShiftEnd(
   const leaveAt = shift.earlyLeaveAt?.[workerId]
   if (leaveAt != null && Number.isFinite(Number(leaveAt))) {
     let leave = Number(leaveAt)
-    if (leave < shiftStart && shiftEnd > 24 * 60) leave += 24 * 60
+    if (leave < shiftStart && crossesMidnight) leave += 24 * 60
     end = Math.min(end, leave)
   }
 
