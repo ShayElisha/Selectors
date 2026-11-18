@@ -197,6 +197,7 @@ import type {
   ShiftAudience,
   ShiftSchedule,
   ShiftChangeEvent,
+  ShiftOperationEvent,
   ShiftDrop,
   ShiftSignOff,
   SeatSegment,
@@ -449,6 +450,7 @@ export interface ShiftDraft {
   seatSpan?: { startMinutes: number; endMinutes: number }
   isSelfHealed?: boolean
   shiftEvents?: ShiftChangeEvent[]
+  shiftOperationEvents?: ShiftOperationEvent[]
   /** Transient glow after an accepted refill. */
   healHighlights?: { laneId: string; tone: 'filled' | 'frozen' }[]
   /** Worker id → clock minutes they left the shift. */
@@ -607,7 +609,12 @@ interface AppContextValue {
   } | null
   /** Open an empty board so managers can place present workers by hand. */
   startManualAssign: () => void
-  updateAssignment: (laneId: string, slotIndex: number, workerId: string | null) => void
+  updateAssignment: (
+    laneId: string,
+    slotIndex: number,
+    workerId: string | null,
+    effectiveAt?: string,
+  ) => void
   /** Set one cell on the selector round table. Same person cannot fill two lanes in one round. */
   updateSelectorCell: (
     roundIndex: number,
@@ -619,6 +626,7 @@ interface AppContextValue {
   swapAssignments: (
     a: { laneId: string; slotIndex: number },
     b: { laneId: string; slotIndex: number },
+    effectiveAt?: string,
   ) => void
   /**
    * Remove a worker from the current shift: clears every slot they occupy
@@ -633,7 +641,11 @@ interface AppContextValue {
   healing: boolean
   healPlan: { healed: SelfHealPlan; manual: SelfHealPlan } | null
   /** Replace one seated person. Other seats stay as they are. */
-  replaceLeavingWorker: (leavingId: string, replacementId: string) => void
+  replaceLeavingWorker: (
+    leavingId: string,
+    replacementId: string,
+    effectiveAt?: string,
+  ) => void
   /** Drop a lane from the open shift. People who were on it stay present and become unassigned. */
   removeLaneFromShift: (laneId: string) => void
   /** Unfreeze prompt state (shown when worker added and lanes can be unfrozen). */
@@ -871,6 +883,47 @@ function restoreStep(): ShiftStep {
   return 'lanes'
 }
 
+type ShiftOperationEventInput = Pick<ShiftOperationEvent, 'kind' | 'workerId' | 'workerName'> &
+  Partial<Pick<ShiftOperationEvent, 'fromLaneId' | 'fromLaneName' | 'toLaneId' | 'toLaneName'>>
+
+function createShiftOperationEvent(
+  input: ShiftOperationEventInput,
+  effectiveAt?: string,
+): ShiftOperationEvent {
+  const parsedEffectiveAt = effectiveAt ? new Date(effectiveAt) : null
+  return {
+    ...input,
+    id: uuid(),
+    effectiveAt:
+      parsedEffectiveAt && Number.isFinite(parsedEffectiveAt.getTime())
+        ? parsedEffectiveAt.toISOString()
+        : new Date().toISOString(),
+    recordedAt: '',
+    actorId: '',
+    actorName: '',
+  }
+}
+
+function workerOperationEvent(
+  kind: ShiftOperationEvent['kind'],
+  workerId: string,
+  workerName: string,
+  effectiveAt: string | undefined,
+  lanes: Lane[],
+  fromLaneId?: string,
+  toLaneId?: string,
+): ShiftOperationEvent {
+  const laneName = (id?: string) =>
+    id ? lanes.find((lane) => lane.id === id)?.name || id : undefined
+  return createShiftOperationEvent({
+    kind,
+    workerId,
+    workerName,
+    ...(fromLaneId ? { fromLaneId, fromLaneName: laneName(fromLaneId) } : {}),
+    ...(toLaneId ? { toLaneId, toLaneName: laneName(toLaneId) } : {}),
+  }, effectiveAt)
+}
+
 /** Stable snapshot used to detect whether the user changed the current shift. */
 function snapshotDraft(d: ShiftDraft): string {
   return JSON.stringify({
@@ -899,6 +952,7 @@ function snapshotDraft(d: ShiftDraft): string {
     signOff: d.signOff ?? null,
     unassignedWorkerIds: d.unassignedWorkerIds,
     explanations: d.explanations ?? [],
+    shiftOperationEvents: d.shiftOperationEvents ?? [],
     staffingOverrides: d.staffingOverrides ?? {},
     headcountStandard: d.headcountStandard ?? null,
   })
@@ -1709,6 +1763,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           seatSpan: item.seatSpan,
           isSelfHealed: item.isSelfHealed,
           shiftEvents: item.shiftEvents,
+          shiftOperationEvents: item.shiftOperationEvents,
           warnings: [],
           unassignedWorkerIds: [],
           explanations: Array.isArray(item.explanations) ? item.explanations : [],
@@ -1799,6 +1854,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : {}),
       ...(d.frozenLaneIds?.length ? { frozenLaneIds: d.frozenLaneIds } : {}),
       ...(d.shiftEvents?.length ? { shiftEvents: d.shiftEvents } : {}),
+      ...(d.shiftOperationEvents?.length
+        ? { shiftOperationEvents: d.shiftOperationEvents }
+        : {}),
       ...(d.quality?.score != null && d.quality.legal
         ? {
             assignmentQuality: {
@@ -3360,7 +3418,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [data.lanes])
 
   const updateAssignment = useCallback(
-    (laneId: string, slotIndex: number, workerId: string | null) => {
+    (
+      laneId: string,
+      slotIndex: number,
+      workerId: string | null,
+      effectiveAt?: string,
+    ) => {
       setDraft((d) => {
         if (!d) return d
         const padded = padAssignments(d.assignments, data.lanes, d.activeLaneIds, d.staffingOverrides).map(
@@ -3376,6 +3439,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const nextName = workerId
           ? data.workers.find((w) => w.id === workerId)?.fullName || workerId
           : '(ריק)'
+        const fromLaneId = workerId
+          ? padded.find(
+              (assignment) =>
+                assignment.laneId !== laneId &&
+                assignment.workerIds.includes(workerId),
+            )?.laneId
+          : undefined
 
         // Where was the incoming worker before (if any)?
         let fromLaneLabel: string | null = null
@@ -3453,10 +3523,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
           )
         }
 
+        const operationEvents: ShiftOperationEvent[] = []
+        if (
+          data.history.some((item) => item.id === d.id) &&
+          prevId !== (workerId ?? '')
+        ) {
+          if (prevId) {
+            operationEvents.push(
+              workerOperationEvent(
+                'worker_removed',
+                prevId,
+                prevName,
+                effectiveAt,
+                data.lanes,
+                laneId,
+              ),
+            )
+          }
+          if (workerId) {
+            operationEvents.push(
+              workerOperationEvent(
+                fromLaneId ? 'worker_moved' : 'worker_assigned',
+                workerId,
+                nextName,
+                effectiveAt,
+                data.lanes,
+                fromLaneId,
+                laneId,
+              ),
+            )
+          }
+        }
+
         return withGateManagerSync(
           {
             ...d,
             assignments: padded,
+            ...(operationEvents.length
+              ? {
+                  shiftOperationEvents: [
+                    ...(d.shiftOperationEvents ?? []),
+                    ...operationEvents,
+                  ],
+                }
+              : {}),
             quality: undefined,
           },
           data.lanes,
@@ -3529,6 +3639,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (
       a: { laneId: string; slotIndex: number },
       b: { laneId: string; slotIndex: number },
+      effectiveAt?: string,
     ) => {
       setDraft((d) => {
         if (!d) return d
@@ -3558,6 +3669,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
           id ? data.workers.find((w) => w.id === id)?.fullName || id : '(ריק)'
         const labelOf = (laneId: string) =>
           data.lanes.find((l) => l.id === laneId)?.name || laneId
+        const operationEvents: ShiftOperationEvent[] = []
+        if (
+          a.laneId !== b.laneId &&
+          data.history.some((item) => item.id === d.id)
+        ) {
+          if (idA) {
+            operationEvents.push(
+              workerOperationEvent(
+                idB ? 'worker_moved' : 'worker_removed',
+                idA,
+                nameOf(idA),
+                effectiveAt,
+                data.lanes,
+                a.laneId,
+                idB ? b.laneId : undefined,
+              ),
+            )
+          }
+          if (idB) {
+            operationEvents.push(
+              workerOperationEvent(
+                'worker_moved',
+                idB,
+                nameOf(idB),
+                effectiveAt,
+                data.lanes,
+                b.laneId,
+                a.laneId,
+              ),
+            )
+          }
+        }
 
         void postAuditEvent(
           'manual_swap',
@@ -3590,6 +3733,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             assignments: padded,
+            ...(operationEvents.length
+              ? {
+                  shiftOperationEvents: [
+                    ...(d.shiftOperationEvents ?? []),
+                    ...operationEvents,
+                  ],
+                }
+              : {}),
             quality: undefined,
           },
           data.lanes,
@@ -3650,7 +3801,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const replaceLeavingWorker = useCallback(
-    (leavingId: string, replacementId: string) => {
+    (leavingId: string, replacementId: string, effectiveAt?: string) => {
       setDraft((d) => {
         if (!d || usesRounds(d)) return d
         const next = replaceLeavingWorkerSeat({
@@ -3670,6 +3821,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
           row.workerIds.includes(leavingId),
         )?.laneId
         const laneName = data.lanes.find((lane) => lane.id === laneId)?.name || laneId || ''
+        const operationEvents: ShiftOperationEvent[] = []
+        if (laneId && data.history.some((item) => item.id === d.id)) {
+          operationEvents.push(
+            workerOperationEvent(
+              'worker_removed',
+              leavingId,
+              leavingName,
+              effectiveAt,
+              data.lanes,
+              laneId,
+            ),
+            workerOperationEvent(
+              'worker_assigned',
+              replacementId,
+              nextName,
+              effectiveAt,
+              data.lanes,
+              undefined,
+              laneId,
+            ),
+          )
+        }
         void postAuditEvent(
           'manual_assign',
           `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · החלפה באמצע משמרת · ${laneName}: ${leavingName} → ${nextName} · ${fixTagForSeats(
@@ -3684,6 +3857,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             ...d,
             assignments: next.assignments,
+            ...(operationEvents.length
+              ? {
+                  shiftOperationEvents: [
+                    ...(d.shiftOperationEvents ?? []),
+                    ...operationEvents,
+                  ],
+                }
+              : {}),
             quality: undefined,
             presentWorkerIds: next.presentWorkerIds,
             gateManagerWorkerId: next.gateManagerWorkerId,

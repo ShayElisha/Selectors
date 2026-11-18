@@ -410,6 +410,94 @@ describe('state and shift persistence', () => {
     })
   })
 
+  it('records assignment history with server actor/time and preserves it on later saves', async () => {
+    const effectiveAt = new Date(Date.now() - 60_000).toISOString()
+    const saved = await upsertShift(
+      'shift-with-operation',
+      {
+        date: '2026-10-12',
+        shiftType: 'morning',
+        assignmentMode: 'single',
+        assignments: [],
+        shiftOperationEvents: [
+          {
+            id: 'operation-1',
+            kind: 'worker_moved',
+            workerId: 'worker-1',
+            workerName: 'דני',
+            fromLaneId: 'lane-1',
+            fromLaneName: 'עמדה 1',
+            toLaneId: 'lane-2',
+            toLaneName: 'עמדה 2',
+            effectiveAt,
+            recordedAt: 'spoofed-time',
+            actorId: 'spoofed-actor',
+            actorName: 'Spoofed',
+          },
+        ],
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope },
+    )
+
+    expect(saved.history[0].shiftOperationEvents).toHaveLength(1)
+    expect(saved.history[0].shiftOperationEvents[0]).toMatchObject({
+      id: 'operation-1',
+      kind: 'worker_moved',
+      workerId: 'worker-1',
+      workerName: 'דני',
+      effectiveAt,
+      actorId: 'manager-1',
+      actorName: 'Manager',
+      fromLaneName: 'עמדה 1',
+      toLaneName: 'עמדה 2',
+    })
+    expect(saved.history[0].shiftOperationEvents[0].recordedAt).not.toBe(
+      'spoofed-time',
+    )
+
+    const updated = await upsertShift(
+      'shift-with-operation',
+      {
+        date: '2026-10-12',
+        shiftType: 'morning',
+        assignmentMode: 'single',
+        assignments: [],
+        shiftOperationEvents: [],
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope },
+    )
+    expect(updated.history[0].shiftOperationEvents).toEqual(
+      saved.history[0].shiftOperationEvents,
+    )
+  })
+
+  it('rejects future-dated assignment events', async () => {
+    await expect(
+      upsertShift(
+        'future-operation',
+        {
+          date: '2026-10-12',
+          shiftType: 'morning',
+          assignmentMode: 'single',
+          assignments: [],
+          shiftOperationEvents: [
+            {
+              id: 'future-event',
+              kind: 'worker_assigned',
+              workerId: 'worker-1',
+              workerName: 'דני',
+              effectiveAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          ],
+        },
+        { id: 'manager-1', fullName: 'Manager' },
+        { scope },
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
   it('compact upsert returns only revision + shift', async () => {
     const saved = await upsertShift(
       'shift-compact',

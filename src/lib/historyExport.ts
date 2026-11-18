@@ -37,6 +37,11 @@ export function buildHistoryCsv(
     'בודקים',
     'מנהל שער',
     'הערות',
+    'סוג רשומה',
+    'שעת תוקף',
+    'שעת רישום',
+    'מבצע',
+    'פרטי פעולה',
   ]
 
   const sorted = [...shifts].sort((a, b) => {
@@ -71,24 +76,58 @@ export function buildHistoryCsv(
         '',
         gateName,
         '',
+        'שיבוץ',
+        '',
+        '',
+        '',
+        '',
       ])
-      continue
+    } else {
+      for (const row of rows) {
+        const names = row.workerIds
+          .map((id) => workersById.get(id)?.fullName ?? id)
+          .join(' · ')
+        body.push([
+          shift.date,
+          SHIFT_TYPE_LABELS[shift.shiftType],
+          row.name,
+          row.intensity ? INTENSITY_LABELS[row.intensity] : '',
+          row.staffingStandard ?? '',
+          row.workerIds.length,
+          names,
+          gateName,
+          notesByLane.get(row.laneId) ?? '',
+          'שיבוץ',
+          '',
+          '',
+          '',
+          '',
+        ])
+      }
     }
 
-    for (const row of rows) {
-      const names = row.workerIds
-        .map((id) => workersById.get(id)?.fullName ?? id)
-        .join(' · ')
+    for (const event of shift.shiftOperationEvents ?? []) {
+      const description =
+        event.kind === 'worker_moved'
+          ? `${event.workerName}: ${event.fromLaneName ?? 'נתיב לא ידוע'} ← ${event.toLaneName ?? 'נתיב לא ידוע'}`
+          : event.kind === 'worker_assigned'
+            ? `${event.workerName}: שובץ/ה ל${event.toLaneName ?? 'נתיב לא ידוע'}`
+            : `${event.workerName}: הוסר/ה מ${event.fromLaneName ?? 'הנתיב'}`
       body.push([
         shift.date,
         SHIFT_TYPE_LABELS[shift.shiftType],
-        row.name,
-        row.intensity ? INTENSITY_LABELS[row.intensity] : '',
-        row.staffingStandard ?? '',
-        row.workerIds.length,
-        names,
-        gateName,
-        notesByLane.get(row.laneId) ?? '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        'שינוי בשיבוץ',
+        event.effectiveAt,
+        event.recordedAt,
+        event.actorName,
+        description,
       ])
     }
   }

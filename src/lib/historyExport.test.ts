@@ -86,4 +86,42 @@ describe('buildHistoryCsv', () => {
       csv.indexOf('2026-09-20,בוקר,נתיב ב'),
     )
   })
+
+  it('exports assignment changes with effective and recorded time and actor', () => {
+    const shifts: ShiftSchedule[] = [
+      {
+        id: 's1',
+        date: '2026-09-20',
+        shiftType: 'morning',
+        presentWorkerIds: [],
+        activeLaneIds: [],
+        assignments: [],
+        shiftOperationEvents: [
+          {
+            id: 'op1',
+            kind: 'worker_moved',
+            workerId: 'w1',
+            workerName: 'דני',
+            fromLaneId: 'l1',
+            fromLaneName: 'נתיב א',
+            toLaneId: 'l2',
+            toLaneName: 'נתיב ב',
+            effectiveAt: '2026-09-20T08:00:00.000Z',
+            recordedAt: '2026-09-20T09:00:00.000Z',
+            actorId: 'manager-1',
+            actorName: 'מנהל',
+          },
+        ],
+        createdAt: '2026-09-20T06:00:00.000Z',
+        updatedAt: '2026-09-20T06:00:00.000Z',
+      },
+    ]
+
+    const csv = buildHistoryCsv(shifts, { workers: [], lanes: [] })
+    expect(csv).toContain('שינוי בשיבוץ')
+    expect(csv).toContain('2026-09-20T08:00:00.000Z')
+    expect(csv).toContain('2026-09-20T09:00:00.000Z')
+    expect(csv).toContain('מנהל')
+    expect(csv).toContain('דני: נתיב א ← נתיב ב')
+  })
 })
