@@ -912,7 +912,7 @@ export function BoardStep({
                   const windowId = e.target.value || null
                   setWorkerWindow(workerId, windowId)
                 }}
-                className="rounded-md border-0 bg-white px-2 py-1 text-[12px] font-medium text-ink shadow-sm ring-1 ring-inset ring-line/40 hover:ring-brand/60 focus:ring-2 focus:ring-brand/50 focus:outline-none transition-all"
+                className="rounded-md border-0 bg-paper px-2 py-1 text-[12px] font-medium text-ink shadow-sm ring-1 ring-inset ring-line/40 hover:ring-brand/60 focus:ring-2 focus:ring-brand/50 focus:outline-none transition-all"
                 title="שעות אישיות"
               >
                 <option value="">כל המשמרת</option>
@@ -1720,7 +1720,7 @@ export function BoardStep({
                                     const windowId = e.target.value || null
                                     setWorkerWindow(gateId, windowId)
                                   }}
-                                  className="rounded-md border-0 bg-white px-2 py-1 text-[12px] font-medium text-ink shadow-sm ring-1 ring-inset ring-line/40 hover:ring-brand/60 focus:ring-2 focus:ring-brand/50 focus:outline-none transition-all"
+                                  className="rounded-md border-0 bg-paper px-2 py-1 text-[12px] font-medium text-ink shadow-sm ring-1 ring-inset ring-line/40 hover:ring-brand/60 focus:ring-2 focus:ring-brand/50 focus:outline-none transition-all"
                                   title="שעות אישיות"
                                 >
                                   <option value="">כל המשמרת</option>
