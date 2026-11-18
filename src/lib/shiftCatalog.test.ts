@@ -144,7 +144,6 @@ describe('collectContinuingAttendance', () => {
     expect(result.workerWindows).toEqual({ a: '1430-2130' })
     expect(result.windowAdjustments).toEqual({ a: { lateMinutes: 20 } })
   })
-
   it('continues a worker from an overnight shift into the next date when hours overlap', () => {
     const models: ShiftModel[] = [
       { id: 'night', name: 'משמרת חוצה חצות', startMinutes: 14 * 60, endMinutes: 2 * 60, order: 0 },
