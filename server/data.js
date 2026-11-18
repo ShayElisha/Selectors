@@ -3140,13 +3140,17 @@ export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
 
   if (!saved) throw conflictError(await readState(scope));
 
-  await appendAuditLog({
-    action: "shift_signoff_bulk",
-    actor,
-    details: `ננעלו ${locked} משמרות · ${name}`,
-    orgId: scope?.orgId,
-    module: scope?.module,
-  });
+  try {
+    await appendAuditLog({
+      action: "shift_signoff_bulk",
+      actor,
+      details: `ננעלו ${locked} משמרות · ${name}`,
+      orgId: scope?.orgId,
+      module: scope?.module,
+    });
+  } catch (err) {
+    console.error("Failed to append bulk shift sign-off audit log:", err);
+  }
 
   // Only release payroll after each continuing worker's final shift is closed.
   try {

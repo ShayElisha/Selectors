@@ -7,6 +7,7 @@ const {
   getMetaCollection,
   getStateCollection,
   createPayEntriesForCompletedShifts,
+  appendAuditLog,
   waitUntil,
 } = vi.hoisted(() => {
   const buckets = new Map()
@@ -130,6 +131,7 @@ const {
     operations,
     rows,
     createPayEntriesForCompletedShifts: vi.fn(async () => {}),
+    appendAuditLog: vi.fn(async () => {}),
     waitUntil: vi.fn(),
   }
 })
@@ -144,7 +146,7 @@ vi.mock('./db.js', () => ({
   withDbTransaction: (callback) => callback(undefined),
 }))
 vi.mock('./audit.js', () => ({
-  appendAuditLog: vi.fn(async () => {}),
+  appendAuditLog,
   diffAppDataAuditEvents: vi.fn(() => []),
   shiftAuditHeader: vi.fn(() => 'shift'),
   summarizeAssignmentChanges: vi.fn(() => ''),
@@ -719,6 +721,35 @@ describe('state and shift persistence', () => {
       revision: 5,
       historyRevision: 5,
     })
+  })
+
+  it('returns success when audit logging fails after bulk sign-off is persisted', async () => {
+    seedState({
+      revision: 4,
+      historyRevision: 4,
+      shifts: [{ id: 'shift-a', date: '2026-10-12', shiftType: 'morning' }],
+    })
+    appendAuditLog.mockRejectedValueOnce(new Error('audit store unavailable'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      const result = await signOffShiftsBulk(
+        ['shift-a'],
+        'Manager',
+        { id: 'manager-1', fullName: 'Manager' },
+        { scope, expectedRevision: 4 },
+      )
+
+      expect(result.locked).toBe(1)
+      expect(result.data.history.find((shift) => shift.id === 'shift-a')?.signOff?.signerName)
+        .toBe('Manager')
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Failed to append bulk shift sign-off audit log:',
+        expect.any(Error),
+      )
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('refuses to modify an already signed-off shift', async () => {
