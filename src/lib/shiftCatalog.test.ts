@@ -9,6 +9,7 @@ import {
   windowFitsShift,
   type WorkerWindowPreset,
 } from './shiftCatalog'
+import type { ShiftModel } from '../types'
 
 // Test fixture: standard worker window presets (same as DEFAULT_WORKER_WINDOW_PRESETS in server)
 const testWindowPresets: WorkerWindowPreset[] = [
@@ -142,6 +143,45 @@ describe('collectContinuingAttendance', () => {
     expect(result.workerIds).toEqual(['a'])
     expect(result.workerWindows).toEqual({ a: '1430-2130' })
     expect(result.windowAdjustments).toEqual({ a: { lateMinutes: 20 } })
+  })
+
+  it('continues a worker from an overnight shift into the next date when hours overlap', () => {
+    const models: ShiftModel[] = [
+      { id: 'night', name: 'משמרת חוצה חצות', startMinutes: 14 * 60, endMinutes: 2 * 60, order: 0 },
+      { id: 'morning', name: 'משמרת מוקדמת', startMinutes: 60, endMinutes: 8 * 60, order: 1 },
+    ]
+    const history = [
+      {
+        date: '2026-11-17',
+        shiftType: 'night',
+        audience: 'inspector',
+        updatedAt: '2026-11-17T14:00:00.000Z',
+        presentWorkerIds: ['a'],
+        workerWindows: { a: '1400-0200' },
+      },
+    ]
+    const target = {
+      history,
+      date: '2026-11-18',
+      shiftType: 'morning' as const,
+      audience: 'inspector',
+      catalog: [
+        ...testWindowPresets,
+        { id: '1400-0200', label: '14:00–02:00', start: 14 * 60, end: 2 * 60 },
+      ],
+      models,
+    }
+
+    expect(collectContinuingAttendance(target).workerIds).toEqual(['a'])
+    expect(
+      collectContinuingAttendance({
+        ...target,
+        models: [
+          models[0],
+          { ...models[1], startMinutes: 6 * 60 },
+        ],
+      }).workerIds,
+    ).toEqual([])
   })
 })
 
