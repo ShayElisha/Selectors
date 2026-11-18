@@ -213,7 +213,9 @@ export function collectContinuingAttendance(opts: {
     return true
   }
 
-  for (const sourceType of sourceTypes) {
+  // Process the closest preceding shift first so its personal-hour choice and
+  // adjustments win when the same worker appears in multiple earlier shifts.
+  for (const sourceType of [...sourceTypes].reverse()) {
     const matches = opts.history.filter(
       (shift) => shift.date === opts.date && shift.shiftType === sourceType,
     )
