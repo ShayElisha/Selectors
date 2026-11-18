@@ -40,6 +40,7 @@ import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerShiftEnd } from '../lib/workerShiftStatus'
+import { formatOperationTime } from '../lib/shiftOperationTime'
 import {
   formatShiftDate,
   formatShiftWindow,
@@ -627,6 +628,46 @@ function ShiftAccordion({
                 </li>
               ))}
             </ul>
+          ) : null}
+          {shift.shiftOperationEvents?.length ? (
+            <section className="mb-3 rounded-xl border border-line/70 bg-surface/40 p-3">
+              <h3 className="mb-2 text-sm font-semibold text-ink">
+                תיעוד שינויים בשיבוץ
+              </h3>
+              <ol className="space-y-2">
+                {[...shift.shiftOperationEvents]
+                  .sort(
+                    (a, b) =>
+                      new Date(a.effectiveAt).getTime() -
+                      new Date(b.effectiveAt).getTime(),
+                  )
+                  .map((event) => {
+                    const action =
+                      event.kind === 'worker_moved'
+                        ? `הועבר/ה מ${event.fromLaneName ?? 'נתיב לא ידוע'} ל${event.toLaneName ?? 'נתיב לא ידוע'}`
+                        : event.kind === 'worker_assigned'
+                          ? `שובץ/ה ל${event.toLaneName ?? 'נתיב לא ידוע'}`
+                          : `הוסר/ה מ${event.fromLaneName ?? 'הנתיב'}`
+                    return (
+                      <li
+                        key={event.id}
+                        className="rounded-lg bg-card px-3 py-2 text-[13px]"
+                      >
+                        <p className="font-semibold text-ink">
+                          {event.workerName} {action}
+                        </p>
+                        <p className="mt-0.5 text-ink-soft">
+                          בתוקף: {formatOperationTime(event.effectiveAt)}
+                          {' · '}
+                          נרשם: {formatOperationTime(event.recordedAt)}
+                          {' · '}
+                          {event.actorName || 'מנהל'}
+                        </p>
+                      </li>
+                    )
+                  })}
+              </ol>
+            </section>
           ) : null}
           {usesRounds(shift) ? (
             <SelectorRoundTable

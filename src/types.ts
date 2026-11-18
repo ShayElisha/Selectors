@@ -173,6 +173,21 @@ export interface ShiftChangeEvent {
   moves: ShiftChangeMove[]
 }
 
+export interface ShiftOperationEvent {
+  id: string
+  kind: 'worker_moved' | 'worker_assigned' | 'worker_removed'
+  effectiveAt: string
+  recordedAt: string
+  actorId: string
+  actorName: string
+  workerId: string
+  workerName: string
+  fromLaneId?: string
+  fromLaneName?: string
+  toLaneId?: string
+  toLaneName?: string
+}
+
 /** One person left early or their shift was cancelled. */
 export interface ShiftDrop {
   workerId: string
@@ -322,6 +337,8 @@ export interface ShiftSchedule {
   frozenLanes?: FrozenLane[]
   /** Real-time board changes, newest last. */
   shiftEvents?: ShiftChangeEvent[]
+  /** Assignment changes, including effective time and server-recorded actor/time. */
+  shiftOperationEvents?: ShiftOperationEvent[]
   /** Clock time someone left the shift, keyed by worker id. Load uses the hours until then. */
   earlyLeaveAt?: Record<string, number>
   /** Early leaves and cancellations, with the reason the manager wrote. */

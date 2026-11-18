@@ -80,6 +80,10 @@ import {
   managedLanes,
 } from '../lib/gateManager'
 import { notify } from '../lib/notify'
+import {
+  fromLocalDateTimeInput,
+  toLocalDateTimeInput,
+} from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
@@ -240,6 +244,14 @@ export function BoardStep({
     laneId: string
     workerId: string
   } | null>(null)
+  const [pendingAssignment, setPendingAssignment] = useState<{
+    laneId: string
+    slotIndex: number
+    workerId: string
+  } | null>(null)
+  const [operationTime, setOperationTime] = useState(() =>
+    toLocalDateTimeInput(),
+  )
 
   const explainTriggerRef = useRef<HTMLButtonElement | null>(null)
   const shareRootRef = useRef<HTMLDivElement | null>(null)
@@ -613,11 +625,41 @@ export function BoardStep({
           data.workers.find((w) => w.id === workerId)?.fullName ?? workerId
         showToast(`${name} הועבר/ה מנתיב ${other}`)
       }
+      const currentWorkerId =
+        draft.assignments.find((row) => row.laneId === laneId)?.workerIds[
+          slotIndex
+        ] || ''
+      if (
+        workerId !== currentWorkerId &&
+        data.history.some((item) => item.id === draft.id)
+      ) {
+        setOperationTime(toLocalDateTimeInput())
+        setPendingAssignment({ laneId, slotIndex, workerId })
+        return
+      }
     }
     runWithUndo(
       workerId ? 'השיבוץ עודכן' : 'השיבוץ נוקה',
       () => updateAssignment(laneId, slotIndex, workerId),
     )
+  }
+
+  const confirmPendingAssignment = () => {
+    if (!pendingAssignment) return
+    const effectiveAt = fromLocalDateTimeInput(operationTime)
+    if (!effectiveAt) {
+      notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
+      return
+    }
+    runWithUndo('השינוי נרשם', () =>
+      updateAssignment(
+        pendingAssignment.laneId,
+        pendingAssignment.slotIndex,
+        pendingAssignment.workerId,
+        effectiveAt,
+      ),
+    )
+    setPendingAssignment(null)
   }
 
   const scrollToLane = (laneId: string) => {
@@ -1374,13 +1416,14 @@ export function BoardStep({
                                   {workerId && !locked ? (
                                     <button
                                       type="button"
-                                      onClick={() =>
+                                      onClick={() => {
+                                        setOperationTime(toLocalDateTimeInput())
                                         setSwapTarget({
                                           laneId,
                                           slotIndex,
                                           workerId,
                                         })
-                                      }
+                                      }}
                                       className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-[10px] text-brand transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
                                       title="החלפה"
                                       aria-label={`החלפה ל${data.workers.find((worker) => worker.id === workerId)?.fullName ?? people.singular}`}
@@ -1630,6 +1673,7 @@ export function BoardStep({
                                     className="mt-1 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-start text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
                                     onClick={() => {
                                       setLaneActionMenu(null)
+                                      setOperationTime(toLocalDateTimeInput())
                                       setLeaveTarget({ laneId, workerId: id })
                                     }}
                                   >
@@ -1738,7 +1782,10 @@ export function BoardStep({
                         {workerId && !locked ? (
                           <button
                             type="button"
-                            onClick={() => setSwapTarget({ laneId, slotIndex, workerId })}
+                            onClick={() => {
+                              setOperationTime(toLocalDateTimeInput())
+                              setSwapTarget({ laneId, slotIndex, workerId })
+                            }}
                             className="inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-brand transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
                             title="החלפה"
                             aria-label={`החלפה ל${data.workers.find((worker) => worker.id === workerId)?.fullName ?? people.singular}`}
@@ -1962,6 +2009,66 @@ export function BoardStep({
         )}
       </div>
 
+      {pendingAssignment
+        ? (() => {
+            const worker = data.workers.find(
+              (item) => item.id === pendingAssignment.workerId,
+            )
+            const lane = data.lanes.find(
+              (item) => item.id === pendingAssignment.laneId,
+            )
+            return createPortal(
+              <div className="fixed inset-0 z-[210] flex items-end justify-center bg-ink/40 p-3 no-print sm:items-center sm:p-4">
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="assignment-effective-time-title"
+                  className="w-full max-w-md animate-fade-up rounded-2xl border border-line bg-card p-4 shadow-xl sm:p-5"
+                >
+                  <h3
+                    id="assignment-effective-time-title"
+                    className="mb-1 font-display text-base font-bold text-ink"
+                  >
+                    תיעוד שינוי בשיבוץ
+                  </h3>
+                  <p className="mb-3 text-sm text-ink-soft">
+                    {worker?.fullName ?? 'העובד'} · {lane?.name ?? 'העמדה'}
+                  </p>
+                  <label className="mb-2 block text-xs font-medium text-ink-soft">
+                    מתי השינוי נכנס לתוקף?
+                    <input
+                      type="datetime-local"
+                      value={operationTime}
+                      onChange={(event) => setOperationTime(event.target.value)}
+                      className="ui-field mt-1 !py-2 text-sm"
+                    />
+                  </label>
+                  <p className="mb-4 text-xs text-ink-soft">
+                    שעת הרישום ומבצע הפעולה יישמרו אוטומטית. ניתן לבחור שעה קודמת אם מדווחים באיחור.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn-secondary"
+                      onClick={() => setPendingAssignment(null)}
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn-primary"
+                      onClick={confirmPendingAssignment}
+                    >
+                      אישור ותיעוד
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )
+          })()
+        : null}
+
       {/* Swap modal */}
       {swapTarget
         ? (() => {
@@ -2047,6 +2154,20 @@ export function BoardStep({
                       <X className="size-4" aria-hidden />
                     </button>
                   </div>
+                  {data.history.some((item) => item.id === draft.id) ? (
+                    <label className="mb-3 block text-xs font-medium text-ink-soft">
+                      שעת תוקף ההחלפה
+                      <input
+                        type="datetime-local"
+                        value={operationTime}
+                        onChange={(event) => setOperationTime(event.target.value)}
+                        className="ui-field mt-1 !py-2 text-sm"
+                      />
+                      <span className="mt-1 block">
+                        מועד הרישום ומבצע הפעולה יישמרו אוטומטית.
+                      </span>
+                    </label>
+                  ) : null}
                   {options.length === 0 ? (
                     <p className="rounded-xl bg-surface px-3 py-3 text-sm text-ink-soft">
                       אין כרגע {people.plural} משובצים בנתיבים אחרים להחלפה.
@@ -2058,6 +2179,16 @@ export function BoardStep({
                           <button
                             type="button"
                             onClick={() => {
+                              const isSavedShift = data.history.some(
+                                (item) => item.id === draft.id,
+                              )
+                              const effectiveAt = isSavedShift
+                                ? fromLocalDateTimeInput(operationTime)
+                                : undefined
+                              if (isSavedShift && !effectiveAt) {
+                                notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
+                                return
+                              }
                               runWithUndo('החלפה בין נתיבים', () =>
                                 swapAssignments(
                                   {
@@ -2068,6 +2199,7 @@ export function BoardStep({
                                     laneId: opt.laneId,
                                     slotIndex: opt.slotIndex,
                                   },
+                                  effectiveAt ?? undefined,
                                 ),
                               )
                               setSwapTarget(null)
@@ -2149,6 +2281,20 @@ export function BoardStep({
                       <X className="size-4" aria-hidden />
                     </button>
                   </div>
+                  {data.history.some((item) => item.id === draft.id) ? (
+                    <label className="mb-3 block text-xs font-medium text-ink-soft">
+                      שעת תוקף ההחלפה
+                      <input
+                        type="datetime-local"
+                        value={operationTime}
+                        onChange={(event) => setOperationTime(event.target.value)}
+                        className="ui-field mt-1 !py-2 text-sm"
+                      />
+                      <span className="mt-1 block">
+                        מועד הרישום ומבצע הפעולה יישמרו אוטומטית.
+                      </span>
+                    </label>
+                  ) : null}
                   {options.length === 0 ? (
                     <p className="rounded-xl bg-surface px-3 py-3 text-sm text-ink-soft">
                       אין מי כשיר ופנוי להיכנס במקומו. מי שכבר יושב בנתיב אחר לא מוזז.
@@ -2161,12 +2307,23 @@ export function BoardStep({
                             type="button"
                             className="flex w-full rounded-xl px-3 py-2 text-start text-sm font-semibold text-ink hover:bg-surface"
                             onClick={() => {
+                              const isSavedShift = data.history.some(
+                                (item) => item.id === draft.id,
+                              )
+                              const effectiveAt = isSavedShift
+                                ? fromLocalDateTimeInput(operationTime)
+                                : undefined
+                              if (isSavedShift && !effectiveAt) {
+                                notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
+                                return
+                              }
                               runWithUndo(
                                 `${worker.fullName} נכנס במקום ${current?.fullName ?? ''}`,
                                 () =>
                                   replaceLeavingWorker(
                                     leaveTarget.workerId,
                                     worker.id,
+                                    effectiveAt ?? undefined,
                                   ),
                               )
                               setLeaveTarget(null)

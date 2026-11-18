@@ -2404,6 +2404,60 @@ function attachSignOff(schedule, actor) {
   return true;
 }
 
+const SHIFT_OPERATION_KINDS = new Set([
+  "worker_moved",
+  "worker_assigned",
+  "worker_removed",
+]);
+
+function appendShiftOperationEvents(previousEvents, submittedEvents, actor) {
+  const events = Array.isArray(previousEvents) ? [...previousEvents] : [];
+  const knownIds = new Set(events.map((event) => String(event?.id || "")));
+  const recordedAt = new Date().toISOString();
+  for (const event of Array.isArray(submittedEvents) ? submittedEvents : []) {
+    const id = String(event?.id || "").trim().slice(0, 160);
+    if (!id || knownIds.has(id)) continue;
+    const effectiveAt = new Date(String(event?.effectiveAt || ""));
+    if (
+      !SHIFT_OPERATION_KINDS.has(event?.kind) ||
+      !Number.isFinite(effectiveAt.getTime()) ||
+      effectiveAt.getTime() > Date.now()
+    ) {
+      const err = new Error("אירוע שינוי שיבוץ אינו תקין");
+      err.status = 400;
+      throw err;
+    }
+    const normalized = {
+      id,
+      kind: event.kind,
+      effectiveAt: effectiveAt.toISOString(),
+      recordedAt,
+      actorId: String(actor?.id || ""),
+      actorName: String(actor?.fullName || "מנהל").slice(0, 120),
+      workerId: String(event.workerId || "").trim().slice(0, 160),
+      workerName: String(event.workerName || "").trim().slice(0, 160),
+    };
+    for (const key of [
+      "fromLaneId",
+      "fromLaneName",
+      "toLaneId",
+      "toLaneName",
+    ]) {
+      if (event[key] != null && String(event[key]).trim()) {
+        normalized[key] = String(event[key]).trim().slice(0, 160);
+      }
+    }
+    if (!normalized.workerId || !normalized.workerName) {
+      const err = new Error("חסרים פרטי עובד באירוע שינוי שיבוץ");
+      err.status = 400;
+      throw err;
+    }
+    events.push(normalized);
+    knownIds.add(id);
+  }
+  return events;
+}
+
 export async function upsertShift(id, body, actor, options = {}) {
   const scope = options.scope;
   const state = await readState(scope);
@@ -2482,8 +2536,14 @@ export async function upsertShift(id, body, actor, options = {}) {
     const foundNow = latest.history.find((h) => h.id === schedule.id);
     if (isShiftSignedOff(foundNow)) signedShiftError("לערוך");
     const latestPrevious = foundNow ?? null;
+    const shiftOperationEvents = appendShiftOperationEvents(
+      latestPrevious?.shiftOperationEvents,
+      schedule.shiftOperationEvents,
+      actor,
+    );
     savedSchedule = {
       ...schedule,
+      ...(shiftOperationEvents.length ? { shiftOperationEvents } : {}),
       editCount: latestPrevious
         ? closing
           ? Number(latestPrevious.editCount ?? 0)
