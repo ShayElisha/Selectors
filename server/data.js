@@ -1001,6 +1001,14 @@ async function assembleState(
   const history = scope?.orgId
     ? await loadCompleteHistory(scope, historyRevision, target)
     : await read(MODEL_COLLECTIONS.shifts);
+  
+  console.log('assembleState - workerWindowPresets loaded:', {
+    scope,
+    target,
+    rawCount: workerWindowPresets.length,
+    presets: workerWindowPresets.slice(0, 3),
+  });
+  
   return normalizeData(
     {
       workers: fromOrderedDocs(workers),
