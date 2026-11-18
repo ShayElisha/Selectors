@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Edit2, X, Check } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { notify } from '../lib/notify'
 import {
@@ -40,8 +40,10 @@ export function WorkerWindowsPage() {
   const [end, setEnd] = useState('15:00')
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  /** Local name drafts so spaces work while typing; persist only on blur. */
-  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({})
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editStart, setEditStart] = useState('')
+  const [editEnd, setEditEnd] = useState('')
 
   const persist = (next: WorkerWindowPreset[]) => {
     saveWorkerWindowPresets(
@@ -90,18 +92,36 @@ export function WorkerWindowsPage() {
     notify.success('חלון השעות נוסף')
   }
 
-  const update = (
-    id: string,
-    patch: Partial<Pick<WorkerWindowPreset, 'start' | 'end' | 'name'>>,
-  ) => {
+  const startEdit = (preset: WorkerWindowPreset) => {
+    setEditingId(preset.id)
+    setEditName(preset.name || '')
+    setEditStart(clockValue(preset.start))
+    setEditEnd(clockValue(preset.end))
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditName('')
+    setEditStart('')
+    setEditEnd('')
+  }
+
+  const saveEdit = () => {
+    if (!editingId) return
+    const startMinutes = parseClock(editStart)
+    const endMinutes = parseClock(editEnd)
+    if (startMinutes == null || endMinutes == null) {
+      notify.error('שעות לא תקינות')
+      return
+    }
+    if (startMinutes === endMinutes) {
+      notify.error('שעת ההתחלה והסיום לא יכולות להיות זהות')
+      return
+    }
+    const customName = editName.trim() || undefined
     persist(
       presets.map((preset) => {
-        if (preset.id !== id) return preset
-        const startMinutes = patch.start ?? preset.start
-        const endMinutes = patch.end ?? preset.end
-        const rawName =
-          patch.name !== undefined ? patch.name : (preset.name ?? '')
-        const customName = String(rawName).trim() || undefined
+        if (preset.id !== editingId) return preset
         return {
           ...preset,
           start: startMinutes,
@@ -113,17 +133,8 @@ export function WorkerWindowsPage() {
         }
       }),
     )
-  }
-
-  const commitNameDraft = (id: string) => {
-    if (!Object.prototype.hasOwnProperty.call(nameDrafts, id)) return
-    const raw = nameDrafts[id] ?? ''
-    update(id, { name: raw })
-    setNameDrafts((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
+    notify.success('השעות עודכנו')
+    cancelEdit()
   }
 
   const remove = (preset: WorkerWindowPreset) => {
@@ -132,11 +143,6 @@ export function WorkerWindowsPage() {
       return
     }
     if (!confirm(`למחוק את ${displayLabel(preset)}?`)) return
-    setNameDrafts((prev) => {
-      const next = { ...prev }
-      delete next[preset.id]
-      return next
-    })
     persist(presets.filter((item) => item.id !== preset.id))
     notify.success('חלון השעות נמחק')
   }
@@ -161,85 +167,128 @@ export function WorkerWindowsPage() {
             {presets.map((preset) => (
               <li
                 key={preset.id}
-                className="grid gap-3 rounded-xl border border-line/70 bg-card p-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end"
+                className="rounded-xl border border-line/70 bg-card p-4"
               >
-                <div>
-                  <FieldLabel htmlFor={`win-name-${preset.id}`}>
-                    שם משמרת (אופציונלי)
-                  </FieldLabel>
-                  <input
-                    id={`win-name-${preset.id}`}
-                    className="ui-field"
-                    type="text"
-                    placeholder="למשל: בוקר ארוך, צהריים קצר"
-                    value={
-                      Object.prototype.hasOwnProperty.call(nameDrafts, preset.id)
-                        ? nameDrafts[preset.id]
-                        : preset.name || ''
-                    }
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setNameDrafts((prev) => ({
-                        ...prev,
-                        [preset.id]: value,
-                      }))
-                    }}
-                    onBlur={() => commitNameDraft(preset.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.currentTarget.blur()
-                      }
-                    }}
-                  />
-                  <p className="mt-1 text-[11px] text-ink-soft">
-                    {String(preset.name || '').trim() ? (
-                      <>
-                        שעות:{' '}
-                        <Ltr>
-                          {workerWindowLabelFromTimes(preset.start, preset.end)}
-                        </Ltr>
-                      </>
-                    ) : (
-                      <Ltr>
-                        {workerWindowLabelFromTimes(preset.start, preset.end)}
-                      </Ltr>
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <FieldLabel htmlFor={`win-start-${preset.id}`}>התחלה</FieldLabel>
-                  <input
-                    id={`win-start-${preset.id}`}
-                    className="ui-field"
-                    type="time"
-                    value={clockValue(preset.start)}
-                    onChange={(e) => {
-                      const minutes = parseClock(e.target.value)
-                      if (minutes != null) update(preset.id, { start: minutes })
-                    }}
-                  />
-                </div>
-                <div>
-                  <FieldLabel htmlFor={`win-end-${preset.id}`}>סיום</FieldLabel>
-                  <input
-                    id={`win-end-${preset.id}`}
-                    className="ui-field"
-                    type="time"
-                    value={clockValue(preset.end)}
-                    onChange={(e) => {
-                      const minutes = parseClock(e.target.value)
-                      if (minutes != null) update(preset.id, { end: minutes })
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="ui-btn ui-btn-ghost justify-self-start sm:justify-self-end"
-                  onClick={() => remove(preset)}
-                  aria-label={`מחיקת ${displayLabel(preset)}`}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                </button>
+                {editingId === preset.id ? (
+                  <div className="space-y-3">
+                    <div>
+                      <FieldLabel htmlFor={`edit-name-${preset.id}`}>
+                        שם משמרת (אופציונלי)
+                      </FieldLabel>
+                      <input
+                        id={`edit-name-${preset.id}`}
+                        className="ui-field"
+                        type="text"
+                        placeholder="למשל: בוקר ארוך, צהריים קצר"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <FieldLabel htmlFor={`edit-start-${preset.id}`}>
+                          שעת התחלה
+                        </FieldLabel>
+                        <input
+                          id={`edit-start-${preset.id}`}
+                          className="ui-field"
+                          type="time"
+                          value={editStart}
+                          onChange={(e) => setEditStart(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel htmlFor={`edit-end-${preset.id}`}>
+                          שעת סיום
+                        </FieldLabel>
+                        <input
+                          id={`edit-end-${preset.id}`}
+                          className="ui-field"
+                          type="time"
+                          value={editEnd}
+                          onChange={(e) => setEditEnd(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-ghost gap-2"
+                        onClick={cancelEdit}
+                      >
+                        <X className="size-4" aria-hidden />
+                        ביטול
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-primary gap-2"
+                        onClick={saveEdit}
+                      >
+                        <Check className="size-4" aria-hidden />
+                        שמירה
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <h3 className="text-lg font-semibold text-ink">
+                          {preset.name || 'ללא שם'}
+                        </h3>
+                        {preset.name && (
+                          <span className="text-sm text-ink-soft">
+                            <Ltr>
+                              {workerWindowLabelFromTimes(preset.start, preset.end)}
+                            </Ltr>
+                          </span>
+                        )}
+                      </div>
+                      {!preset.name && (
+                        <p className="text-sm text-ink-soft mt-1">
+                          <Ltr>
+                            {workerWindowLabelFromTimes(preset.start, preset.end)}
+                          </Ltr>
+                        </p>
+                      )}
+                      <div className="flex gap-4 mt-2 text-sm">
+                        <div>
+                          <span className="text-ink-soft">התחלה: </span>
+                          <span className="font-medium text-ink">
+                            <Ltr>{clockValue(preset.start)}</Ltr>
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-ink-soft">סיום: </span>
+                          <span className="font-medium text-ink">
+                            <Ltr>{clockValue(preset.end)}</Ltr>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-ghost gap-2"
+                        onClick={() => startEdit(preset)}
+                        aria-label={`עריכת ${displayLabel(preset)}`}
+                      >
+                        <Edit2 className="size-4" aria-hidden />
+                        <span className="hidden sm:inline">עריכה</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-ghost text-error hover:bg-error/10 gap-2"
+                        onClick={() => remove(preset)}
+                        aria-label={`מחיקת ${displayLabel(preset)}`}
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                        <span className="hidden sm:inline">מחיקה</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
