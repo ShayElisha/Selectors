@@ -41,7 +41,7 @@ import {
   AssignmentExplainDialog,
   groupExplanations,
 } from './AssignmentExplainDialog'
-import { IntensityBadge, Ltr, TimingBadges } from './ui'
+import { IntensityBadge, Ltr, TimingBadges, WorkerHoursChip } from './ui'
 import { LateMinutesControl } from './LateMinutesControl'
 import { LaneStaffingControl } from './LaneStaffingControl'
 import {
@@ -902,27 +902,12 @@ export function BoardStep({
         )}
         {workerId && !locked ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <div className="inline-flex items-center gap-1.5 rounded-lg bg-surface px-2.5 py-1.5 ring-1 ring-line/60">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
-                שעות
-              </span>
-              <select
-                value={draft.workerWindows?.[workerId] || ''}
-                onChange={(e) => {
-                  const windowId = e.target.value || null
-                  setWorkerWindow(workerId, windowId)
-                }}
-                className="rounded-md border-0 bg-paper px-2 py-1 text-[12px] font-medium text-ink shadow-sm ring-1 ring-inset ring-line/40 hover:ring-brand/60 focus:ring-2 focus:ring-brand/50 focus:outline-none transition-all"
-                title="שעות אישיות"
-              >
-                <option value="">כל המשמרת</option>
-                {workerWindowPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <WorkerHoursChip
+              value={draft.workerWindows?.[workerId]}
+              presets={workerWindowPresets}
+              onChange={(windowId) => setWorkerWindow(workerId, windowId)}
+              label="שעות משמרת"
+            />
             <LateMinutesControl
               variant="board"
               ariaLabel={`איחור של ${selectedWorker?.fullName || people.singular}`}
@@ -1710,27 +1695,12 @@ export function BoardStep({
                           {gateManagerSelect}
                           {gateId && !locked ? (
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <div className="inline-flex items-center gap-1.5 rounded-lg bg-surface px-2.5 py-1.5 ring-1 ring-line/60">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
-                                  שעות
-                                </span>
-                                <select
-                                  value={draft.workerWindows?.[gateId] || ''}
-                                  onChange={(e) => {
-                                    const windowId = e.target.value || null
-                                    setWorkerWindow(gateId, windowId)
-                                  }}
-                                  className="rounded-md border-0 bg-paper px-2 py-1 text-[12px] font-medium text-ink shadow-sm ring-1 ring-inset ring-line/40 hover:ring-brand/60 focus:ring-2 focus:ring-brand/50 focus:outline-none transition-all"
-                                  title="שעות אישיות"
-                                >
-                                  <option value="">כל המשמרת</option>
-                                  {workerWindowPresets.map((preset) => (
-                                    <option key={preset.id} value={preset.id}>
-                                      {preset.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                              <WorkerHoursChip
+                                value={draft.workerWindows?.[gateId]}
+                                presets={workerWindowPresets}
+                                onChange={(windowId) => setWorkerWindow(gateId, windowId)}
+                                label="שעות משמרת מנהל שער"
+                              />
                               <LateMinutesControl
                                 variant="board"
                                 ariaLabel={`איחור של מנהל שער`}

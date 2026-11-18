@@ -1,11 +1,13 @@
-import { AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock, MinusCircle, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { INTENSITY_LABELS } from '../constants'
 import { avatarColor } from '../lib/avatarColor'
 import {
   timingBadgeClass,
   type TimingBadge,
 } from '../lib/shiftTimingBadges'
-import type { Intensity } from '../types'
+import type { Intensity, WorkerWindowPreset } from '../types'
 
 /** Isolate LTR spans (times, ratios) inside RTL layout. */
 export function Ltr({
@@ -269,5 +271,177 @@ export function MetricIconBadge({
     >
       {children}
     </span>
+  )
+}
+
+export function BottomSheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean
+  onClose: () => void
+  title: string
+  children: React.ReactNode
+}) {
+  const sheetRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [open, onClose])
+
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [open])
+
+  if (!open) return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sheet-title"
+    >
+      <div
+        ref={sheetRef}
+        className="w-full max-w-2xl animate-slide-up rounded-t-3xl border-t border-line bg-card shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-card px-5 py-4">
+          <h3 id="sheet-title" className="text-base font-semibold text-ink">
+            {title}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-8 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-surface hover:text-ink"
+            aria-label="סגור"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+export function WorkerHoursChip({
+  value,
+  presets,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  value: string | null | undefined
+  presets: WorkerWindowPreset[]
+  onChange: (id: string | null) => void
+  label: string
+  disabled?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const selectedPreset = presets.find((p) => p.id === value)
+  const displayText = selectedPreset?.label || 'כל המשמרת'
+  const isCustom = !!selectedPreset
+
+  const chipStyles = isCustom
+    ? 'bg-brand/10 text-brand border-brand/30 ring-brand/20'
+    : 'bg-surface text-ink-soft border-line/60 ring-line/20'
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(true)}
+        disabled={disabled}
+        className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-medium shadow-sm ring-1 transition-all hover:ring-2 focus:outline-none focus:ring-2 disabled:opacity-50 sm:min-h-[44px] sm:gap-2 sm:px-3.5 sm:text-[13px] ${chipStyles}`}
+        aria-label={`${label}: ${displayText}`}
+        title={label}
+      >
+        <Clock className="size-3.5 shrink-0 sm:size-4" aria-hidden />
+        <span className="whitespace-nowrap">{displayText}</span>
+        <ChevronDown className="size-3 shrink-0 opacity-70 sm:size-3.5" aria-hidden />
+      </button>
+
+      <BottomSheet
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        title="שעות משמרת"
+      >
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              onChange(null)
+              setIsOpen(false)
+            }}
+            className={`flex w-full items-center justify-between rounded-xl border px-4 py-3.5 text-start text-sm font-medium transition-all hover:bg-surface ${
+              !value
+                ? 'border-brand bg-brand/5 text-brand'
+                : 'border-line bg-card text-ink'
+            }`}
+          >
+            <span>כל המשמרת</span>
+            {!value && (
+              <CheckCircle2 className="size-5 shrink-0 text-brand" aria-hidden />
+            )}
+          </button>
+
+          {presets.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => {
+                onChange(preset.id)
+                setIsOpen(false)
+              }}
+              className={`flex w-full items-center justify-between rounded-xl border px-4 py-3.5 text-start transition-all hover:bg-surface ${
+                value === preset.id
+                  ? 'border-brand bg-brand/5'
+                  : 'border-line bg-card'
+              }`}
+            >
+              <div className="flex flex-col gap-0.5">
+                <span
+                  className={`text-sm font-medium ${
+                    value === preset.id ? 'text-brand' : 'text-ink'
+                  }`}
+                >
+                  {preset.label}
+                </span>
+                {preset.start && preset.end && (
+                  <Ltr className="text-xs text-ink-soft">
+                    {preset.start}–{preset.end}
+                  </Ltr>
+                )}
+              </div>
+              {value === preset.id && (
+                <CheckCircle2 className="size-5 shrink-0 text-brand" aria-hidden />
+              )}
+            </button>
+          ))}
+        </div>
+      </BottomSheet>
+    </>
   )
 }
