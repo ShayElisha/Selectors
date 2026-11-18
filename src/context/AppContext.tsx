@@ -1829,6 +1829,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       shiftType,
       audience: lockedAudience,
       catalog: data.workerWindowPresets,
+      models,
     })
 
     adoptCleanDraft(
@@ -1902,12 +1903,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!typeChanged && !dateChanged) return { ...d, ...nextPatch }
         const nextDate = nextPatch.date ?? d.date
         const nextType = (nextPatch.shiftType ?? d.shiftType) as ShiftType
+        const models = resolveShiftModels(data.shiftModels, activeModule(user))
         const continuing = collectContinuingAttendance({
           history: data.history,
           date: nextDate,
           shiftType: nextType,
           audience: d.audience ?? 'inspector',
           catalog: data.workerWindowPresets,
+          models,
         })
         return withGateManagerSync(
           {
@@ -1931,7 +1934,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.history, data.lanes, data.workerWindowPresets],
+    [data.history, data.lanes, data.shiftModels, data.workerWindowPresets, user?.module],
   )
 
   const toggleLane = useCallback((laneId: string) => {

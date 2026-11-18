@@ -1,4 +1,4 @@
-import type { ShiftType, WorkerWindowPreset } from '../types'
+import type { ShiftModel, ShiftType, WorkerWindowPreset } from '../types'
 
 export type { WorkerWindowPreset }
 
@@ -158,9 +158,58 @@ export type ContinuingAttendance = {
   sourceHadWindows: boolean
 }
 
+function absoluteShiftBounds(
+  date: string,
+  shiftType: string,
+  models?: ShiftModel[],
+): ClockRange | undefined {
+  const day = Date.parse(`${date}T00:00:00Z`) / (24 * 60 * 60 * 1000)
+  if (!Number.isFinite(day)) return undefined
+  const model = models?.find((item) => item.id === shiftType)
+  const fallback = MAIN_SHIFT_BOUNDS[shiftType as ShiftType]
+  if (!model && !fallback) return undefined
+  const start = model?.startMinutes ?? fallback!.start
+  let end = model
+    ? model.endMinutes <= model.startMinutes
+      ? model.endMinutes + 24 * 60
+      : model.endMinutes
+    : fallback!.end
+  if (end <= start) end += 24 * 60
+  return { start: day * 24 * 60 + start, end: day * 24 * 60 + end }
+}
+
+function absoluteWindowBounds(
+  preset: WorkerWindowPreset,
+  shiftDate: string,
+  shiftType: string,
+  models?: ShiftModel[],
+): ClockRange | undefined {
+  const day = Date.parse(`${shiftDate}T00:00:00Z`) / (24 * 60 * 60 * 1000)
+  const model = models?.find((item) => item.id === shiftType)
+  const fallback = MAIN_SHIFT_BOUNDS[shiftType as ShiftType]
+  if (!Number.isFinite(day)) return undefined
+  const shiftStart = model?.startMinutes ?? fallback?.start
+  const shiftEnd = model
+    ? model.endMinutes <= model.startMinutes
+      ? model.endMinutes + 24 * 60
+      : model.endMinutes
+    : fallback?.end
+  const isOvernight = shiftStart != null && shiftEnd != null && shiftEnd > 24 * 60
+  let start = preset.start
+  let end = preset.end
+  if (isOvernight && start < 12 * 60) start += 24 * 60
+  if (isOvernight && end < 12 * 60) end += 24 * 60
+  if (end <= start) end += 24 * 60
+  const absoluteDayStart = day * 24 * 60
+  return {
+    start: absoluteDayStart + start,
+    end: absoluteDayStart + end,
+  }
+}
+
 /**
- * Workers from earlier same-day shifts whose personal hours continue into
- * the target shift — used to pre-mark attendance on the next shift.
+ * Workers from earlier shifts whose personal hours reach the target shift —
+ * used to pre-mark attendance when creating a continuation shift.
  */
 export function collectContinuingAttendance(opts: {
   history: ContinuingAttendanceSource[]
@@ -168,8 +217,8 @@ export function collectContinuingAttendance(opts: {
   shiftType: ShiftType
   audience?: string
   catalog?: WorkerWindowPreset[] | null
+  models?: ShiftModel[]
 }): ContinuingAttendance {
-  const sourceTypes = earlierShiftsToContinue(opts.shiftType)
   const empty: ContinuingAttendance = {
     workerIds: [],
     workerWindows: {},
@@ -177,7 +226,8 @@ export function collectContinuingAttendance(opts: {
     sourceFound: false,
     sourceHadWindows: false,
   }
-  if (sourceTypes.length === 0) return empty
+  const targetBounds = absoluteShiftBounds(opts.date, opts.shiftType, opts.models)
+  if (!targetBounds) return empty
 
   const audience = opts.audience ?? 'inspector'
   const workerIds: string[] = []
@@ -187,23 +237,36 @@ export function collectContinuingAttendance(opts: {
   let sourceFound = false
   let sourceHadWindows = false
 
-  const consider = (
-    source: ContinuingAttendanceSource,
-    sourceType: ShiftType,
-    id: string,
-  ) => {
+  const consider = (source: ContinuingAttendanceSource, id: string) => {
     const saved = source.workerWindows?.[id]
+    const preset = workerWindowById(saved, opts.catalog)
+    if (!preset) return false
+    const sourceBounds = absoluteShiftBounds(
+      source.date,
+      source.shiftType,
+      opts.models,
+    )
+    if (!sourceBounds || sourceBounds.start >= targetBounds.start) return false
+    const personalBounds = absoluteWindowBounds(
+      preset,
+      source.date,
+      source.shiftType,
+      opts.models,
+    )
+    if (!personalBounds) return false
+    const reachesTarget =
+      personalBounds.start < targetBounds.end &&
+      personalBounds.end > targetBounds.start
+    const crossesMidnightIntoTarget =
+      source.date < opts.date && sourceBounds.end > targetBounds.start
     if (
-      !continuesIntoShift(sourceType, saved, opts.shiftType, opts.catalog)
+      !reachesTarget ||
+      !(personalBounds.end > sourceBounds.end || crossesMidnightIntoTarget)
     ) {
       return false
     }
     if (!workerIds.includes(id)) workerIds.push(id)
-    if (
-      saved &&
-      workerWindowById(saved, opts.catalog) &&
-      !workerWindows[id]
-    ) {
+    if (saved && !workerWindows[id]) {
       workerWindows[id] = saved
     }
     const adjustment = source.windowAdjustments?.[id]
@@ -213,28 +276,49 @@ export function collectContinuingAttendance(opts: {
     return true
   }
 
+  const dateOrdinal = Date.parse(`${opts.date}T00:00:00Z`)
+  const matches = opts.history.filter((shift) => {
+    const sourceDay = Date.parse(`${shift.date}T00:00:00Z`)
+    return (
+      Number.isFinite(sourceDay) &&
+      sourceDay <= dateOrdinal &&
+      sourceDay >= dateOrdinal - 24 * 60 * 60 * 1000
+    )
+  })
+  const sameAudience = matches.filter(
+    (shift) => (shift.audience ?? 'inspector') === audience,
+  )
+  const sources = (sameAudience.length > 0 ? sameAudience : matches)
+    .map((source) => ({
+      source,
+      bounds: absoluteShiftBounds(
+        source.date,
+        source.shiftType,
+        opts.models,
+      ),
+    }))
+    .filter(
+      (item): item is { source: ContinuingAttendanceSource; bounds: ClockRange } =>
+        Boolean(item.bounds) && item.bounds!.start < targetBounds.start,
+    )
+    .sort(
+      (a, b) =>
+        b.bounds.start - a.bounds.start ||
+        b.source.updatedAt.localeCompare(a.source.updatedAt),
+    )
+
   // Process the closest preceding shift first so its personal-hour choice and
   // adjustments win when the same worker appears in multiple earlier shifts.
-  for (const sourceType of [...sourceTypes].reverse()) {
-    const matches = opts.history.filter(
-      (shift) => shift.date === opts.date && shift.shiftType === sourceType,
-    )
-    const sameAudience = matches.filter(
-      (shift) => (shift.audience ?? 'inspector') === audience,
-    )
-    const source = (sameAudience.length > 0 ? sameAudience : matches).sort(
-      (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-    )[0]
-    if (!source) continue
+  for (const { source } of sources) {
     sourceFound = true
     if (Object.keys(source.workerWindows ?? {}).length > 0) {
       sourceHadWindows = true
     }
     for (const id of source.presentWorkerIds) {
-      consider(source, sourceType, id)
+      consider(source, id)
     }
     const sourceGate = source.gateManagerWorkerId?.trim()
-    if (sourceGate && consider(source, sourceType, sourceGate) && !gateManagerWorkerId) {
+    if (sourceGate && consider(source, sourceGate) && !gateManagerWorkerId) {
       gateManagerWorkerId = sourceGate
     }
   }

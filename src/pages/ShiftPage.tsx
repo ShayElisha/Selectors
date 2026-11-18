@@ -581,6 +581,7 @@ export function ShiftPage() {
       shiftType: draft.shiftType,
       audience: draft.audience ?? 'inspector',
       catalog: data.workerWindowPresets,
+      models: shiftModels,
     })
     if (continuing.workerIds.length === 0) return
     applyPresentSelection(continuing.workerIds, {
@@ -590,7 +591,7 @@ export function ShiftPage() {
         ? { gateManagerWorkerId: continuing.gateManagerWorkerId }
         : {}),
     })
-  }, [draft, data.history, data.workerWindowPresets, applyPresentSelection])
+  }, [draft, data.history, data.workerWindowPresets, shiftModels, applyPresentSelection])
 
   const continuingPreview = useMemo(() => {
     if (!draft) {
@@ -608,8 +609,9 @@ export function ShiftPage() {
       shiftType: draft.shiftType,
       audience: draft.audience ?? 'inspector',
       catalog: data.workerWindowPresets,
+      models: shiftModels,
     })
-  }, [draft, data.history, data.workerWindowPresets])
+  }, [draft, data.history, data.workerWindowPresets, shiftModels])
 
   const handleAutoAssign = async () => {
     if (assigning) return
