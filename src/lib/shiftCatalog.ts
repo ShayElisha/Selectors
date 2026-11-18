@@ -236,6 +236,7 @@ export function collectContinuingAttendance(opts: {
   let gateManagerWorkerId: string | undefined
   let sourceFound = false
   let sourceHadWindows = false
+  const consideredWorkers = new Set<string>()
 
   const consider = (source: ContinuingAttendanceSource, id: string) => {
     const saved = source.workerWindows?.[id]
@@ -315,10 +316,20 @@ export function collectContinuingAttendance(opts: {
       sourceHadWindows = true
     }
     for (const id of source.presentWorkerIds) {
+      if (consideredWorkers.has(id)) continue
+      consideredWorkers.add(id)
       consider(source, id)
     }
     const sourceGate = source.gateManagerWorkerId?.trim()
-    if (sourceGate && consider(source, sourceGate) && !gateManagerWorkerId) {
+    if (sourceGate && !consideredWorkers.has(sourceGate)) {
+      consideredWorkers.add(sourceGate)
+      consider(source, sourceGate)
+    }
+    if (
+      sourceGate &&
+      workerIds.includes(sourceGate) &&
+      !gateManagerWorkerId
+    ) {
       gateManagerWorkerId = sourceGate
     }
   }

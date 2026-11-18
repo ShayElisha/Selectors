@@ -144,6 +144,40 @@ describe('collectContinuingAttendance', () => {
     expect(result.workerWindows).toEqual({ a: '1430-2130' })
     expect(result.windowAdjustments).toEqual({ a: { lateMinutes: 20 } })
   })
+
+  it('does not use an older long shift when the nearest shift ends before the target starts', () => {
+    const result = collectContinuingAttendance({
+      history: [
+        {
+          date: '2026-11-17',
+          shiftType: 'morning',
+          audience: 'inspector',
+          updatedAt: '2026-11-17T10:00:00.000Z',
+          presentWorkerIds: ['a'],
+          workerWindows: { a: '0600-1830' },
+        },
+        {
+          date: '2026-11-17',
+          shiftType: 'afternoonA',
+          audience: 'inspector',
+          updatedAt: '2026-11-17T17:00:00.000Z',
+          presentWorkerIds: ['a'],
+          workerWindows: { a: '1430-1730' },
+        },
+      ],
+      date: '2026-11-17',
+      shiftType: 'afternoonB',
+      audience: 'inspector',
+      catalog: [
+        ...testWindowPresets,
+        { id: '1430-1730', label: 'צהריים קצר', start: 14 * 60 + 30, end: 17 * 60 + 30 },
+      ],
+    })
+
+    expect(result.workerIds).toEqual([])
+    expect(result.workerWindows).toEqual({})
+  })
+
   it('continues a worker from an overnight shift into the next date when hours overlap', () => {
     const models: ShiftModel[] = [
       { id: 'night', name: 'משמרת חוצה חצות', startMinutes: 14 * 60, endMinutes: 2 * 60, order: 0 },
