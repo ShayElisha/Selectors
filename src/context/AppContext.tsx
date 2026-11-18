@@ -34,6 +34,7 @@ import {
   resendManagerTempPasswordRemote,
   fetchOrgSettings,
   saveAppDataRemote,
+  saveWorkerWindowPresetsRemote,
   saveOrgSettings,
   selfHealShiftRemote,
   saveShiftRemote,
@@ -704,7 +705,7 @@ interface AppContextValue {
   deleteInspectorQuestion: (id: string) => void
   reorderInspectorQuestions: (orderedIds: string[]) => void
   saveShiftModels: (models: ShiftModel[]) => void
-  saveWorkerWindowPresets: (presets: WorkerWindowPreset[]) => void
+  saveWorkerWindowPresets: (presets: WorkerWindowPreset[]) => Promise<void>
   upsertCustomsBroker: (broker: { id?: string; name: string }) => void
   deleteCustomsBroker: (id: string) => void
   upsertCustomsBrokerContact: (
@@ -4908,16 +4909,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const saveWorkerWindowPresets = useCallback(
-    (presets: WorkerWindowPreset[]) => {
-      patchData((prev) => ({
-        ...prev,
-        workerWindowPresets: presets.map((preset, order) => ({
-          ...preset,
-          order,
-        })),
-      }))
+    async (presets: WorkerWindowPreset[]) => {
+      await flushPersist()
+      try {
+        const saved = await saveWorkerWindowPresetsRemote(
+          presets.map((preset, order) => ({ ...preset, order })),
+          dataRef.current.revision ?? 0,
+        )
+        applyRemoteData(saved)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          handleAuthFailure()
+        } else if (
+          error instanceof ApiError &&
+          error.status === 409 &&
+          error.current
+        ) {
+          applyRemoteData(error.current)
+        }
+        throw error
+      }
     },
-    [patchData],
+    [flushPersist, applyRemoteData, handleAuthFailure],
   )
 
   const upsertCustomsBroker = useCallback(
