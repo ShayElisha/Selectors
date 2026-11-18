@@ -33,7 +33,14 @@ function displayLabel(preset: WorkerWindowPreset): string {
 export function WorkerWindowsPage() {
   const { data, module, saveWorkerWindowPresets } = useApp()
   const presets = useMemo(
-    () => resolveWorkerWindows(data.workerWindowPresets),
+    () => {
+      const resolved = resolveWorkerWindows(data.workerWindowPresets)
+      console.log('WorkerWindowsPage - loaded presets:', {
+        dataPresets: data.workerWindowPresets?.length ?? 0,
+        resolved: resolved.length,
+      })
+      return resolved
+    },
     [data.workerWindowPresets],
   )
   const [start, setStart] = useState('06:00')
@@ -46,7 +53,6 @@ export function WorkerWindowsPage() {
   const [editEnd, setEditEnd] = useState('')
 
   const persist = (next: WorkerWindowPreset[]) => {
-    console.log('Persisting worker windows:', next)
     const normalized = next.map((preset, order) => {
       const named = String(preset.name || '').trim() || undefined
       return {
@@ -56,8 +62,8 @@ export function WorkerWindowsPage() {
         order,
       }
     })
-    console.log('Normalized worker windows:', normalized)
     saveWorkerWindowPresets(normalized)
+    notify.info(`שומר ${normalized.length} שעות אישיות...`, { duration: 2000 })
   }
 
   const add = () => {
@@ -159,10 +165,13 @@ export function WorkerWindowsPage() {
     <div className="space-y-4">
       <SectionCard
         title={title}
-        subtitle="הרשימה כאן מופיעה בנוכחות תחת «בחר משמרת» — לכל מודול בנפרד"
+        subtitle={`הרשימה כאן מופיעה בנוכחות תחת «בחר משמרת» — לכל מודול בנפרד (${presets.length} שעות)`}
       >
         {presets.length === 0 ? (
-          <EmptyState title="אין שעות" text="הוסיפו חלון שעות כדי לבחור בנוכחות." />
+          <EmptyState 
+            title="אין שעות" 
+            text="הוסיפו חלון שעות כדי לבחור בנוכחות. אם הוספתם ואין כאן - יש בעיה בשמירה." 
+          />
         ) : (
           <ul className="space-y-3">
             {presets.map((preset) => (
