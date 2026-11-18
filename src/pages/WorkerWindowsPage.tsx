@@ -46,17 +46,18 @@ export function WorkerWindowsPage() {
   const [editEnd, setEditEnd] = useState('')
 
   const persist = (next: WorkerWindowPreset[]) => {
-    saveWorkerWindowPresets(
-      next.map((preset, order) => {
-        const named = String(preset.name || '').trim() || undefined
-        return {
-          ...preset,
-          name: named,
-          label: named || workerWindowLabelFromTimes(preset.start, preset.end),
-          order,
-        }
-      }),
-    )
+    console.log('Persisting worker windows:', next)
+    const normalized = next.map((preset, order) => {
+      const named = String(preset.name || '').trim() || undefined
+      return {
+        ...preset,
+        name: named,
+        label: named || workerWindowLabelFromTimes(preset.start, preset.end),
+        order,
+      }
+    })
+    console.log('Normalized worker windows:', normalized)
+    saveWorkerWindowPresets(normalized)
   }
 
   const add = () => {
