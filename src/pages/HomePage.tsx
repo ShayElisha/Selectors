@@ -136,7 +136,6 @@ export function HomePage() {
     user,
     module,
     assignmentModes,
-    setWorkerWindow,
   } = useApp()
   const inspectorModule = module === 'inspectors'
   const moduleAudience = audienceForModule(module)
@@ -1007,30 +1006,15 @@ export function HomePage() {
                                   <span className="text-[12px] text-ink-soft">—</span>
                                 ) : (
                                   <div className="flex flex-col items-center justify-center gap-1">
-                                    {row.workers.map((person) => {
-                                      const activeShift = draft && currentShift && draft.id === currentShift.id ? draft : currentShift
-                                      const isEditable = draft && currentShift && draft.id === currentShift.id
-                                      return (
-                                      <select
+                                    {row.workers.map((person) => (
+                                      <span
                                         key={person.id}
-                                        value={activeShift?.workerWindows?.[person.id] || ''}
-                                        onChange={(e) => {
-                                          const windowId = e.target.value || null
-                                          setWorkerWindow(person.id, windowId)
-                                        }}
-                                        disabled={!isEditable}
-                                        className={`w-full max-w-[140px] rounded-md border border-line bg-paper px-2 py-1 text-[11px] text-ink hover:border-brand focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/20 ${!isEditable ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                        title={isEditable ? `שעות אישיות של ${person.name}` : 'עבור לעריכה כדי לשנות'}
+                                        className="inline-flex max-w-full items-center rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft ring-1 ring-line"
+                                        title={`${person.name}: ${person.windowLabel}`}
                                       >
-                                        <option value="">כל המשמרת</option>
-                                        {data.workerWindowPresets?.map((preset) => (
-                                          <option key={preset.id} value={preset.id}>
-                                            {preset.label}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    )
-                                    })}
+                                        <Ltr>{person.windowLabel}</Ltr>
+                                      </span>
+                                    ))}
                                   </div>
                                 )}
                               </td>
