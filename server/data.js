@@ -3283,7 +3283,7 @@ export async function deleteShift(id, actor, options = {}) {
 export async function seedWorkerWindowsForAllOrgs() {
   const results = { seeded: 0, skipped: 0, errors: [] };
 
-  for (const target of operationalDbTargets) {
+  for (const target of operationalDbTargets()) {
     try {
       const db = await getDb(target);
       const metaCol = db.collection("app_meta");
