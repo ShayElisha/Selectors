@@ -527,4 +527,40 @@ describe('state and shift persistence', () => {
     expect(buckets.get('selectors:shifts')).toHaveLength(1)
     expect(buckets.get('selectors:app_meta').find((item) => item._id === metaId).revision).toBe(1)
   })
+
+  it('generates IDs for workerWindowPresets when missing', async () => {
+    const initial = await readState(scope)
+
+    const saved = await writeState(
+      {
+        ...initial,
+        workerWindowPresets: [
+          { start: 360, end: 900, name: 'בוקר', label: 'בוקר', order: 0 },
+          { start: 870, end: 1290, name: 'צהריים', label: 'צהריים', order: 1 },
+        ],
+      },
+      { scope, actor: { id: 'manager-1', fullName: 'Manager' } },
+    )
+
+    expect(saved.workerWindowPresets).toHaveLength(2)
+    expect(saved.workerWindowPresets[0]).toMatchObject({
+      id: '0600-1500',
+      start: 360,
+      end: 900,
+      name: 'בוקר',
+      label: 'בוקר',
+    })
+    expect(saved.workerWindowPresets[1]).toMatchObject({
+      id: '1430-2130',
+      start: 870,
+      end: 1290,
+      name: 'צהריים',
+      label: 'צהריים',
+    })
+
+    const loaded = await readState(scope)
+    expect(loaded.workerWindowPresets).toHaveLength(2)
+    expect(loaded.workerWindowPresets[0].id).toBe('0600-1500')
+    expect(loaded.workerWindowPresets[1].id).toBe('1430-2130')
+  })
 })

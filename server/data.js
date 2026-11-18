@@ -119,6 +119,18 @@ function normalizeWorker(w, fallbackKind = "selector") {
   return worker;
 }
 
+function clockDigits(minutes) {
+  const day = 24 * 60;
+  const m = ((minutes % day) + day) % day;
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return `${String(h).padStart(2, "0")}${String(min).padStart(2, "0")}`;
+}
+
+function workerWindowIdFromTimes(start, end) {
+  return `${clockDigits(start)}-${clockDigits(end)}`;
+}
+
 function normalizeWorkerWindowPresets(raw) {
   if (!Array.isArray(raw)) return [];
   const seen = new Set();
@@ -130,7 +142,7 @@ function normalizeWorkerWindowPresets(raw) {
     if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return;
     const startMinutes = Math.max(0, Math.round(start));
     const endMinutes = Math.max(0, Math.round(end));
-    const id = String(item.id || "").trim();
+    const id = String(item.id || "").trim() || workerWindowIdFromTimes(startMinutes, endMinutes);
     if (!id || seen.has(id)) return;
     seen.add(id);
     const customName = String(item.name || "").trim() || undefined;
