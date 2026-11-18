@@ -1272,14 +1272,9 @@ async function start() {
   await migrateLegacyTenancy()
   await migrateInspectorsDatabase()
   
-  // Seed default worker windows for all orgs that don't have any
-  const seedResults = await seedWorkerWindowsForAllOrgs()
-  if (seedResults.seeded > 0) {
-    console.log(`Seeded worker windows for ${seedResults.seeded} org/module combinations`)
-  }
-  if (seedResults.errors.length > 0) {
-    console.error('Worker window seeding errors:', seedResults.errors)
-  }
+  // Removed automatic seeding - each org starts with empty worker windows
+  // and configures them manually via the UI or by running:
+  // node scripts/seed-worker-windows.js (if defaults are wanted)
   
   scheduleLocalLoadRestCron()
   scheduleLocalShiftReminderCron()
