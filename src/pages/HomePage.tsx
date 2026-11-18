@@ -257,23 +257,26 @@ export function HomePage() {
 
   const personalWindowLabel = useCallback(
     (workerId: string) => {
-      if (!currentShift) return 'כל המשמרת'
+      const activeShift = draft && currentShift && draft.id === currentShift.id ? draft : currentShift
+      if (!activeShift) return 'כל המשמרת'
       const preset = workerWindowById(
-        currentShift.workerWindows?.[workerId],
+        activeShift.workerWindows?.[workerId],
         data.workerWindowPresets,
       )
       return preset?.label ?? 'כל המשמרת'
     },
-    [currentShift, data.workerWindowPresets],
+    [currentShift, draft, data.workerWindowPresets],
   )
 
   const currentTableRows = useMemo(() => {
-    if (!currentShift) return []
-    const rows = currentShift.activeLaneIds
+    // Use draft if editing, otherwise show saved shift
+    const activeShift = draft && currentShift && draft.id === currentShift.id ? draft : currentShift
+    if (!activeShift) return []
+    const rows = activeShift.activeLaneIds
       .map((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)
         if (!lane) return null
-        const assignment = currentShift.assignments.find((a) => a.laneId === laneId)
+        const assignment = activeShift.assignments.find((a) => a.laneId === laneId)
         const workers = (assignment?.workerIds ?? [])
           .filter(Boolean)
           .map((id) => {
@@ -291,7 +294,7 @@ export function HomePage() {
           intensity: lane.intensity as Intensity,
           staffingStandard: effectiveStaffingStandard(
             lane,
-            currentShift.staffingOverrides,
+            activeShift.staffingOverrides,
           ),
           assigned: workers.length,
           workers,
@@ -313,10 +316,10 @@ export function HomePage() {
     const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
     return rows.sort(
       (a, b) =>
-        (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
-        a.laneName.localeCompare(b.laneName, 'he'),
+      (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
+      a.laneName.localeCompare(b.laneName, 'he'),
     )
-  }, [currentShift, data.lanes, data.workers, personalWindowLabel])
+  }, [currentShift, draft, data.lanes, data.workers, personalWindowLabel])
 
   const currentUnassigned = useMemo(() => {
     if (!currentShift) return []
@@ -1004,16 +1007,20 @@ export function HomePage() {
                                   <span className="text-[12px] text-ink-soft">—</span>
                                 ) : (
                                   <div className="flex flex-col items-center justify-center gap-1">
-                                    {row.workers.map((person) => (
+                                    {row.workers.map((person) => {
+                                      const activeShift = draft && currentShift && draft.id === currentShift.id ? draft : currentShift
+                                      const isEditable = draft && currentShift && draft.id === currentShift.id
+                                      return (
                                       <select
                                         key={person.id}
-                                        value={currentShift?.workerWindows?.[person.id] || ''}
+                                        value={activeShift?.workerWindows?.[person.id] || ''}
                                         onChange={(e) => {
                                           const windowId = e.target.value || null
                                           setWorkerWindow(person.id, windowId)
                                         }}
-                                        className="w-full max-w-[140px] rounded-md border border-line bg-paper px-2 py-1 text-[11px] text-ink hover:border-brand focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/20"
-                                        title={`שעות אישיות של ${person.name}`}
+                                        disabled={!isEditable}
+                                        className={`w-full max-w-[140px] rounded-md border border-line bg-paper px-2 py-1 text-[11px] text-ink hover:border-brand focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/20 ${!isEditable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        title={isEditable ? `שעות אישיות של ${person.name}` : 'עבור לעריכה כדי לשנות'}
                                       >
                                         <option value="">כל המשמרת</option>
                                         {data.workerWindowPresets?.map((preset) => (
@@ -1022,7 +1029,8 @@ export function HomePage() {
                                           </option>
                                         ))}
                                       </select>
-                                    ))}
+                                    )
+                                    })}
                                   </div>
                                 )}
                               </td>
