@@ -7,6 +7,7 @@ const {
   getMetaCollection,
   getStateCollection,
   createPayEntriesForCompletedShifts,
+  waitUntil,
 } = vi.hoisted(() => {
   const buckets = new Map()
   const operations = new Map()
@@ -129,9 +130,11 @@ const {
     operations,
     rows,
     createPayEntriesForCompletedShifts: vi.fn(async () => {}),
+    waitUntil: vi.fn(),
   }
 })
 
+vi.mock('@vercel/functions', () => ({ waitUntil }))
 vi.mock('./db.js', () => ({
   getDb,
   getMetaCollection,
@@ -544,6 +547,45 @@ describe('state and shift persistence', () => {
         expect.objectContaining({ id: inspector.id, staffKind: 'inspector' }),
       ]),
     )
+  })
+
+  it('returns a saved shift without waiting for background payroll work', async () => {
+    const previousVercel = process.env.VERCEL
+    process.env.VERCEL = '1'
+    scope = { orgId: `test-org-${scopeSequence++}`, module: 'inspectors' }
+    metaId = `${scope.orgId}:${scope.module}`
+    seedState()
+    let finishPayroll
+    createPayEntriesForCompletedShifts.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishPayroll = resolve
+        }),
+    )
+
+    try {
+      const result = await upsertShift(
+        'shift-with-slow-payroll',
+        {
+          date: '2026-11-18',
+          shiftType: 'morning',
+          assignmentMode: 'single',
+          activeLaneIds: [],
+          presentWorkerIds: [],
+          assignments: [],
+        },
+        { id: 'manager-1', fullName: 'Manager' },
+        { scope, compact: true },
+      )
+
+      expect(result.shift.id).toBe('shift-with-slow-payroll')
+      expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise))
+      expect(createPayEntriesForCompletedShifts).toHaveBeenCalledOnce()
+    } finally {
+      finishPayroll?.()
+      if (previousVercel === undefined) delete process.env.VERCEL
+      else process.env.VERCEL = previousVercel
+    }
   })
 
   it('locks many open shifts in one revision bump', async () => {
