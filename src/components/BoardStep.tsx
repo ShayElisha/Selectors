@@ -47,7 +47,7 @@ import { LaneStaffingControl } from './LaneStaffingControl'
 import {
   timingBadgesForWorker,
 } from '../lib/shiftTimingBadges'
-import { windowFitsShift } from '../lib/shiftCatalog'
+import { windowFitsShift, resolveWorkerWindows } from '../lib/shiftCatalog'
 import { explainWhyNotSelected } from '../lib/whyNotSelected'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { PeopleLabels } from '../auth'
@@ -172,6 +172,10 @@ export function BoardStep({
   const rosterWorkers = useMemo(
     () => mergeShiftRoster(data.workers, extraWorkers),
     [data.workers, extraWorkers],
+  )
+  const workerWindowPresets = useMemo(
+    () => resolveWorkerWindows(data.workerWindowPresets),
+    [data.workerWindowPresets],
   )
   const {
     updateAssignment,
@@ -592,7 +596,7 @@ export function BoardStep({
     }
     if (workerId) {
       const windowId = draft.workerWindows?.[workerId]
-      if (!windowFitsShift(windowId, draft.shiftType, data.workerWindowPresets)) {
+      if (!windowFitsShift(windowId, draft.shiftType, workerWindowPresets)) {
         const name =
           data.workers.find((w) => w.id === workerId)?.fullName ?? workerId
         notify.error('מחוץ לשעות', `${name} לא זמין/ה במשמרת הזו לפי השעות שנבחרו`)
@@ -737,7 +741,7 @@ export function BoardStep({
           windowFitsShift(
             draft.workerWindows?.[w.id],
             draft.shiftType,
-            data.workerWindowPresets,
+            workerWindowPresets,
           )),
     )
     const workers = present
@@ -912,7 +916,7 @@ export function BoardStep({
                 title="שעות אישיות"
               >
                 <option value="">כל המשמרת</option>
-                {data.workerWindowPresets?.map((preset) => (
+                {workerWindowPresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.label}
                   </option>
@@ -1720,7 +1724,7 @@ export function BoardStep({
                                   title="שעות אישיות"
                                 >
                                   <option value="">כל המשמרת</option>
-                                  {data.workerWindowPresets?.map((preset) => (
+                                  {workerWindowPresets.map((preset) => (
                                     <option key={preset.id} value={preset.id}>
                                       {preset.label}
                                     </option>
