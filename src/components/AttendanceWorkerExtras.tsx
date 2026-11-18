@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, Plus } from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { LateMinutesControl } from './LateMinutesControl'
-import { AddWorkerWindowDialog } from './AddWorkerWindowDialog'
 
 export type AttendanceWindowPreset = { id: string; label: string }
 export type AttendanceLaneOption = { id: string; name: string }
@@ -67,7 +66,6 @@ export function AttendanceWorkerExtras({
   onEarlyChange,
 }: AttendanceWorkerExtrasProps) {
   const [open, setOpen] = useState(false)
-  const [showAddDialog, setShowAddDialog] = useState(false)
 
   const windowLabel =
     windowPresets.find((preset) => preset.id === windowId)?.label ??
@@ -140,34 +138,23 @@ export function AttendanceWorkerExtras({
 
       {open ? (
         <div className="mt-1.5 space-y-1.5 px-0.5">
-          <div className="flex gap-2">
-            <select
-              value={windowId}
-              aria-label={`משמרת של ${workerName}`}
-              onChange={(e) => {
-                const next = e.target.value
-                if (!next) return
-                onWindowChange(next)
-              }}
-              className="ui-field flex-1 py-1.5 text-[13px]"
-            >
-              {!windowId ? <option value="">בחר משמרת</option> : null}
-              {windowPresets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => setShowAddDialog(true)}
-              className="flex items-center justify-center rounded-lg border border-line bg-paper px-2 text-brand hover:bg-brand/5"
-              title="הוסף שעות אישיות חדשות"
-              aria-label="הוסף שעות אישיות חדשות"
-            >
-              <Plus className="size-4" />
-            </button>
-          </div>
+          <select
+            value={windowId}
+            aria-label={`משמרת של ${workerName}`}
+            onChange={(e) => {
+              const next = e.target.value
+              if (!next) return
+              onWindowChange(next)
+            }}
+            className="ui-field w-full py-1.5 text-[13px]"
+          >
+            {!windowId ? <option value="">בחר משמרת</option> : null}
+            {windowPresets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
 
           {showLaneSelect ? (
             <select
@@ -216,16 +203,6 @@ export function AttendanceWorkerExtras({
           </label>
         </div>
       ) : null}
-
-      {showAddDialog && (
-        <AddWorkerWindowDialog
-          onClose={() => setShowAddDialog(false)}
-          onAdded={(windowId) => {
-            onWindowChange(windowId)
-            setShowAddDialog(false)
-          }}
-        />
-      )}
     </div>
   )
 }
