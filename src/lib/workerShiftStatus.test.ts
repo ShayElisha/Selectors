@@ -4,10 +4,12 @@ import type { ShiftModel, ShiftSchedule, WorkerWindowPreset } from '../types'
 
 const models: ShiftModel[] = [
   { id: 'morning', name: 'בוקר', startMinutes: 360, endMinutes: 870, order: 0 },
+  { id: 'afternoon', name: 'אחר הצהריים', startMinutes: 870, endMinutes: 1290, order: 1 },
   { id: 'night', name: 'לילה', startMinutes: 1290, endMinutes: 390, order: 1 },
 ]
 const presets: WorkerWindowPreset[] = [
   { id: 'short', label: 'קצר', start: 360, end: 840 },
+  { id: 'until-1830', label: 'עד 18:30', start: 360, end: 1110 },
   { id: 'overnight', label: 'לילה', start: 1290, end: 390 },
 ]
 const shift: ShiftSchedule = {
@@ -63,6 +65,27 @@ describe('workerShiftEnd', () => {
 
     expect(end?.minutes).toBe(14 * 60)
     expect(end?.dayOffset).toBe(1)
+  })
+
+  it('keeps an afternoon shift end at 18:30 on the same day', () => {
+    const afternoonShift: ShiftSchedule = {
+      ...shift,
+      shiftType: 'afternoon',
+      workerWindows: { 'worker-1': 'until-1830' },
+    }
+    const end = workerShiftEnd(afternoonShift, 'worker-1', models, presets)
+
+    expect(end?.minutes).toBe(18 * 60 + 30)
+    expect(end?.dayOffset).toBe(0)
+    expect(
+      workerShiftHasEnded(
+        afternoonShift,
+        'worker-1',
+        models,
+        presets,
+        new Date(2026, 10, 18, 18, 51).getTime(),
+      ),
+    ).toBe(true)
   })
 
   it('uses a recorded early leave as the end time', () => {

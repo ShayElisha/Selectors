@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   hasOpenWorkerContinuation,
   syncContinuedWorkerHours,
+  workerHoursInterval,
 } from './workerShiftContinuity.js'
 
 const shiftModels = [
@@ -12,6 +13,7 @@ const shiftModels = [
 const presets = [
   { id: 'morning', start: 360, end: 870 },
   { id: 'long', start: 360, end: 1110 },
+  { id: 'until-1830', start: 360, end: 1110 },
 ]
 
 function shift(id, shiftType, extra = {}) {
@@ -29,6 +31,21 @@ function shift(id, shiftType, extra = {}) {
     ...extra,
   }
 }
+
+describe('workerHoursInterval', () => {
+  it('does not move a same-day 18:30 end to the next day for an afternoon shift', () => {
+    const interval = workerHoursInterval(
+      shift('afternoon-1', 'afternoon', {
+        workerWindows: { 'worker-1': 'until-1830' },
+      }),
+      'worker-1',
+      presets,
+      shiftModels,
+    )
+
+    expect(interval?.end).toBe(18 * 60 + 30)
+  })
+})
 
 describe('hasOpenWorkerContinuation', () => {
   it('holds payroll until an overlapping later shift is closed', () => {

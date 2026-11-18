@@ -19,6 +19,7 @@ function shiftRange(shift, shiftModels = []) {
 function workerInterval(shift, workerId, presets, shiftModels) {
   const bounds = shiftRange(shift, shiftModels)
   if (!bounds) return null
+  const crossesMidnight = bounds.end > 24 * 60
 
   const presetId = shift?.workerWindows?.[workerId]
   const preset = Array.isArray(presets)
@@ -31,7 +32,7 @@ function workerInterval(shift, workerId, presets, shiftModels) {
     end = Number(preset.end)
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null
     if (end <= start) end += 24 * 60
-    if (bounds.start >= 12 * 60 && start < 12 * 60 && preset.end > preset.start) {
+    if (crossesMidnight && start < 12 * 60 && preset.end > preset.start) {
       start += 24 * 60
       end += 24 * 60
     }
@@ -44,7 +45,7 @@ function workerInterval(shift, workerId, presets, shiftModels) {
   if (Number.isFinite(Number(leftAt))) {
     const leaveMinute = Number(leftAt)
     const absoluteLeave =
-      bounds.start >= 12 * 60 && leaveMinute < 12 * 60
+      crossesMidnight && leaveMinute < 12 * 60
         ? leaveMinute + 24 * 60
         : leaveMinute
     end = Math.min(end, absoluteLeave)
