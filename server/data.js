@@ -25,6 +25,7 @@ import {
   upsertManagerAccount,
 } from "./orgs.js";
 import { openWorkerPii, sealWorkerPii } from "./piiCrypto.js";
+import { createPayEntriesForShift } from "./workerPay.js";
 
 function publicModules(modules) {
   return {
@@ -2908,6 +2909,19 @@ export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
     orgId: scope?.orgId,
     module: scope?.module,
   });
+
+  // Create pay entries for workers with selected hours
+  try {
+    for (const id of unique) {
+      const shift = saved.history.find((s) => s.id === id);
+      if (shift && shift.signOff) {
+        await createPayEntriesForShift(shift, saved.workerWindowPresets, scope);
+      }
+    }
+  } catch (err) {
+    // Log but don't fail the sign-off if pay entry creation fails
+    console.error("Failed to create pay entries:", err);
+  }
 
   return { locked, data: saved };
 }

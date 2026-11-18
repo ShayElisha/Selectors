@@ -421,3 +421,144 @@ export async function deleteWorkerPayEntry(req, entryId, kind = 'worker') {
 export function deleteManagerPayEntry(req, entryId) {
   return deleteWorkerPayEntry(req, entryId, 'manager')
 }
+
+/**
+ * Create pay entries for all workers in a signed-off shift who have personal hours selected.
+ * Calculates actual hours based on personal hours, late arrival, and early leave.
+ */
+export async function createPayEntriesForShift(shift, workerWindowPresets, scope) {
+  if (!scope || scope.module !== 'inspectors') {
+    // Pay entries are only for inspectors module
+    return
+  }
+
+  const orgId = String(scope.orgId)
+  const presentWorkers = Array.isArray(shift.presentWorkerIds)
+    ? shift.presentWorkerIds
+    : []
+  const workerWindows = shift.workerWindows || {}
+  const windowAdjustments = shift.windowAdjustments || {}
+  const earlyLeaveAt = shift.earlyLeaveAt || {}
+
+  // Helper to find window preset by ID
+  const findPreset = (windowId) => {
+    if (!windowId || !Array.isArray(workerWindowPresets)) return null
+    return workerWindowPresets.find((p) => p.id === windowId)
+  }
+
+  // Helper to format minutes as HH:MM
+  const formatClock = (minutes) => {
+    const day = 24 * 60
+    const m = ((minutes % day) + day) % day
+    const h = Math.floor(m / 60)
+    const min = m % 60
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+  }
+
+  const collection = await payCollection()
+  const shiftDate = String(shift.date || '')
+
+  if (!validDate(shiftDate)) {
+    console.error('Invalid shift date:', shiftDate)
+    return
+  }
+
+  for (const workerId of presentWorkers) {
+    const windowId = workerWindows[workerId]
+    if (!windowId) {
+      // Skip workers without selected personal hours
+      continue
+    }
+
+    const preset = findPreset(windowId)
+    if (!preset) {
+      console.warn(`Worker ${workerId} has window ${windowId} but preset not found`)
+      continue
+    }
+
+    // Calculate actual start time (personal start + late minutes)
+    const adjustment = windowAdjustments[workerId] || {}
+    const lateMinutes = Math.max(0, Number(adjustment.lateMinutes) || 0)
+    const earlyMinutes = Math.max(0, Number(adjustment.earlyMinutes) || 0)
+    let actualStart = preset.start + lateMinutes
+    let actualEnd = preset.end - earlyMinutes
+
+    // If worker left early, use that time instead
+    const leftAt = earlyLeaveAt[workerId]
+    if (leftAt != null && Number.isFinite(leftAt)) {
+      actualEnd = Math.min(actualEnd, Number(leftAt))
+    }
+
+    // Ensure start is before end
+    if (actualStart >= actualEnd) {
+      console.warn(`Worker ${workerId}: start ${actualStart} >= end ${actualEnd}, skipping`)
+      continue
+    }
+
+    const startClock = formatClock(actualStart)
+    const endClock = formatClock(actualEnd)
+
+    // Create the pay entry
+    const entry = {
+      id: randomUUID(),
+      date: shiftDate,
+      start: startClock,
+      end: endClock,
+      kind: 'work',
+      span: intervalOf({ date: shiftDate, start: startClock, end: endClock }),
+    }
+
+    try {
+      // Load or create worker's pay document
+      const doc = await loadDoc(orgId, workerId)
+
+      // Check if entry already exists for this date/time
+      const exists = doc.entries.some(
+        (e) =>
+          e.date === entry.date &&
+          e.start === entry.start &&
+          e.end === entry.end,
+      )
+
+      if (exists) {
+        console.log(`Pay entry already exists for worker ${workerId} on ${shiftDate}`)
+        continue
+      }
+
+      // Check for overlaps
+      const hasOverlap = doc.entries.some((existing) => {
+        if (existing.date !== entry.date) return false
+        return overlaps(entry.span, intervalOf(existing))
+      })
+
+      if (hasOverlap) {
+        console.warn(`Pay entry overlaps for worker ${workerId} on ${shiftDate}`)
+        continue
+      }
+
+      // Add entry to document
+      const updatedEntries = [...doc.entries, entry]
+      await collection.updateOne(
+        { orgId, workerId },
+        {
+          $set: {
+            entries: updatedEntries,
+            updatedAt: new Date().toISOString(),
+          },
+          $setOnInsert: {
+            orgId,
+            workerId,
+            basis: null,
+            amount: 0,
+            rates: [],
+          },
+        },
+        { upsert: true },
+      )
+
+      console.log(`Created pay entry for worker ${workerId}: ${startClock}-${endClock}`)
+    } catch (err) {
+      console.error(`Failed to create pay entry for worker ${workerId}:`, err)
+    }
+  }
+}
