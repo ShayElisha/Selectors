@@ -271,7 +271,7 @@ export function workerWindowById(
   catalog?: WorkerWindowPreset[] | null,
 ): WorkerWindowPreset | undefined {
   if (!id) return undefined
-  const list = resolveWorkerWindows(catalog)
+  const list = catalog ?? []
   return list.find((w) => w.id === id)
 }
 
@@ -359,7 +359,8 @@ export function presetsOverlappingShift(
   shiftType: ShiftType,
   catalog?: WorkerWindowPreset[] | null,
 ): WorkerWindowPreset[] {
-  return resolveWorkerWindows(catalog).filter((preset) =>
+  const list = catalog ?? []
+  return list.filter((preset) =>
     windowFitsShift(preset.id, shiftType, catalog),
   )
 }

@@ -673,6 +673,7 @@ export function assignSelectorRounds(
               w.startMinutes,
               w.endMinutes,
               args.windowAdjustments?.[worker.id],
+              args.workerWindowPresets,
             ) || partners.some((partner) => partner.id === worker.id)
           )
         })
