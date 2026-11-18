@@ -39,6 +39,7 @@ import { isGateManagerLane } from '../lib/gateManager'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
+import { workerShiftEnd } from '../lib/workerShiftStatus'
 import {
   formatShiftDate,
   formatShiftWindow,
@@ -49,6 +50,7 @@ import {
 } from '../lib/inspectorShifts'
 import {
   formatShiftModelWindow,
+  formatMinutes,
   resolveShiftModels,
   shiftModelLabel,
 } from '../lib/shiftModels'
@@ -402,6 +404,7 @@ function ShiftAccordion({
   const [open, setOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [versionsOpen, setVersionsOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const menuRef = useRef<HTMLDivElement>(null)
   const Icon = SHIFT_ICONS[shift.shiftType]
   const lanesById = useMemo(
@@ -449,6 +452,32 @@ function ShiftAccordion({
 
   const deleteLabel = `מחיקת משמרת ${shiftName} ${formatShiftDate(shift.date)}`
   const stability = shiftBoardStability(shift)
+
+  useEffect(() => {
+    if (!open) return
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [open])
+
+  const workerEndRows = shift.presentWorkerIds.flatMap((workerId) => {
+    const end = workerShiftEnd(
+      shift,
+      workerId,
+      models,
+      data.workerWindowPresets ?? [],
+    )
+    return end
+      ? [
+          {
+            workerId,
+            name: workersById.get(workerId)?.fullName ?? workerId,
+            end,
+            ended: end.timestamp <= now,
+            earlyLeaveAt: shift.earlyLeaveAt?.[workerId],
+          },
+        ]
+      : []
+  })
 
   return (
     <div className="min-w-0 max-w-full rounded-xl border border-line bg-surface/80">
@@ -557,6 +586,33 @@ function ShiftAccordion({
 
       {open ? (
         <div className="min-w-0 overflow-hidden border-t border-line px-3 py-3">
+          {workerEndRows.length > 0 ? (
+            <section className="mb-3 rounded-xl border border-line/70 bg-surface/40 p-3">
+              <h3 className="mb-2 text-sm font-semibold text-ink">
+                סיום שעות לפי עובד
+              </h3>
+              <ul className="space-y-1.5 text-[13px]">
+                {workerEndRows.map((row) => (
+                  <li
+                    key={row.workerId}
+                    className="flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <span className="font-medium text-ink">{row.name}</span>
+                    <span className={row.ended ? 'font-semibold text-ink' : 'text-ink-soft'}>
+                      {row.earlyLeaveAt != null
+                        ? 'יציאה מוקדמת'
+                        : row.ended
+                          ? 'השעות הסתיימו'
+                          : 'סיום מתוכנן'}
+                      {' · '}
+                      <Ltr>{formatMinutes(row.end.minutes)}</Ltr>
+                      {row.end.dayOffset > 0 ? ' · למחרת' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           <ShiftExplanation shift={shift} />
           {shift.shiftEvents?.length ? (
             <ul className="mb-3 space-y-1">

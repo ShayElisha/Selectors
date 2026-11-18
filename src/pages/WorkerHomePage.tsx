@@ -195,6 +195,7 @@ export function WorkerHomePage() {
   const phase = home?.now?.phase || 'none'
   const upcoming = phase === 'upcoming'
   const active = phase === 'active'
+  const completed = phase === 'completed'
 
   const startLeft = useEndsAtCountdown(home?.now?.shiftStartsAt)
   const shiftLeft = useEndsAtCountdown(home?.now?.shiftEndsAt)
@@ -359,6 +360,26 @@ export function WorkerHomePage() {
                     השיבוץ לנתיב יוצג רק אחרי תחילת המשמרת.
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+            {completed && now ? (
+              <div className="rounded-xl border border-line bg-surface/60 p-4">
+                <p className="text-sm font-semibold text-ink">
+                  {home.status.earlyLeaveAt != null
+                    ? 'נרשמה יציאה מוקדמת מהמשמרת'
+                    : 'השעות המתוכננות במשמרת הסתיימו'}
+                </p>
+                <p className="mt-1 text-sm text-ink-soft">
+                  {home.status.earlyLeaveAt != null
+                    ? 'יציאה ב־'
+                    : 'סיום ב־'}
+                  <Ltr>
+                    {formatMinutes(
+                      home.status.earlyLeaveAt ?? now.shiftEndMinutes,
+                    )}
+                  </Ltr>
+                  {now.shiftEndMinutes >= 24 * 60 ? ' · למחרת' : ''}
+                </p>
               </div>
             ) : null}
 

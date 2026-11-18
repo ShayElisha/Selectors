@@ -165,10 +165,22 @@ export function WorkerHistoryPage() {
                   ) : null}
                   {shift.earlyLeaveAt != null ? (
                     <span>
-                      יציאה ב־
+                      יציאה מוקדמת ב־
                       <Ltr>{formatMinutes(shift.earlyLeaveAt)}</Ltr>
                     </span>
-                  ) : null}
+                  ) : shift.hoursEnded ? (
+                    <span className="font-semibold text-ink">
+                      השעות הסתיימו ב־
+                      <Ltr>{formatMinutes(shift.plannedEndMinutes)}</Ltr>
+                      {shift.plannedEndNextDay ? ' · למחרת' : ''}
+                    </span>
+                  ) : (
+                    <span>
+                      סיום מתוכנן ב־
+                      <Ltr>{formatMinutes(shift.plannedEndMinutes)}</Ltr>
+                      {shift.plannedEndNextDay ? ' · למחרת' : ''}
+                    </span>
+                  )}
                   {shift.drop ? (
                     <span>
                       {dropKindLabel(shift.drop.kind)}

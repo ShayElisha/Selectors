@@ -60,4 +60,30 @@ describe('buildHistoryCsv', () => {
     expect(csv).toContain('דגש')
     expect(csv).toContain('טווח: 2026-09-01 עד 2026-09-30')
   })
+
+  it('sorts lane rows alphabetically within each shift', () => {
+    const shifts: ShiftSchedule[] = [
+      {
+        id: 's1',
+        date: '2026-09-20',
+        shiftType: 'morning',
+        presentWorkerIds: ['w1'],
+        activeLaneIds: ['l2', 'l1'],
+        assignments: [
+          { laneId: 'l2', workerIds: ['w1'] },
+          { laneId: 'l1', workerIds: ['w1'] },
+        ],
+        createdAt: '2026-09-20T06:00:00.000Z',
+        updatedAt: '2026-09-20T06:00:00.000Z',
+      },
+    ]
+    const csv = buildHistoryCsv(shifts, {
+      workers: [worker('w1', 'דני')],
+      lanes: [lane('l2', 'נתיב ב'), lane('l1', 'נתיב א')],
+    })
+
+    expect(csv.indexOf('2026-09-20,בוקר,נתיב א')).toBeLessThan(
+      csv.indexOf('2026-09-20,בוקר,נתיב ב'),
+    )
+  })
 })
