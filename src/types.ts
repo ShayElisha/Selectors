@@ -264,6 +264,11 @@ export interface ShiftSchedule {
    */
   workerWindows?: Record<string, string>
   /**
+   * Worker window presets catalog (השעות האישיות המוגדרות).
+   * Used to resolve window IDs to actual time ranges.
+   */
+  workerWindowPresets?: WorkerWindowPreset[]
+  /**
    * Late arrival or early leave, in minutes, without moving the saved placement.
    * The next automatic assignment uses the trimmed window.
    */

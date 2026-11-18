@@ -1,4 +1,4 @@
-import type { WindowAdjustment } from '../types'
+import type { WindowAdjustment, WorkerWindowPreset } from '../types'
 import { effectiveLateMinutes } from './shiftLate'
 import { workerWindowById } from './shiftCatalog'
 

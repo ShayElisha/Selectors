@@ -16,6 +16,7 @@ import type {
   ShiftType,
   WindowAdjustment,
   Worker,
+  WorkerWindowPreset,
 } from '../types'
 import { isGateManagerLane } from './gateManager'
 import { sortLanesByCatalogOrder } from './lanesCertHelpers'
@@ -26,8 +27,6 @@ import {
   onShiftClock,
   roundCutsForWindows,
   windowCoversRound,
-  windowInterval,
-  workerWindowById,
 } from './shiftCatalog'
 import {
   effectiveStaffingStandard,
