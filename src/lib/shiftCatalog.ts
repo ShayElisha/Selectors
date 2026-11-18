@@ -43,12 +43,24 @@ export function workerWindowLabelFromTimes(start: number, end: number): string {
 }
 
 // Worker window presets are now stored in the database.
-// No hardcoded defaults - all organizations have seeded windows in the DB.
+// Temporary fallback until migration runs on all servers.
+const FALLBACK_WORKER_WINDOWS: WorkerWindowPreset[] = [
+  { id: '0445-1500', label: 'בוקר מוקדם', name: 'בוקר מוקדם', start: 4 * 60 + 45, end: 15 * 60, order: 0 },
+  { id: '0445-1645', label: 'בוקר מוקדם ארוך', name: 'בוקר מוקדם ארוך', start: 4 * 60 + 45, end: 16 * 60 + 45, order: 1 },
+  { id: '0445-1730', label: 'בוקר-צהריים מוקדם', name: 'בוקר-צהריים מוקדם', start: 4 * 60 + 45, end: 17 * 60 + 30, order: 2 },
+  { id: '0445-1830', label: 'משמרת ארוכה מוקדמת', name: 'משמרת ארוכה מוקדמת', start: 4 * 60 + 45, end: 18 * 60 + 30, order: 3 },
+  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60, order: 4 },
+  { id: '0600-1645', label: 'בוקר-צהריים', name: 'בוקר-צהריים', start: 6 * 60, end: 16 * 60 + 45, order: 5 },
+  { id: '0600-1730', label: 'בוקר-צהריים ארוך', name: 'בוקר-צהריים ארוך', start: 6 * 60, end: 17 * 60 + 30, order: 6 },
+  { id: '0600-1830', label: 'משמרת ארוכה', name: 'משמרת ארוכה', start: 6 * 60, end: 18 * 60 + 30, order: 7 },
+  { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30, order: 8 },
+  { id: '1800-0630', label: 'לילה', name: 'לילה', start: 18 * 60, end: 6 * 60 + 30, order: 9 },
+]
 
 export function normalizeWorkerWindowPresets(
   raw: unknown,
 ): WorkerWindowPreset[] {
-  if (!Array.isArray(raw)) return []
+  if (!Array.isArray(raw)) return FALLBACK_WORKER_WINDOWS
   const out: WorkerWindowPreset[] = []
   const seen = new Set<string>()
   raw.forEach((item, index) => {
@@ -94,7 +106,9 @@ export function normalizeWorkerWindowPresets(
 export function resolveWorkerWindows(
   saved?: WorkerWindowPreset[] | null,
 ): WorkerWindowPreset[] {
-  return normalizeWorkerWindowPresets(saved)
+  const normalized = normalizeWorkerWindowPresets(saved)
+  // Fallback to default if empty (until migration runs)
+  return normalized.length > 0 ? normalized : FALLBACK_WORKER_WINDOWS
 }
 
 /** Afternoon A continues morning; afternoon B continues morning and afternoon A. */
