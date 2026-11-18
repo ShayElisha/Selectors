@@ -1112,15 +1112,30 @@ async function replaceModels(
     const ids = docs.map((d) => d._id);
 
     // Remove only documents that are no longer part of the snapshot.
-    await col.deleteMany({ ...scopeFilter(scope), _id: { $nin: ids } }, opts);
+    const deleteResult = await col.deleteMany({ ...scopeFilter(scope), _id: { $nin: ids } }, opts);
+    
+    if (name === MODEL_COLLECTIONS.workerWindowPresets) {
+      console.log('replaceModels - workerWindowPresets:', {
+        scope,
+        rawDocsCount: rawDocs.length,
+        docsCount: docs.length,
+        deletedCount: deleteResult.deletedCount,
+        ids,
+      });
+    }
 
     if (docs.length > 0) {
-      await col.bulkWrite(
+      const writeResult = await col.bulkWrite(
         docs.map(({ _id, ...doc }) => ({
           replaceOne: { filter: { _id }, replacement: doc, upsert: true },
         })),
         { ordered: false, ...opts },
       );
+      if (name === MODEL_COLLECTIONS.workerWindowPresets) {
+        console.log('replaceModels - bulkWrite result:', writeResult);
+      }
+    } else if (name === MODEL_COLLECTIONS.workerWindowPresets) {
+      console.log('replaceModels - skipped bulkWrite (docs.length === 0)');
     }
   }
   const meta = await getMetaCollection(target);
