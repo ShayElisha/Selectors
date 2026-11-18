@@ -1806,6 +1806,11 @@ export async function writeState(data, options = {}) {
     workerWindowPresets: payload.workerWindowPresets ?? [],
     incidents: payload.incidents ?? [],
   };
+  console.log('writeState - workerWindowPresets:', {
+    payloadCount: payload.workerWindowPresets?.length ?? 0,
+    toStoreCount: toStore.workerWindowPresets.length,
+    presets: toStore.workerWindowPresets,
+  });
   const historyChanged =
     options.action === "data_reset" ||
     JSON.stringify(toStore.history) !== JSON.stringify(prev?.history || []);
