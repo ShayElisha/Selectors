@@ -136,6 +136,7 @@ export function HomePage() {
     user,
     module,
     assignmentModes,
+    setWorkerWindow,
   } = useApp()
   const inspectorModule = module === 'inspectors'
   const moduleAudience = audienceForModule(module)
@@ -1004,13 +1005,23 @@ export function HomePage() {
                                 ) : (
                                   <div className="flex flex-col items-center justify-center gap-1">
                                     {row.workers.map((person) => (
-                                      <span
+                                      <select
                                         key={person.id}
-                                        className="inline-flex max-w-full items-center rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft ring-1 ring-line"
-                                        title={`${person.name}: ${person.windowLabel}`}
+                                        value={currentShift?.workerWindows?.[person.id] || ''}
+                                        onChange={(e) => {
+                                          const windowId = e.target.value || null
+                                          setWorkerWindow(person.id, windowId)
+                                        }}
+                                        className="w-full max-w-[140px] rounded-md border border-line bg-paper px-2 py-1 text-[11px] text-ink hover:border-brand focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/20"
+                                        title={`שעות אישיות של ${person.name}`}
                                       >
-                                        <Ltr>{person.windowLabel}</Ltr>
-                                      </span>
+                                        <option value="">כל המשמרת</option>
+                                        {data.workerWindowPresets?.map((preset) => (
+                                          <option key={preset.id} value={preset.id}>
+                                            {preset.label}
+                                          </option>
+                                        ))}
+                                      </select>
                                     ))}
                                   </div>
                                 )}
