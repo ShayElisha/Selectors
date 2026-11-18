@@ -715,6 +715,7 @@ interface AppContextValue {
   deleteCustomsBrokerContact: (brokerId: string, contactId: string) => void
   resetToSeed: () => Promise<void>
   refreshFromServer: () => Promise<void>
+  flushPersist: () => Promise<void>
 }
 
 const emptyData: AppData = {
@@ -5181,6 +5182,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
+      flushPersist,
     }),
     [
       data,
@@ -5298,6 +5300,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteCustomsBrokerContact,
       resetToSeed,
       refreshFromServer,
+      flushPersist,
     ],
   )
 

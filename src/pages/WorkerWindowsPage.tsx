@@ -31,7 +31,7 @@ function displayLabel(preset: WorkerWindowPreset): string {
 }
 
 export function WorkerWindowsPage() {
-  const { data, module, saveWorkerWindowPresets } = useApp()
+  const { data, module, saveWorkerWindowPresets, flushPersist } = useApp()
   const presets = useMemo(
     () => {
       const resolved = resolveWorkerWindows(data.workerWindowPresets)
@@ -52,7 +52,7 @@ export function WorkerWindowsPage() {
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
 
-  const persist = (next: WorkerWindowPreset[]) => {
+  const persist = async (next: WorkerWindowPreset[]) => {
     const normalized = next.map((preset, order) => {
       const named = String(preset.name || '').trim() || undefined
       return {
@@ -63,10 +63,11 @@ export function WorkerWindowsPage() {
       }
     })
     saveWorkerWindowPresets(normalized)
-    notify.info(`שומר ${normalized.length} שעות אישיות...`)
+    // Flush immediately to avoid conflicts
+    await flushPersist()
   }
 
-  const add = () => {
+  const add = async () => {
     const startMinutes = parseClock(start)
     const endMinutes = parseClock(end)
     if (startMinutes == null || endMinutes == null) {
@@ -83,7 +84,7 @@ export function WorkerWindowsPage() {
       return
     }
     const trimmedName = name.trim()
-    persist([
+    await persist([
       ...presets,
       {
         id,
@@ -113,7 +114,7 @@ export function WorkerWindowsPage() {
     setEditEnd('')
   }
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingId) return
     const startMinutes = parseClock(editStart)
     const endMinutes = parseClock(editEnd)
@@ -126,7 +127,7 @@ export function WorkerWindowsPage() {
       return
     }
     const customName = editName.trim() || undefined
-    persist(
+    await persist(
       presets.map((preset) => {
         if (preset.id !== editingId) return preset
         return {
@@ -144,13 +145,13 @@ export function WorkerWindowsPage() {
     cancelEdit()
   }
 
-  const remove = (preset: WorkerWindowPreset) => {
+  const remove = async (preset: WorkerWindowPreset) => {
     if (presets.length === 1) {
       notify.error('חייבת להישאר לפחות אפשרות שעות אחת')
       return
     }
     if (!confirm(`למחוק את ${displayLabel(preset)}?`)) return
-    persist(presets.filter((item) => item.id !== preset.id))
+    await persist(presets.filter((item) => item.id !== preset.id))
     notify.success('חלון השעות נמחק')
   }
 
