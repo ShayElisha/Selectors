@@ -35,6 +35,7 @@ import {
   upsertWorkerRecord,
   deleteWorkerRecord,
   writeState,
+  seedWorkerWindowsForAllOrgs,
 } from './data.js'
 import { getDb } from './db.js'
 import { listSystemErrors, recordClientError, recordServerError } from './systemErrors.js'
@@ -1270,6 +1271,16 @@ async function start() {
   await ensureOrgIndexes()
   await migrateLegacyTenancy()
   await migrateInspectorsDatabase()
+  
+  // Seed default worker windows for all orgs that don't have any
+  const seedResults = await seedWorkerWindowsForAllOrgs()
+  if (seedResults.seeded > 0) {
+    console.log(`Seeded worker windows for ${seedResults.seeded} org/module combinations`)
+  }
+  if (seedResults.errors.length > 0) {
+    console.error('Worker window seeding errors:', seedResults.errors)
+  }
+  
   scheduleLocalLoadRestCron()
   scheduleLocalShiftReminderCron()
   app.listen(PORT, () => {

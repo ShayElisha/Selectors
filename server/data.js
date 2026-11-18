@@ -50,6 +50,19 @@ export function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
+const DEFAULT_WORKER_WINDOW_PRESETS = [
+  { id: '0445-1500', label: 'בוקר מוקדם', name: 'בוקר מוקדם', start: 4 * 60 + 45, end: 15 * 60 },
+  { id: '0445-1645', label: 'בוקר מוקדם ארוך', name: 'בוקר מוקדם ארוך', start: 4 * 60 + 45, end: 16 * 60 + 45 },
+  { id: '0445-1730', label: 'בוקר-צהריים מוקדם', name: 'בוקר-צהריים מוקדם', start: 4 * 60 + 45, end: 17 * 60 + 30 },
+  { id: '0445-1830', label: 'משמרת ארוכה מוקדמת', name: 'משמרת ארוכה מוקדמת', start: 4 * 60 + 45, end: 18 * 60 + 30 },
+  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60 },
+  { id: '0600-1645', label: 'בוקר-צהריים', name: 'בוקר-צהריים', start: 6 * 60, end: 16 * 60 + 45 },
+  { id: '0600-1730', label: 'בוקר-צהריים ארוך', name: 'בוקר-צהריים ארוך', start: 6 * 60, end: 17 * 60 + 30 },
+  { id: '0600-1830', label: 'משמרת ארוכה', name: 'משמרת ארוכה', start: 6 * 60, end: 18 * 60 + 30 },
+  { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30 },
+  { id: '1800-0630', label: 'לילה', name: 'לילה', start: 18 * 60, end: 6 * 60 + 30 },
+];
+
 export function createSeedData() {
   return {
     workers: [],
@@ -61,7 +74,7 @@ export function createSeedData() {
     customsBrokers: [],
     incidents: [],
     shiftModels: [],
-    workerWindowPresets: [],
+    workerWindowPresets: DEFAULT_WORKER_WINDOW_PRESETS.map((w, order) => ({ ...w, order })),
   };
 }
 
@@ -3261,4 +3274,60 @@ export async function deleteShift(id, actor, options = {}) {
     module: scope?.module,
   });
   return saved;
+}
+
+/**
+ * Seed default worker window presets for all organizations that don't have any.
+ * This migration ensures all org/module combinations have standard shift hours in the database.
+ */
+export async function seedWorkerWindowsForAllOrgs() {
+  const results = { seeded: 0, skipped: 0, errors: [] };
+
+  for (const target of operationalDbTargets) {
+    try {
+      const db = await getDb(target);
+      const metaCol = db.collection("app_meta");
+      
+      // Find all unique org/module combinations
+      const metas = await metaCol
+        .find({ schema: "collections" })
+        .project({ _id: 1 })
+        .toArray();
+
+      for (const meta of metas) {
+        const id = String(meta._id);
+        const parts = id.split(":");
+        if (parts.length !== 2) continue;
+
+        const [orgId, module] = parts;
+        const scope = { orgId, module };
+
+        // Check if org already has windows
+        const collection = db.collection(MODEL_COLLECTIONS.workerWindowPresets);
+        const existing = await collection.countDocuments(scopeFilter(scope));
+
+        if (existing > 0) {
+          results.skipped++;
+          continue;
+        }
+
+        // Seed default windows for this org/module
+        const docs = DEFAULT_WORKER_WINDOW_PRESETS.map((window, order) =>
+          stampScope({ ...window, order }, scope)
+        );
+
+        if (docs.length > 0) {
+          await collection.insertMany(docs, { ordered: false });
+        }
+        results.seeded++;
+      }
+    } catch (err) {
+      results.errors.push({
+        target,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return results;
 }

@@ -26,6 +26,7 @@ function roundMinutes(start: number, end: number): number {
 }
 
 function wholeBoardPlacements(shift: ShiftSchedule): ShiftPlacement[] {
+  const catalog = shift.workerWindowPresets
   const rounds = shift.rounds ?? []
   if (usesRounds(shift) && rounds.length > 0) {
     const minutes = rounds.map((round) =>
@@ -64,6 +65,7 @@ function wholeBoardPlacements(shift: ShiftSchedule): ShiftPlacement[] {
           windowId: shift.workerWindows?.[workerId],
           lateMinutes: adjustment?.lateMinutes,
           earlyMinutes: adjustment?.earlyMinutes,
+          catalog,
         }),
       })
     }

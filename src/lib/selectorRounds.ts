@@ -26,6 +26,8 @@ import {
   onShiftClock,
   roundCutsForWindows,
   windowCoversRound,
+  windowInterval,
+  workerWindowById,
 } from './shiftCatalog'
 import {
   effectiveStaffingStandard,
@@ -48,10 +50,11 @@ export function buildRoundWindows(
    * hours instead of a uniform step; worker-window cuts still split a segment.
    */
   customBoundaries?: number[] | null,
+  catalog?: WorkerWindowPreset[] | null,
 ): Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label'>[] {
   const fallback = MAIN_SHIFT_BOUNDS[shiftType]
   const end = bounds?.end ?? fallback?.end
-  const start = bounds?.start ?? (fallback ? boardStartMinutes(shiftType, windowIds) : undefined)
+  const start = bounds?.start ?? (fallback ? boardStartMinutes(shiftType, windowIds, catalog) : undefined)
   if (start == null || end == null) return []
   const cuts = [...cutMinutes]
     .filter((point) => point > start && point < end)
@@ -129,13 +132,14 @@ function buildAssignmentWindows(args: {
   shiftType: ShiftType
   workers: Worker[]
   workerWindows?: Record<string, string>
+  workerWindowPresets?: WorkerWindowPreset[]
   bounds?: { start: number; end: number }
   roundMinutes?: number
   stagger?: boolean
   customBoundaries?: number[] | null
 }): Array<Pick<SelectorRound, 'startMinutes' | 'endMinutes' | 'label' | 'cohort'>> {
   const windowIds = args.workers.map((worker) => args.workerWindows?.[worker.id])
-  const cuts = roundCutsForWindows(args.shiftType, windowIds)
+  const cuts = roundCutsForWindows(args.shiftType, windowIds, args.workerWindowPresets)
   const hour = buildRoundWindows(
     args.shiftType,
     cuts,
@@ -143,6 +147,7 @@ function buildAssignmentWindows(args: {
     args.bounds,
     args.roundMinutes,
     args.customBoundaries,
+    args.workerWindowPresets,
   )
   if (!args.stagger || hour.length === 0) return hour
   const first = hour[0]
@@ -161,6 +166,7 @@ function buildAssignmentWindows(args: {
     { start: halfStart, end: last.endMinutes },
     args.roundMinutes,
     halfBounds && halfBounds.length >= 2 ? halfBounds : null,
+    args.workerWindowPresets,
   ).map((window) => ({ ...window, cohort: 'half' as const }))
   return [
     ...hour.map((window) => ({ ...window, cohort: 'hour' as const })),
@@ -195,6 +201,7 @@ export function emptySelectorRounds(
   roundMinutes = 120,
   bounds?: { start: number; end: number },
   customBoundaries?: number[] | null,
+  catalog?: WorkerWindowPreset[] | null,
 ): SelectorRound[] {
   const active = selectorLanes(lanes, activeLaneIds)
   return buildRoundWindows(
@@ -204,6 +211,7 @@ export function emptySelectorRounds(
     bounds,
     roundMinutes,
     customBoundaries,
+    catalog,
   ).map((w) => ({
     ...w,
     assignments: emptyAssignments(active, overrides),
@@ -481,6 +489,8 @@ export type AssignSelectorRoundsArgs = {
   peakHoursOverrides?: PeakHoursOverrides | null
   /** workerId → personal window preset id */
   workerWindows?: Record<string, string>
+  /** Catalog of available worker window presets */
+  workerWindowPresets?: WorkerWindowPreset[]
   /**
    * Night staff still on duty. They join only rounds that start before 06:00,
    * together with the 04:45 arrivals.

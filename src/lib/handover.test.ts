@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { Lane, Worker } from '../types'
+import type { Lane, Worker, WorkerWindowPreset } from '../types'
 import { buildHandoverText } from './handover'
+
+// Test fixture: standard worker window presets
+const testWindowPresets: WorkerWindowPreset[] = [
+  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60, order: 0 },
+  { id: '0600-1830', label: 'משמרת ארוכה', name: 'משמרת ארוכה', start: 6 * 60, end: 18 * 60 + 30, order: 1 },
+]
 
 function lane(id: string, name: string): Lane {
   return {
@@ -34,6 +40,7 @@ describe('buildHandoverText', () => {
       activeLaneIds: ['a', 'b'],
       presentWorkerIds: ['stay', 'done'],
       workerWindows: { stay: '0600-1830', done: '0600-1500' },
+      workerWindowPresets: testWindowPresets,
       assignments: [
         { laneId: 'b', workerIds: ['done'], notes: 'פתוח מול המכס' },
         { laneId: 'a', workerIds: ['stay'] },

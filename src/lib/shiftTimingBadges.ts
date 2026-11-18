@@ -15,6 +15,7 @@ export function timingBadgesForWorker(opts: {
   defaultLateMinutes?: number | null
   earlyLeaveAt?: Record<string, number> | null
   workerWindows?: Record<string, string> | null
+  workerWindowPresets?: WorkerWindowPreset[] | null
 }): TimingBadge[] {
   const badges: TimingBadge[] = []
   const adj = opts.windowAdjustments?.[opts.workerId]
@@ -25,7 +26,7 @@ export function timingBadgesForWorker(opts: {
   })
   const early = Number(adj?.earlyMinutes || 0)
   const leftAt = opts.earlyLeaveAt?.[opts.workerId]
-  const hours = workerWindowById(opts.workerWindows?.[opts.workerId])
+  const hours = workerWindowById(opts.workerWindows?.[opts.workerId], opts.workerWindowPresets)
 
   if (hours) {
     badges.push({

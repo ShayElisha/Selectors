@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { placementLoadOnDay } from '../algorithm'
-import type { Lane, ShiftSchedule } from '../types'
+import type { Lane, ShiftSchedule, WorkerWindowPreset } from '../types'
 import { MAIN_SHIFT_BOUNDS } from './shiftCatalog'
 import { shiftPlacements } from './shiftPlacements'
+
+// Test fixture: standard worker window presets
+const testWindowPresets: WorkerWindowPreset[] = [
+  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60, order: 0 },
+  { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30, order: 1 },
+]
 
 function inspectorShift(): ShiftSchedule {
   return {
@@ -28,6 +34,7 @@ describe('shiftPlacements', () => {
     const shift: ShiftSchedule = {
       ...inspectorShift(),
       workerWindows: { w1: '1430-2130' },
+      workerWindowPresets: testWindowPresets,
     }
     const placed = shiftPlacements(shift)
     const morning = MAIN_SHIFT_BOUNDS.morning
@@ -39,6 +46,7 @@ describe('shiftPlacements', () => {
     const shift: ShiftSchedule = {
       ...inspectorShift(),
       workerWindows: { w1: '0600-1500' },
+      workerWindowPresets: testWindowPresets,
       windowAdjustments: { w1: { lateMinutes: 60, earlyMinutes: 30 } },
     }
     const morning = MAIN_SHIFT_BOUNDS.morning

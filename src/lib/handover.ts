@@ -8,6 +8,7 @@ import type {
   SelectorRound,
   ShiftType,
   Worker,
+  WorkerWindowPreset,
 } from '../types'
 
 export function nextOperationalShift(shiftType: ShiftType): ShiftType | null {
@@ -25,6 +26,7 @@ export function buildHandoverText(args: {
   activeLaneIds: string[]
   presentWorkerIds: string[]
   workerWindows?: Record<string, string>
+  workerWindowPresets?: WorkerWindowPreset[]
   assignments: LaneAssignment[]
   rounds?: SelectorRound[]
   staffingOverrides?: StaffingOverrides | null
@@ -51,6 +53,7 @@ export function buildHandoverText(args: {
             args.shiftType,
             args.workerWindows?.[id],
             next,
+            args.workerWindowPresets,
           ),
         )
         .map(nameOf)

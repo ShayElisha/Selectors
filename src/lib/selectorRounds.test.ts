@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { Lane, ShiftSchedule, Worker } from '../types'
+import type { Lane, ShiftSchedule, Worker, WorkerWindowPreset } from '../types'
 import { roundCutsForWindows } from './shiftCatalog'
+
+// Test fixture: standard worker window presets
+const testWindowPresets: WorkerWindowPreset[] = [
+  { id: '0445-1500', label: 'בוקר מוקדם', name: 'בוקר מוקדם', start: 4 * 60 + 45, end: 15 * 60, order: 0 },
+  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60, order: 1 },
+  { id: '0600-1730', label: 'בוקר-צהריים ארוך', name: 'בוקר-צהריים ארוך', start: 6 * 60, end: 17 * 60 + 30, order: 2 },
+  { id: '0600-1830', label: 'משמרת ארוכה', name: 'משמרת ארוכה', start: 6 * 60, end: 18 * 60 + 30, order: 3 },
+  { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30, order: 4 },
+]
 import {
   applyLaneActivityHours,
   assignSelectorRounds,
@@ -286,6 +295,7 @@ describe('early 04:45 arrival', () => {
       activeLaneIds: ['a', 'b'],
       workers: [worker('early', 'מוקדם'), worker('day', 'בוקר')],
       workerWindows: { early: '0445-1500' },
+      workerWindowPresets: testWindowPresets,
       nightPartners: [worker('night', 'לילה')],
     })
     expect(rounds[0]!.label).toBe('04:45–06:00')
@@ -302,7 +312,7 @@ describe('early 04:45 arrival', () => {
 
 describe('personal windows', () => {
   it('stops a 17:30 window before the end of afternoon A', () => {
-    const cuts = roundCutsForWindows('afternoonA', ['0600-1730', '0600-1830'])
+    const cuts = roundCutsForWindows('afternoonA', ['0600-1730', '0600-1830'], testWindowPresets)
     const labels = buildRoundWindows('afternoonA', cuts).map((w) => w.label)
     expect(labels).toEqual(['14:30–16:30', '16:30–17:30', '17:30–18:30'])
     const { rounds } = assignSelectorRounds({
@@ -311,6 +321,7 @@ describe('personal windows', () => {
       activeLaneIds: ['a'],
       workers: [worker('early', 'מוקדם'), worker('late', 'מאוחר')],
       workerWindows: { early: '0600-1730', late: '0600-1830' },
+      workerWindowPresets: testWindowPresets,
     })
     const last = rounds[rounds.length - 1]!
     expect(last.label).toBe('17:30–18:30')

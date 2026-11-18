@@ -42,22 +42,8 @@ export function workerWindowLabelFromTimes(start: number, end: number): string {
   return `${clockLabel(start)}–${clockLabel(end)}`
 }
 
-/** Built-in personal hours when the org has not saved a custom list yet. */
-export const DEFAULT_WORKER_WINDOWS: WorkerWindowPreset[] = [
-  { id: '0445-1500', label: 'בוקר מוקדם', name: 'בוקר מוקדם', start: 4 * 60 + 45, end: 15 * 60 },
-  { id: '0445-1645', label: 'בוקר מוקדם ארוך', name: 'בוקר מוקדם ארוך', start: 4 * 60 + 45, end: 16 * 60 + 45 },
-  { id: '0445-1730', label: 'בוקר-צהריים מוקדם', name: 'בוקר-צהריים מוקדם', start: 4 * 60 + 45, end: 17 * 60 + 30 },
-  { id: '0445-1830', label: 'משמרת ארוכה מוקדמת', name: 'משמרת ארוכה מוקדמת', start: 4 * 60 + 45, end: 18 * 60 + 30 },
-  { id: '0600-1500', label: 'בוקר', name: 'בוקר', start: 6 * 60, end: 15 * 60 },
-  { id: '0600-1645', label: 'בוקר-צהריים', name: 'בוקר-צהריים', start: 6 * 60, end: 16 * 60 + 45 },
-  { id: '0600-1730', label: 'בוקר-צהריים ארוך', name: 'בוקר-צהריים ארוך', start: 6 * 60, end: 17 * 60 + 30 },
-  { id: '0600-1830', label: 'משמרת ארוכה', name: 'משמרת ארוכה', start: 6 * 60, end: 18 * 60 + 30 },
-  { id: '1430-2130', label: 'צהריים', name: 'צהריים', start: 14 * 60 + 30, end: 21 * 60 + 30 },
-  { id: '1800-0630', label: 'לילה', name: 'לילה', start: 18 * 60, end: 6 * 60 + 30 },
-]
-
-/** @deprecated Prefer DEFAULT_WORKER_WINDOWS / resolveWorkerWindows. */
-export const WORKER_WINDOWS = DEFAULT_WORKER_WINDOWS
+// Worker window presets are now stored in the database.
+// No hardcoded defaults - all organizations have seeded windows in the DB.
 
 export function normalizeWorkerWindowPresets(
   raw: unknown,
@@ -104,12 +90,11 @@ export function normalizeWorkerWindowPresets(
   )
 }
 
-/** Saved presets for this module, or the built-in list when none were saved. */
+/** Saved presets for this module from the database. */
 export function resolveWorkerWindows(
   saved?: WorkerWindowPreset[] | null,
 ): WorkerWindowPreset[] {
-  const normalized = normalizeWorkerWindowPresets(saved)
-  return normalized.length > 0 ? normalized : DEFAULT_WORKER_WINDOWS
+  return normalizeWorkerWindowPresets(saved)
 }
 
 /** Afternoon A continues morning; afternoon B continues morning and afternoon A. */
@@ -287,10 +272,7 @@ export function workerWindowById(
 ): WorkerWindowPreset | undefined {
   if (!id) return undefined
   const list = resolveWorkerWindows(catalog)
-  return (
-    list.find((w) => w.id === id) ??
-    DEFAULT_WORKER_WINDOWS.find((w) => w.id === id)
-  )
+  return list.find((w) => w.id === id)
 }
 
 /** Map a clock time onto a shift that may run past midnight. */
@@ -392,12 +374,13 @@ export function boardHoursWeight(opts: {
   windowId?: string | null
   lateMinutes?: number | null
   earlyMinutes?: number | null
+  catalog?: WorkerWindowPreset[] | null
 }): number {
   const shift = MAIN_SHIFT_BOUNDS[opts.shiftType]
   if (!shift) return 1
   const late = clampWindowStep(opts.lateMinutes)
   const early = clampWindowStep(opts.earlyMinutes)
-  const preset = workerWindowById(opts.windowId ?? undefined)
+  const preset = workerWindowById(opts.windowId ?? undefined, opts.catalog)
   const personal = preset
     ? windowInterval(preset, opts.shiftType)
     : { start: shift.start, end: shift.end }
