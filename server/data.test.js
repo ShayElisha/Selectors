@@ -6,6 +6,7 @@ const {
   getDb,
   getMetaCollection,
   getStateCollection,
+  createPayEntriesForCompletedShifts,
 } = vi.hoisted(() => {
   const buckets = new Map()
   const operations = new Map()
@@ -127,6 +128,7 @@ const {
     getStateCollection: vi.fn(async (target = 'selectors') => collection(target, 'app_state')),
     operations,
     rows,
+    createPayEntriesForCompletedShifts: vi.fn(async () => {}),
   }
 })
 
@@ -157,6 +159,7 @@ vi.mock('./password.js', () => ({
   hashPassword: vi.fn(async () => 'hash'),
 }))
 vi.mock('./selfHeal.js', () => ({ validateSelfHeal: vi.fn(() => null) }))
+vi.mock('./workerPay.js', () => ({ createPayEntriesForCompletedShifts }))
 
 import {
   deleteShift,
@@ -178,25 +181,34 @@ const worker = {
   staffKind: 'selector',
 }
 
-function seedState({ revision = 1, historyRevision = revision, shifts = [] } = {}) {
+function seedState({
+  revision = 1,
+  historyRevision = revision,
+  shifts = [],
+  workers = [worker],
+  shiftModels = [],
+  workerWindowPresets = [],
+} = {}) {
+  const target = scope.module
   buckets.clear()
-  const meta = buckets.get('selectors:app_meta') || []
-  buckets.set('selectors:app_meta', [
+  const meta = buckets.get(`${target}:app_meta`) || []
+  buckets.set(`${target}:app_meta`, [
     { _id: 'tenancy-v1', done: true },
     { _id: metaId, schema: 'collections', revision, historyRevision },
   ])
   for (const [name, docs] of [
-    ['workers', [worker].map((item) => ({ ...item, _id: `${metaId}:${item.id}`, orgId: scope.orgId, module: scope.module }))],
+    ['workers', workers.map((item) => ({ ...item, _id: `${metaId}:${item.id}`, orgId: scope.orgId, module: scope.module }))],
     ['lanes', []],
     ['shifts', shifts.map((item, listOrder) => ({ ...item, _id: `${metaId}:${item.id}`, orgId: scope.orgId, module: scope.module, listOrder }))],
     ['certifications', []],
     ['briefing_sections', []],
     ['questions', []],
     ['customs_brokers', []],
-    ['shift_models', []],
+    ['shift_models', shiftModels.map((item, order) => ({ ...item, _id: `${metaId}:${item.id}`, orgId: scope.orgId, module: scope.module, order: item.order ?? order }))],
+    ['worker_window_presets', workerWindowPresets.map((item, order) => ({ ...item, _id: `${metaId}:${item.id}`, orgId: scope.orgId, module: scope.module, order: item.order ?? order }))],
     ['incidents', []],
   ]) {
-    buckets.set(`selectors:${name}`, docs)
+    buckets.set(`${target}:${name}`, docs)
   }
 }
 
@@ -204,6 +216,7 @@ describe('state and shift persistence', () => {
   beforeEach(() => {
     buckets.clear()
     operations.clear()
+    vi.clearAllMocks()
     scope = { orgId: `test-org-${scopeSequence++}`, module: 'selectors' }
     metaId = `${scope.orgId}:${scope.module}`
     seedState()
@@ -415,6 +428,121 @@ describe('state and shift persistence', () => {
         shiftType: 'morning',
       },
     })
+  })
+
+  it('updates personal hours on an already-created continuing inspector shift', async () => {
+    scope = { orgId: `test-org-${scopeSequence++}`, module: 'inspectors' }
+    metaId = `${scope.orgId}:${scope.module}`
+    const inspector = {
+      id: 'worker-1',
+      fullName: 'Inspector',
+      phone: '1234567890',
+      isManager: false,
+      isInspector: true,
+      staffKind: 'inspector',
+    }
+    const morning = {
+      id: 'morning-shift',
+      date: '2026-11-18',
+      shiftType: 'morning',
+      audience: 'inspector',
+      assignmentMode: 'single',
+      activeLaneIds: ['lane-1'],
+      presentWorkerIds: ['worker-1'],
+      workerWindows: { 'worker-1': '0600-1500' },
+      assignments: [{ laneId: 'lane-1', workerIds: ['worker-1'] }],
+      createdAt: '2026-11-18T06:00:00.000Z',
+      updatedAt: '2026-11-18T06:00:00.000Z',
+    }
+    const afternoon = {
+      id: 'afternoon-shift',
+      date: '2026-11-18',
+      shiftType: 'afternoon',
+      audience: 'inspector',
+      assignmentMode: 'single',
+      activeLaneIds: ['lane-1'],
+      presentWorkerIds: ['worker-1'],
+      workerWindows: { 'worker-1': '0600-1500' },
+      assignments: [{ laneId: 'lane-1', workerIds: ['worker-1'] }],
+      createdAt: '2026-11-18T14:30:00.000Z',
+      updatedAt: '2026-11-18T14:30:00.000Z',
+    }
+    seedState({
+      shifts: [morning, afternoon],
+      workers: [inspector],
+      shiftModels: [
+        { id: 'morning', startMinutes: 360, endMinutes: 870, order: 0 },
+        { id: 'afternoon', startMinutes: 870, endMinutes: 1290, order: 1 },
+      ],
+      workerWindowPresets: [
+        { id: '0600-1500', label: 'בוקר', start: 360, end: 870 },
+        { id: '0600-1830', label: 'משמרת ארוכה', start: 360, end: 1110 },
+      ],
+    })
+
+    const result = await upsertShift(
+      'morning-shift',
+      {
+        ...morning,
+        workerWindows: { 'worker-1': '0600-1830' },
+        updatedAt: '2026-11-18T13:00:00.000Z',
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope, compact: true },
+    )
+
+    expect(result.updatedShifts).toMatchObject([
+      {
+        id: 'afternoon-shift',
+        presentWorkerIds: ['worker-1'],
+        workerWindows: { 'worker-1': '0600-1830' },
+      },
+    ])
+    expect(
+      buckets.get('inspectors:shifts').find((item) => item._id.endsWith('afternoon-shift')),
+    ).toMatchObject({
+      workerWindows: { 'worker-1': '0600-1830' },
+    })
+  })
+
+  it('runs payroll completion after a single-shift close', async () => {
+    scope = { orgId: `test-org-${scopeSequence++}`, module: 'inspectors' }
+    metaId = `${scope.orgId}:${scope.module}`
+    const inspector = {
+      id: 'worker-1',
+      fullName: 'Inspector',
+      phone: '1234567890',
+      isManager: false,
+      isInspector: true,
+      staffKind: 'inspector',
+    }
+    seedState({ workers: [inspector] })
+
+    await upsertShift(
+      'closed-shift',
+      {
+        date: '2026-11-18',
+        shiftType: 'morning',
+        audience: 'inspector',
+        assignmentMode: 'single',
+        activeLaneIds: [],
+        presentWorkerIds: ['worker-1'],
+        assignments: [],
+        signOff: { signature: 'Manager' },
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope, compact: true },
+    )
+
+    expect(createPayEntriesForCompletedShifts).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'closed-shift', signOff: expect.any(Object) })],
+      [],
+      [],
+      scope,
+      expect.arrayContaining([
+        expect.objectContaining({ id: inspector.id, staffKind: 'inspector' }),
+      ]),
+    )
   })
 
   it('locks many open shifts in one revision bump', async () => {

@@ -130,6 +130,7 @@ export function seedAppDataRemote(expectedRevision?: number): Promise<AppData> {
 export type ShiftSaveResult = {
   revision: number
   shift: ShiftSchedule
+  updatedShifts?: ShiftSchedule[]
 }
 
 export function saveShiftRemote(
