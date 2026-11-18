@@ -1212,7 +1212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (syncTimer.current) window.clearTimeout(syncTimer.current)
       syncTimer.current = window.setTimeout(() => {
         void drainPersist().catch(() => undefined)
-      }, 400)
+      }, 100) // Reduced from 400ms to 100ms for faster saves
     },
     [drainPersist],
   )
