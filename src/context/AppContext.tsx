@@ -453,7 +453,6 @@ export interface ShiftDraft {
   healHighlights?: { laneId: string; tone: 'filled' | 'frozen' }[]
   /** Worker id → clock minutes they left the shift. */
   earlyLeaveAt?: Record<string, number>
-  reopenedLaneIds?: string[]
   shiftDrops?: ShiftDrop[]
 }
 
@@ -653,7 +652,6 @@ interface AppContextValue {
   addExtraWorkerToLane: (laneId: string, workerId: string) => void
   addSlotToLane: (laneId: string) => void
   saveCurrentShift: () => Promise<void>
-  setKioskLaneOpen: (shiftId: string, laneId: string, open: boolean) => Promise<void>
   /** Close the open shift with the manager's typed name and lock the board. */
   signCurrentShift: (signature: string) => Promise<void>
   /** Close and lock several history shifts with one manager signature. */
@@ -1704,7 +1702,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           defaultLateMinutes: item.defaultLateMinutes || undefined,
           staggerRounds: Boolean(item.staggerRounds),
           earlyLeaveAt: item.earlyLeaveAt,
-          reopenedLaneIds: item.reopenedLaneIds,
           shiftDrops: item.shiftDrops,
           signOff: normalizeSignOff(item.signOff),
           frozenLaneIds: item.frozenLaneIds,
@@ -1794,7 +1791,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(d.earlyLeaveAt && Object.keys(d.earlyLeaveAt).length > 0
         ? { earlyLeaveAt: d.earlyLeaveAt }
         : {}),
-      reopenedLaneIds: d.reopenedLaneIds ?? [],
       ...(d.shiftDrops?.length ? { shiftDrops: d.shiftDrops } : {}),
       ...(d.signOff?.signedAt ? { signOff: d.signOff } : {}),
       ...(d.isSelfHealed ? { isSelfHealed: true } : {}),
@@ -4207,69 +4203,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [draft, toSchedule, runWithFreshRevision])
 
-  const setKioskLaneOpen = useCallback(
-    async (shiftId: string, laneId: string, open: boolean) => {
-      setSyncing(true)
-      setError(null)
-      try {
-        const saved = await runWithFreshRevision((revision) => {
-          const current = dataRef.current.history.find(
-            (item) => item.id === shiftId,
-          )
-          if (!current) throw new Error('המשמרת לא נמצאה')
-          if (current.signOff?.signedAt) {
-            throw new Error('לא ניתן לשנות נתיב במשמרת סגורה')
-          }
-          const reopened = new Set(current.reopenedLaneIds ?? [])
-          if (open) reopened.add(laneId)
-          else reopened.delete(laneId)
-          const schedule: ShiftSchedule = {
-            ...current,
-            reopenedLaneIds: [...reopened],
-            updatedAt: new Date().toISOString(),
-          }
-          return saveShiftRemote(schedule, revision)
-        })
-        const reopenedLaneIds = saved.shift.reopenedLaneIds ?? []
-        const prev = dataRef.current
-        const savedShifts = [saved.shift, ...(saved.updatedShifts ?? [])]
-        const savedById = new Map(savedShifts.map((item) => [item.id, item]))
-        const history = prev.history.map((item) => savedById.get(item.id) ?? item)
-        const next = {
-          ...prev,
-          revision: saved.revision,
-          history: history.some((item) => item.id === saved.shift.id)
-            ? history
-            : [saved.shift, ...history],
-        }
-        skipNextSync.current = true
-        dataRef.current = next
-        persistedDataRef.current = next
-        setData(next)
-        saveAppDataCache(next)
-
-        setDraft((currentDraft) => {
-          if (!currentDraft || currentDraft.id !== shiftId) return currentDraft
-          const updatedDraft = {
-            ...currentDraft,
-            reopenedLaneIds: reopenedLaneIds.length ? reopenedLaneIds : undefined,
-          }
-          if (!draftDirty) {
-            draftBaselineRef.current = snapshotDraft(updatedDraft)
-          }
-          return updatedDraft
-        })
-      } catch (e) {
-        const message = e instanceof Error ? e.message : 'עדכון הנתיב נכשל'
-        setError(message)
-        throw e
-      } finally {
-        setSyncing(false)
-      }
-    },
-    [draftDirty, runWithFreshRevision, setDraft],
-  )
-
   const signCurrentShift = useCallback(
     async (signature: string) => {
       if (!draft || draft.signOff?.signedAt) return
@@ -5236,7 +5169,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addExtraWorkerToLane,
       addSlotToLane,
       saveCurrentShift,
-      setKioskLaneOpen,
       signCurrentShift,
       signOffShifts,
       loadShiftFromHistory,
@@ -5355,7 +5287,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addExtraWorkerToLane,
       addSlotToLane,
       saveCurrentShift,
-      setKioskLaneOpen,
       signCurrentShift,
       signOffShifts,
       loadShiftFromHistory,
