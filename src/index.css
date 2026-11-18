@@ -1487,6 +1487,18 @@ html.kiosk-immersive body {
   animation: gate-gap-glow 1.6s ease-in-out infinite;
 }
 
+.gate-island--closed .gate-island__card {
+  border-color: var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 82%, var(--color-hard-soft));
+  box-shadow: var(--shadow-panel);
+  animation: none;
+}
+
+.gate-island--closed .gate-island__status {
+  background: var(--color-hard-soft);
+  color: var(--color-hard);
+}
+
 /* Phones: stronger intensity lighting (soft outer glow is weak on mobile GPUs) */
 @media (hover: none), (max-width: 900px) {
   .gate-island__card {
@@ -1741,6 +1753,25 @@ html.kiosk-immersive body {
   padding: 0.65rem 0.75rem;
   font-size: 0.86rem;
   color: var(--color-ink);
+}
+
+.gate-detail__lane-control {
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  padding: 0.75rem;
+}
+
+.gate-detail__lane-control p {
+  margin: 0;
+  color: var(--color-ink-soft);
+  font-size: 0.86rem;
+}
+
+.gate-detail__lane-error {
+  color: var(--color-hard) !important;
 }
 
 .gate-map__timeline {

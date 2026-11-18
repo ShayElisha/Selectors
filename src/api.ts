@@ -731,7 +731,7 @@ export interface WorkerHomeResponse {
   }
   gateManager: { id: string; fullName: string; phone: string } | null
   now?: {
-    phase: 'upcoming' | 'active' | 'none' | string
+    phase: 'upcoming' | 'active' | 'completed' | 'none' | string
     serverNow: string
     clockMinutes: number
     currentRound: {
@@ -804,6 +804,9 @@ export interface WorkerHistoryResponse {
     lateMinutes: number | null
     earlyMinutes: number | null
     earlyLeaveAt: number | null
+    plannedEndMinutes: number
+    plannedEndNextDay: boolean
+    hoursEnded: boolean
     drop: {
       workerId?: string
       kind: string

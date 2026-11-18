@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { waitUntil } from "@vercel/functions";
 import {
   getAuditCollection,
   getDb,
@@ -27,6 +28,24 @@ import {
 import { openWorkerPii, sealWorkerPii } from "./piiCrypto.js";
 import { createPayEntriesForCompletedShifts } from "./workerPay.js";
 import { syncContinuedWorkerHours } from "./workerShiftContinuity.js";
+
+function scheduleBackgroundTask(label, task) {
+  const pending = Promise.resolve()
+    .then(task)
+    .catch((err) => {
+      console.error(`[${label}] background task failed`, err?.message || err);
+    });
+  if (process.env.VERCEL) {
+    try {
+      waitUntil(pending);
+    } catch (err) {
+      console.error(
+        `[${label}] could not register background task`,
+        err?.message || err,
+      );
+    }
+  }
+}
 
 function publicModules(modules) {
   return {
@@ -2603,53 +2622,44 @@ export async function upsertShift(id, body, actor, options = {}) {
   });
   const details = movement ? `${header} · ${movement}` : header;
 
-  // Don't block the HTTP response on audit I/O.
-  void appendAuditLog({
-    action: closing ? "shift_signoff" : isNew ? "shift_save" : "shift_update",
-    actor,
-    details: closing
-      ? `נסגרה משמרת ${savedSchedule.date} · ${savedSchedule.shiftType} · ${savedSchedule.signOff.signerName}`
-      : details,
-    orgId: scope?.orgId,
-    module: scope?.module,
-  }).catch((err) => {
-    console.error("[audit] shift save log failed", err?.message || err);
-  });
+  scheduleBackgroundTask("audit", () =>
+    appendAuditLog({
+      action: closing ? "shift_signoff" : isNew ? "shift_save" : "shift_update",
+      actor,
+      details: closing
+        ? `נסגרה משמרת ${savedSchedule.date} · ${savedSchedule.shiftType} · ${savedSchedule.signOff.signerName}`
+        : details,
+      orgId: scope?.orgId,
+      module: scope?.module,
+    }),
+  );
 
-  // Never block the save HTTP response on per-worker notice writes — that was a
-  // common cause of long/failing saves when many placements changed at once.
+  // Keep the response focused on persisting the shift; Vercel waitUntil keeps
+  // non-critical notifications alive after the response is sent.
   if (scope?.orgId && scope?.module && !closing) {
-    void import("./workerAlerts.js")
-      .then(({ notifyWorkersOfAssignmentChanges }) =>
-        notifyWorkersOfAssignmentChanges({
-          previous,
-          next: savedSchedule,
-          scope,
-          actor,
-          lanes: state.lanes,
-          models: state.shiftModels,
-        }),
-      )
-      .catch((err) => {
-        console.error(
-          "[worker-alerts] assignment notice failed",
-          err?.message || err,
-        );
+    scheduleBackgroundTask("worker-alerts", async () => {
+      const { notifyWorkersOfAssignmentChanges } = await import("./workerAlerts.js");
+      await notifyWorkersOfAssignmentChanges({
+        previous,
+        next: savedSchedule,
+        scope,
+        actor,
+        lanes: state.lanes,
+        models: state.shiftModels,
       });
+    });
   }
 
   if (savedHistory) {
-    try {
-      await createPayEntriesForCompletedShifts(
+    scheduleBackgroundTask("payroll", () =>
+      createPayEntriesForCompletedShifts(
         savedHistory,
         savedWorkerWindowPresets,
         savedShiftModels,
         scope,
         savedWorkers,
-      );
-    } catch (err) {
-      console.error("Failed to create pay entries:", err);
-    }
+      ),
+    );
   }
 
   return saved;

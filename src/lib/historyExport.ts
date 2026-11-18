@@ -51,7 +51,9 @@ export function buildHistoryCsv(
     const gateName = gateId
       ? workersById.get(gateId)?.fullName ?? gateId
       : ''
-    const rows = laneRowsForShift(shift, lanesById)
+    const rows = laneRowsForShift(shift, lanesById).sort((a, b) =>
+      a.name.localeCompare(b.name, 'he'),
+    )
     const notesByLane = new Map(
       shift.assignments
         .filter((a) => a.notes?.trim())

@@ -11,6 +11,7 @@ import {
 } from './orgs.js'
 import { requireUser } from './session.js'
 import { appendAuditLog } from './audit.js'
+import { workerHoursInterval } from './workerShiftContinuity.js'
 
 function httpError(message, status) {
   const err = new Error(message)
@@ -237,11 +238,6 @@ function shiftHasStarted(shift, models, now = new Date()) {
   return nowAbs(now) >= shiftStartAbs(shift, models)
 }
 
-function shiftHasEnded(shift, models, now = new Date()) {
-  if (!shift?.date) return true
-  return nowAbs(now) >= shiftEndAbs(shift, models)
-}
-
 function minutesUntilAbs(targetAbs, now = new Date()) {
   return Math.max(0, Math.round(targetAbs - nowAbs(now)))
 }
@@ -250,25 +246,78 @@ function isoAfterMinutes(now, minutes) {
   return new Date(now.getTime() + Math.max(0, minutes) * 60_000).toISOString()
 }
 
-/**
- * Active shift if currently running; otherwise the next upcoming assignment.
- */
-function findRelevantShift(history, workerId, models, now = new Date()) {
+/** Resolves the worker's personal interval or the shift model interval. */
+function workerInterval(shift, workerId, presets, models) {
+  return workerHoursInterval(shift, workerId, presets, models)
+}
+
+function workerStartAbs(shift, workerId, presets, models) {
+  const interval = workerInterval(shift, workerId, presets, models)
+  return absoluteMinutes(
+    shift.date,
+    interval?.start ?? shiftBounds(shift.shiftType, models).start,
+  )
+}
+
+function workerEndMinutes(shift, workerId, presets, models) {
+  const interval = workerInterval(shift, workerId, presets, models)
+  return interval?.end ?? shiftEndAbs(shift, models) - absoluteMinutes(shift.date, 0)
+}
+
+function workerEndAbs(shift, workerId, presets, models) {
+  return absoluteMinutes(
+    shift.date,
+    workerEndMinutes(shift, workerId, presets, models),
+  )
+}
+
+/** Selects this worker's active, upcoming, or recently completed shift. */
+function findRelevantShift(history, workerId, models, presets, now = new Date()) {
+  const nowAbsolute = nowAbs(now)
   const list = (history || [])
     .filter((s) => workerTouchedShift(s, workerId))
-    .filter((s) => !shiftHasEnded(s, models, now))
     .sort((a, b) => shiftStartAbs(a, models) - shiftStartAbs(b, models))
 
-  const active = list.find((s) => shiftHasStarted(s, models, now))
+  const active = list.find(
+    (s) =>
+      workerStartAbs(s, workerId, presets, models) <= nowAbsolute &&
+      workerEndAbs(s, workerId, presets, models) > nowAbsolute,
+  )
   if (active) return { shift: active, phase: 'active' }
 
-  const upcoming = list[0] || null
+  const upcoming =
+    list.find(
+      (s) => workerStartAbs(s, workerId, presets, models) > nowAbsolute,
+    ) || null
   if (upcoming) return { shift: upcoming, phase: 'upcoming' }
+
+  const completed = list
+    .filter(
+      (s) =>
+        workerStartAbs(s, workerId, presets, models) <= nowAbsolute &&
+        workerEndAbs(s, workerId, presets, models) <= nowAbsolute &&
+        workerEndAbs(s, workerId, presets, models) > nowAbsolute - 24 * 60,
+    )
+    .sort(
+      (a, b) =>
+        workerEndAbs(b, workerId, presets, models) -
+        workerEndAbs(a, workerId, presets, models),
+    )[0]
+  if (completed) return { shift: completed, phase: 'completed' }
 
   return { shift: null, phase: 'none' }
 }
 
-function buildNowContext(shift, placement, models, slot, phase, now = new Date()) {
+function buildNowContext(
+  shift,
+  placement,
+  models,
+  presets,
+  workerId,
+  slot,
+  phase,
+  now = new Date(),
+) {
   const clock = localMinutes(now)
   const date = shift?.date || slot?.date || toDateISO(now)
   const shiftType = shift?.shiftType || slot?.shiftType
@@ -283,12 +332,21 @@ function buildNowContext(shift, placement, models, slot, phase, now = new Date()
 
   let minutesToShiftStart = null
   let minutesToShiftEnd = null
+  let shiftEndMinutes = shift
+    ? workerEndMinutes(shift, workerId, presets, models)
+    : bounds.end
   if (shift) {
     minutesToShiftStart =
       resolvedPhase === 'upcoming'
-        ? minutesUntilAbs(shiftStartAbs(shift, models), now)
+        ? minutesUntilAbs(
+            workerStartAbs(shift, workerId, presets, models),
+            now,
+          )
         : 0
-    minutesToShiftEnd = minutesUntilAbs(shiftEndAbs(shift, models), now)
+    minutesToShiftEnd = minutesUntilAbs(
+      workerEndAbs(shift, workerId, presets, models),
+      now,
+    )
   }
 
   let currentRound = null
@@ -350,7 +408,7 @@ function buildNowContext(shift, placement, models, slot, phase, now = new Date()
     shiftEndsAt:
       minutesToShiftEnd != null ? isoAfterMinutes(now, minutesToShiftEnd) : null,
     shiftStartMinutes: bounds.start,
-    shiftEndMinutes: bounds.end,
+    shiftEndMinutes,
   }
 }
 
@@ -506,6 +564,7 @@ export async function getWorkerHome(req) {
     state.history,
     actor.id,
     state.shiftModels,
+    state.workerWindowPresets,
     now,
   )
   const shift = relevant.shift
@@ -528,7 +587,9 @@ export async function getWorkerHome(req) {
   const fullPlacement = myPlacement(shift, actor.id, state.lanes)
   // Before shift start: only countdown — do not reveal lane assignment.
   const placement =
-    phase === 'upcoming' ? { lanes: [], rounds: null } : fullPlacement
+    phase === 'upcoming' || phase === 'completed'
+      ? { lanes: [], rounds: null }
+      : fullPlacement
   const gateId = String(shift?.gateManagerWorkerId || '').trim()
   let gateDoc =
     gateId && (phase === 'active' || phase === 'upcoming')
@@ -546,11 +607,15 @@ export async function getWorkerHome(req) {
   const windowAdj =
     phase === 'active' ? shift?.windowAdjustments?.[actor.id] || null : null
   const earlyLeaveAt =
-    phase === 'active' ? shift?.earlyLeaveAt?.[actor.id] : null
+    phase === 'active' || phase === 'completed'
+      ? shift?.earlyLeaveAt?.[actor.id]
+      : null
   const nowContext = buildNowContext(
     shift,
     fullPlacement,
     state.shiftModels,
+    state.workerWindowPresets,
+    actor.id,
     slot,
     phase,
     now,
@@ -625,12 +690,16 @@ export async function updateWorkerStatus(req, body) {
     state.history,
     actor.id,
     state.shiftModels,
+    state.workerWindowPresets,
     now,
   )
   const shift = relevant.shift
   if (!shift) throw httpError('לא נמצאה משמרת פתוחה עבורכם', 404)
   if (relevant.phase === 'upcoming') {
     throw httpError('המשמרת עדיין לא התחילה — אפשר לסמן הגעה מתחילת המשמרת', 409)
+  }
+  if (relevant.phase === 'completed') {
+    throw httpError('השעות המתוכננות במשמרת זו הסתיימו', 409)
   }
   if (shift.signOff) {
     throw httpError('המשמרת נסגרה ואין אפשרות לעדכן סטטוס', 409)
@@ -679,7 +748,12 @@ export async function getWorkerHistory(req) {
         s.date >= fromDate &&
         s.date <= toDate &&
         workerTouchedShift(s, actor.id) &&
-        shiftHasStarted(s, state.shiftModels, now),
+        workerStartAbs(
+          s,
+          actor.id,
+          state.workerWindowPresets,
+          state.shiftModels,
+        ) <= nowAbs(now),
     )
     .sort(
       (a, b) =>
@@ -706,6 +780,27 @@ export async function getWorkerHistory(req) {
       lateMinutes: windowAdj?.lateMinutes ?? null,
       earlyMinutes: windowAdj?.earlyMinutes ?? null,
       earlyLeaveAt: shift.earlyLeaveAt?.[actor.id] ?? null,
+      plannedEndMinutes:
+        workerEndMinutes(
+          shift,
+          actor.id,
+          state.workerWindowPresets,
+          state.shiftModels,
+        ),
+      plannedEndNextDay:
+        workerEndMinutes(
+          shift,
+          actor.id,
+          state.workerWindowPresets,
+          state.shiftModels,
+        ) >= 24 * 60,
+      hoursEnded:
+        workerEndAbs(
+          shift,
+          actor.id,
+          state.workerWindowPresets,
+          state.shiftModels,
+        ) <= nowAbs(now),
       drop,
       signedOff: Boolean(shift.signOff),
       updatedAt: shift.updatedAt,
@@ -800,6 +895,7 @@ export async function getWorkerContacts(req) {
     state.history,
     actor.id,
     state.shiftModels,
+    state.workerWindowPresets,
     now,
   )
   const phase = relevant.phase

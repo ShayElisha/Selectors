@@ -19,7 +19,9 @@ export interface ExportMeta {
 }
 
 function scheduleLines<T extends { laneName: string }>(lines: T[]): T[] {
-  return lines.filter((line) => !isGateManagerLane({ name: line.laneName }))
+  return lines
+    .filter((line) => !isGateManagerLane({ name: line.laneName }))
+    .sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
 }
 
 function formatDateHe(iso: string): string {
@@ -387,7 +389,8 @@ function buildRoundsExportNode(
   const issued = formatTimeHe()
   const by = meta.preparedBy ? escapeHtml(meta.preparedBy) : '—'
   const org = meta.organizationName ? escapeHtml(meta.organizationName) : ''
-  const head = laneNames
+  const sortedLaneNames = [...laneNames].sort((a, b) => a.localeCompare(b, 'he'))
+  const head = sortedLaneNames
     .map(
       (name) =>
         `<th style="text-align:right;background:#0f3350;color:#fff;padding:8px 10px;font-weight:700;border:1px solid #0f3350">${escapeHtml(name)}</th>`,
@@ -395,7 +398,8 @@ function buildRoundsExportNode(
     .join('')
   const body = rounds
     .map((round) => {
-      const cells = round.lanes
+      const cells = [...round.lanes]
+        .sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
         .map((lane) => {
           const names = lane.workers.length ? lane.workers.join(' · ') : '—'
           return `<td style="padding:8px 10px;border:1px solid #d5dee8;vertical-align:top">${escapeHtml(names)}</td>`
@@ -481,7 +485,8 @@ export function buildRoundsWhatsAppText(
   const header = `*שיבוץ סלקטורים — ${formatDateHe(date)} · ${SHIFT_TYPE_LABELS[shiftType]}*`
   const body = rounds
     .map((round) => {
-      const lines = round.lanes
+      const lines = [...round.lanes]
+        .sort((a, b) => a.laneName.localeCompare(b.laneName, 'he'))
         .map((lane) => {
           const names = lane.workers.length ? lane.workers.join(', ') : '—'
           return `• *${lane.laneName}:* ${names}`
