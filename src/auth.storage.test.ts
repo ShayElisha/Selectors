@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearClientAuthStorage,
+  loadAppDataCache,
   saveAppDataCache,
   saveSession,
   type SessionUser,
@@ -35,10 +36,11 @@ const emptyData = (): AppData => ({
   customsBrokers: [],
   shiftModels: [],
   incidents: [],
+  workerWindowPresets: [],
   revision: 1,
 })
 
-describe('clearClientAuthStorage', () => {
+describe('client app-data cache', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', memoryStorage())
     vi.stubGlobal('sessionStorage', memoryStorage())
@@ -46,6 +48,50 @@ describe('clearClientAuthStorage', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('restores personal worker-hour presets from the cache', () => {
+    const user: SessionUser = {
+      id: 'u1',
+      fullName: 'Test',
+      phone: '0500000000',
+      token: 'tok',
+      role: 'org_manager',
+      orgId: 'org-1',
+      orgName: 'Org',
+      modules: { selectors: true, inspectors: true, security: false },
+      module: 'inspectors',
+      isOrgManager: true,
+    }
+    const presets = [
+      { id: '0600-1500', label: 'בוקר', start: 360, end: 900, order: 0 },
+    ]
+    saveSession(user)
+    saveAppDataCache({ ...emptyData(), workerWindowPresets: presets })
+
+    expect(loadAppDataCache()?.workerWindowPresets).toEqual(presets)
+  })
+
+  it('rejects a cache missing worker-hour presets to force a full server read', () => {
+    const user: SessionUser = {
+      id: 'u1',
+      fullName: 'Test',
+      phone: '0500000000',
+      token: 'tok',
+      role: 'org_manager',
+      orgId: 'org-1',
+      orgName: 'Org',
+      modules: { selectors: true, inspectors: true, security: false },
+      module: 'inspectors',
+      isOrgManager: true,
+    }
+    saveSession(user)
+    localStorage.setItem(
+      'shibutzon-app-data-v2:org-1:inspectors',
+      JSON.stringify({ ...emptyData(), workerWindowPresets: undefined }),
+    )
+
+    expect(loadAppDataCache()).toBeNull()
   })
 
   it('clears session, drafts, all module caches, and portal session cache', () => {

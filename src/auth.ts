@@ -262,6 +262,9 @@ export function loadAppDataCache(): AppData | null {
     // Older cache entries omitted incidents; ignoring them forces a full server
     // pull so a later save cannot wipe the DB collection with [].
     if (!('incidents' in parsed) || !Array.isArray(parsed.incidents)) return null
+    // Presets are part of the full-state PUT; an incomplete cache must never
+    // turn a temporary offline read into an empty-catalog write.
+    if (!Array.isArray(parsed.workerWindowPresets)) return null
     return {
       workers: parsed.workers,
       lanes: parsed.lanes,
@@ -279,6 +282,7 @@ export function loadAppDataCache(): AppData | null {
         ? parsed.customsBrokers
         : [],
       shiftModels: Array.isArray(parsed.shiftModels) ? parsed.shiftModels : [],
+      workerWindowPresets: parsed.workerWindowPresets,
       incidents: parsed.incidents,
       revision: Number(parsed.revision) || 0,
     }
