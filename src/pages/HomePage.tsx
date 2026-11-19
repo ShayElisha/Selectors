@@ -17,6 +17,8 @@ import {
   ClipboardPenLine,
   Wrench,
   Map as MapIcon,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import {
   BoardKiosk,
@@ -151,6 +153,10 @@ export function HomePage() {
   const [systemMessages, setSystemMessages] = useState<SystemMessage[]>([])
   const [handoffNotes, setHandoffNotes] = useState<ShiftHandoffNote[]>([])
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [selectedSlot, setSelectedSlot] = useState<{
+    date: string
+    shiftType: ShiftSchedule['shiftType']
+  } | null>(null)
   /** Reserved for when health is persisted on ShiftSchedule — not filled today. */
   const [shiftHealth] = useState<ShiftHealthSnapshot | null>(null)
   const [healthOpen, setHealthOpen] = useState(false)
@@ -231,29 +237,118 @@ export function HomePage() {
     }
   }, [shiftModels, nowTick])
 
+  const currentSlotRef = useRef(currentCtx)
+  useEffect(() => {
+    const previousSlot = currentSlotRef.current
+    if (
+      previousSlot.date !== currentCtx.date ||
+      previousSlot.shiftType !== currentCtx.shiftType
+    ) {
+      setSelectedSlot((selected) =>
+        !selected ||
+        (selected.date === previousSlot.date &&
+          selected.shiftType === previousSlot.shiftType)
+          ? currentCtx
+          : selected,
+      )
+      currentSlotRef.current = currentCtx
+    }
+  }, [currentCtx])
+
+  const scopedHistory = useMemo(
+    () =>
+      data.history.filter((shift) => {
+        if (moduleAudience === 'selector') return shift.audience === 'selector'
+        if (moduleAudience === 'security') return shift.audience === 'security'
+        return shift.audience !== 'selector' && shift.audience !== 'security'
+      }),
+    [data.history, moduleAudience],
+  )
+
+  const shownSlot = selectedSlot ?? currentCtx
+  const shownIsCurrent =
+    shownSlot.date === currentCtx.date &&
+    shownSlot.shiftType === currentCtx.shiftType
+
+  const datesWithShifts = useMemo(
+    () =>
+      [...new Set([...scopedHistory.map((shift) => shift.date), currentCtx.date])]
+        .filter(Boolean)
+        .sort(),
+    [scopedHistory, currentCtx.date],
+  )
+
+  const previousDate = [...datesWithShifts]
+    .reverse()
+    .find((date) => date < shownSlot.date)
+  const nextDate = datesWithShifts.find((date) => date > shownSlot.date)
+
+  const shiftsForShownDay = useMemo(
+    () =>
+      shiftModels.map((model) => {
+        const shift = scopedHistory
+          .filter(
+            (item) =>
+              item.date === shownSlot.date && item.shiftType === model.id,
+          )
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+        return { model, shift }
+      }),
+    [shiftModels, scopedHistory, shownSlot.date],
+  )
+
+  const selectDate = (date: string, preferLast: boolean) => {
+    const available = shiftModels.map((model) => ({
+      model,
+      shift: scopedHistory
+        .filter((item) => item.date === date && item.shiftType === model.id)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0],
+    }))
+    const modelsWithShifts = available.filter((item) => item.shift)
+    const target =
+      (preferLast
+        ? modelsWithShifts[modelsWithShifts.length - 1]
+        : modelsWithShifts[0]) ??
+      (preferLast ? available[available.length - 1] : available[0])
+    if (target) {
+      setSelectedSlot({
+        date,
+        shiftType: target.model.id as ShiftSchedule['shiftType'],
+      })
+    }
+  }
+
   const currentShift: ShiftSchedule | null = useMemo(() => {
-    const matches = data.history.filter((h) => {
-      if (h.date !== currentCtx.date || h.shiftType !== currentCtx.shiftType) {
-        return false
-      }
-      if (moduleAudience === 'selector') return h.audience === 'selector'
-      if (moduleAudience === 'security') return h.audience === 'security'
-      return h.audience !== 'selector' && h.audience !== 'security'
-    })
+    const matches = scopedHistory.filter(
+      (h) => h.date === currentCtx.date && h.shiftType === currentCtx.shiftType,
+    )
     if (matches.length === 0) return null
     return matches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-  }, [data.history, currentCtx.date, currentCtx.shiftType, moduleAudience])
+  }, [scopedHistory, currentCtx.date, currentCtx.shiftType])
+
+  const selectedShift = useMemo(() => {
+    const matches = scopedHistory
+      .filter(
+        (shift) =>
+          shift.date === shownSlot.date && shift.shiftType === shownSlot.shiftType,
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    return matches[0] ?? null
+  }, [scopedHistory, shownSlot.date, shownSlot.shiftType])
+
+  const displayedShift =
+    draft && selectedShift && draft.id === selectedShift.id ? draft : selectedShift
 
   const previousShifts = useMemo(() => {
     const hidden = new Set([currentShift?.id].filter(Boolean))
-    return [...data.history]
+    return [...scopedHistory]
       .filter((h) => !hidden.has(h.id))
       .sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date)
         return b.updatedAt.localeCompare(a.updatedAt)
       })
       .slice(0, 3)
-  }, [data.history, currentShift?.id])
+  }, [scopedHistory, currentShift?.id])
 
   const personalWindowLabel = useCallback(
     (workerId: string) => {
@@ -367,6 +462,78 @@ export function HomePage() {
         }
       })
   }, [currentShift, data.workers, personalWindowLabel])
+
+  const displayedTableRows = useMemo(() => {
+    if (!displayedShift) return []
+    if (shownIsCurrent) return currentTableRows
+
+    return displayedShift.activeLaneIds.flatMap((laneId) => {
+      const lane = data.lanes.find((item) => item.id === laneId)
+      if (!lane) return []
+      const assignment = displayedShift.assignments.find(
+        (item) => item.laneId === laneId,
+      )
+      const workers = (assignment?.workerIds ?? [])
+        .filter(Boolean)
+        .map((workerId) => {
+          const worker = data.workers.find((item) => item.id === workerId)
+          const preset = workerWindowById(
+            displayedShift.workerWindows?.[workerId],
+            data.workerWindowPresets,
+          )
+          return {
+            id: workerId,
+            name: worker?.fullName ?? workerId,
+            trainingRole: worker?.trainingRole,
+            windowLabel: preset?.label ?? 'כל המשמרת',
+          }
+        })
+      return [{
+        laneId,
+        laneName: lane.name,
+        intensity: lane.intensity as Intensity,
+        staffingStandard: effectiveStaffingStandard(
+          lane,
+          displayedShift.staffingOverrides,
+        ),
+        assigned: workers.length,
+        workers,
+        endedWorkers: [],
+        autoClosed: false,
+        manuallyReopened: false,
+      }]
+    })
+  }, [
+    displayedShift,
+    shownIsCurrent,
+    currentTableRows,
+    data.lanes,
+    data.workers,
+    data.workerWindowPresets,
+  ])
+
+  const displayedUnassigned = useMemo(() => {
+    if (!displayedShift) return []
+    if (shownIsCurrent) return currentUnassigned
+    const assigned = new Set(
+      displayedShift.assignments.flatMap((row) => row.workerIds.filter(Boolean)),
+    )
+    return displayedShift.presentWorkerIds
+      .filter((workerId) => !assigned.has(workerId))
+      .map((workerId) => {
+        const worker = data.workers.find((item) => item.id === workerId)
+        const preset = workerWindowById(
+          displayedShift.workerWindows?.[workerId],
+          data.workerWindowPresets,
+        )
+        return {
+          id: workerId,
+          name: worker?.fullName ?? workerId,
+          trainingRole: worker?.trainingRole,
+          windowLabel: preset?.label ?? 'כל המשמרת',
+        }
+      })
+  }, [displayedShift, shownIsCurrent, currentUnassigned, data.workers, data.workerWindowPresets])
 
   const resumeShift = () => {
     if (!draft) return
@@ -607,6 +774,16 @@ export function HomePage() {
     startShift()
   }
 
+  const editDisplayedShift = () => {
+    if (shownIsCurrent) {
+      primaryEdit()
+      return
+    }
+    if (!displayedShift) return
+    loadShiftFromHistory(displayedShift.id)
+    setView('shift')
+  }
+
   const beginSelectorShift = () => {
     if (
       draftDirty &&
@@ -796,12 +973,12 @@ export function HomePage() {
       <SectionCard
         printRoot
         className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
-        title={`משמרת נוכחית · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
+        title={`${shownIsCurrent ? 'משמרת נוכחית' : 'שיבוץ'} · ${shiftModelLabel(shiftModels, shownSlot.shiftType)}`}
         subtitle={
           <>
-            <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
+            <Ltr>{formatShiftDate(shownSlot.date)}</Ltr>
             {' · '}
-            <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
+            <ShiftWindowLabel shiftType={shownSlot.shiftType} inspectors={inspectorModule} />
           </>
         }
         actions={
@@ -812,6 +989,72 @@ export function HomePage() {
           ) : null
         }
       >
+        <div className="mb-4 space-y-3 no-print">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={!previousDate}
+                onClick={() => previousDate && selectDate(previousDate, true)}
+                className="ui-btn ui-btn-secondary gap-1.5 disabled:opacity-40"
+                aria-label="יום עם משמרת קודם"
+              >
+                <ChevronRight className="size-4" aria-hidden />
+                יום קודם
+              </button>
+              <button
+                type="button"
+                disabled={shownIsCurrent}
+                onClick={() => setSelectedSlot(null)}
+                className="ui-btn ui-btn-secondary gap-1.5 disabled:opacity-40"
+              >
+                המשמרת הנוכחית
+              </button>
+              <button
+                type="button"
+                disabled={!nextDate}
+                onClick={() => nextDate && selectDate(nextDate, false)}
+                className="ui-btn ui-btn-secondary gap-1.5 disabled:opacity-40"
+                aria-label="יום עם משמרת הבא"
+              >
+                יום הבא
+                <ChevronLeft className="size-4" aria-hidden />
+              </button>
+            </div>
+            <p className="text-sm font-semibold text-ink">
+              <Ltr>{formatShiftDate(shownSlot.date)}</Ltr>
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2" aria-label="בחירת משמרת ליום">
+            {shiftsForShownDay.map(({ model, shift }) => {
+              const selected = shownSlot.shiftType === model.id
+              return (
+                <button
+                  key={model.id}
+                  type="button"
+                  aria-pressed={selected}
+                  aria-label={`${model.name}${shift ? '' : ' · אין שיבוץ שמור'}`}
+                  onClick={() =>
+                    setSelectedSlot({
+                      date: shownSlot.date,
+                      shiftType: model.id as ShiftSchedule['shiftType'],
+                    })
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                    selected
+                      ? 'border-brand/35 bg-brand/10 text-brand'
+                      : 'border-line/70 bg-card text-ink-soft hover:border-brand/30 hover:text-ink'
+                  }`}
+                >
+                  {shift ? <CheckCircle2 className="size-3.5 text-ok" aria-hidden /> : null}
+                  {model.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {shiftHealth && (
           <div className="mb-3 no-print">
             {shiftHealth.warnings.length === 0 &&
@@ -843,37 +1086,12 @@ export function HomePage() {
           </div>
         )}
 
-        {loading && !currentShift ? (
+        {loading && !displayedShift ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-2/3" />
           </div>
-        ) : !currentShift ? (
-          <EmptyState
-            title="אין שיבוץ שמור למשמרת הנוכחית"
-            text={`אין שיבוץ ל${shiftModelLabel(shiftModels, currentCtx.shiftType)} בחלון ${currentCtx.windowLabel}.`}
-            action={
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => startShift()}
-                  className="ui-btn ui-btn-primary no-print"
-                >
-                  התחלת משמרת
-                </button>
-                {showSelectorEntry && (
-                  <button
-                    type="button"
-                    onClick={beginSelectorShift}
-                    className="ui-btn ui-btn-secondary no-print"
-                  >
-                    שיבוץ סלקטורים
-                  </button>
-                )}
-              </div>
-            }
-          />
         ) : (
           <BoardKiosk
             ref={boardKioskRef}
@@ -888,28 +1106,55 @@ export function HomePage() {
                 />
               </>
             }
-            canvas={
+            canvas={currentShift ? (
               <GateMapKiosk
                 shift={currentShift}
                 lanes={data.lanes}
                 workers={data.workers}
               />
-            }
+            ) : undefined}
           >
-            {usesRounds(currentShift) ? (
+            {!displayedShift ? (
+              <EmptyState
+                title={`אין שיבוץ שמור ל${shiftModelLabel(shiftModels, shownSlot.shiftType)}`}
+                text={`אין שיבוץ ל${shiftModelLabel(shiftModels, shownSlot.shiftType)} בתאריך ${formatShiftDate(shownSlot.date)}.`}
+                action={
+                  shownIsCurrent ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startShift()}
+                        className="ui-btn ui-btn-primary no-print"
+                      >
+                        התחלת משמרת
+                      </button>
+                      {showSelectorEntry && (
+                        <button
+                          type="button"
+                          onClick={beginSelectorShift}
+                          className="ui-btn ui-btn-secondary no-print"
+                        >
+                          שיבוץ סלקטורים
+                        </button>
+                      )}
+                    </div>
+                  ) : null
+                }
+              />
+            ) : usesRounds(displayedShift) ? (
               <SelectorRoundTable
                 layout={module === 'selectors' ? 'table' : 'cards'}
-                rounds={currentShift.rounds ?? []}
-                lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
+                rounds={displayedShift.rounds ?? []}
+                lanes={selectorLanes(data.lanes, displayedShift.activeLaneIds)}
                 workers={data.workers.filter((worker) =>
-                  currentShift.presentWorkerIds.includes(worker.id),
+                  displayedShift.presentWorkerIds.includes(worker.id),
                 )}
-                overrides={currentShift.staffingOverrides}
+                overrides={displayedShift.staffingOverrides}
                 ramashName={
-                  currentShift.gateManagerWorkerId
+                  displayedShift.gateManagerWorkerId
                     ? data.workers.find(
                         (worker) =>
-                          worker.id === currentShift.gateManagerWorkerId,
+                          worker.id === displayedShift.gateManagerWorkerId,
                       )?.fullName ?? ''
                     : ''
                 }
@@ -942,7 +1187,7 @@ export function HomePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {currentTableRows.map((row, index) => {
+                        {displayedTableRows.map((row, index) => {
                           const missing = Math.max(
                             0,
                             row.staffingStandard - row.assigned,
@@ -981,7 +1226,7 @@ export function HomePage() {
                                   row.endedWorkers.length === 0 ? (
                                     <button
                                       type="button"
-                                      onClick={primaryEdit}
+                                      onClick={editDisplayedShift}
                                       className="inline-flex items-center rounded-full border border-dashed border-line bg-surface/80 px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/[0.06] hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
                                       aria-label={`שיבוץ לנתיב ${row.laneName}`}
                                     >
@@ -1048,10 +1293,10 @@ export function HomePage() {
                     </table>
                   </div>
                 </div>
-                {currentUnassigned.length > 0 && (
+                {displayedUnassigned.length > 0 && (
                   <p className="mt-3 text-[13px] text-ink-soft">
                     לא שובצו:{' '}
-                    {currentUnassigned.map((person) => (
+                    {displayedUnassigned.map((person) => (
                       <span
                         key={person.id}
                         className="me-1.5 inline-flex items-center gap-1"
@@ -1069,7 +1314,7 @@ export function HomePage() {
                 )}
               </>
             )}
-            {currentHeadcount.tracked ? (
+            {shownIsCurrent && currentHeadcount.tracked ? (
               <div
                 className={`mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 text-[13px] ${
                   currentHeadcount.deficit > 0
@@ -1234,19 +1479,19 @@ export function HomePage() {
         </button>
       </div>
 
-      {/* Previous shifts timeline */}
+      {/* Other saved shifts */}
       <section className="rounded-2xl border border-line/80 bg-card/95 p-4 shadow-[var(--shadow-panel)] sm:p-5 no-print">
         <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-ink sm:text-sm">
           <span className="inline-flex size-8 items-center justify-center rounded-lg bg-accent-soft text-accent ring-1 ring-accent/15">
             <Clock className="size-4" aria-hidden />
           </span>
-          שיבוצים קודמים
+          שיבוצים נוספים
         </div>
 
         {previousShifts.length === 0 ? (
           <EmptyState
-            title="אין שיבוצים קודמים"
-            text="אחרי שתשמרו משמרות, יופיעו כאן עד שלושת השיבוצים האחרונים (לא כולל המשמרת הנוכחית)."
+            title="אין שיבוצים נוספים"
+            text="שיבוצים שמורים מימים אחרים יופיעו כאן."
           />
         ) : (
           <ul className="space-y-2">
