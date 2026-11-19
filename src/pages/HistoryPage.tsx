@@ -21,18 +21,17 @@ import { fetchShiftVersionsRemote } from '../api'
 import { useApp } from '../context/AppContext'
 import {
   EmptyState,
-  IntensityBadge,
   Ltr,
   PersonChip,
   SectionCard,
   Skeleton,
-  StaffingBadge,
 } from '../components/ui'
 import { RangeBar, type RangePresetId } from '../components/RangeBar'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import {
   AssignmentExplainDialog,
   groupExplanations,
+  visibleExplanationReasons,
 } from '../components/AssignmentExplainDialog'
 import { explainSavedBoard } from '../algorithm'
 import { isGateManagerLane } from '../lib/gateManager'
@@ -55,6 +54,7 @@ import {
 import {
   formatShiftModelWindow,
   formatMinutes,
+  currentShiftModel,
   resolveShiftModels,
   shiftModelLabel,
 } from '../lib/shiftModels'
@@ -68,6 +68,7 @@ import {
   laneRowsForShift,
   monthKey,
   monthSeparatorLabel,
+  countPlaced,
   presentAssignedHealth,
   shiftCountsLabel,
   shiftMatchesSearch,
@@ -305,69 +306,145 @@ function ShiftVersionsDialog({
   )
 }
 
-function HealthChip({ shift }: { shift: ShiftSchedule }) {
-  const health = presentAssignedHealth(shift)
-  if (health.kind === 'ok') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-easy-soft px-1.5 py-0.5 text-[12px] font-semibold text-easy ring-1 ring-easy/20">
-        <CheckCircle2 className="size-3.5" aria-hidden />
-        כל הנוכחים משובצים
-      </span>
-    )
-  }
+function StatGrid({ shift }: { shift: ShiftSchedule }) {
+  const stats = [
+    { label: 'נתיבים', value: shift.activeLaneIds.length },
+    { label: 'משובצים', value: countPlaced(shift) },
+    { label: 'נוכחים', value: shift.presentWorkerIds.length },
+    { label: 'תקן', value: shift.headcountStandard ?? '—' },
+  ]
+  const missing =
+    shift.headcountStandard == null
+      ? 0
+      : Math.max(0, shift.headcountStandard - shift.presentWorkerIds.length)
+
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-[12px] font-semibold text-warn ring-1 ring-warn/20">
-      <AlertTriangle className="size-3.5" aria-hidden />
-      {pluralizeHe(health.count, {
-        one: 'נוכח אחד לא משובץ',
-        two: 'שני נוכחים לא משובצים',
-        many: 'נוכחים לא משובצים',
-      })}
-    </span>
+    <div className="min-w-0 flex-1">
+      <div className="grid min-w-0 grid-cols-4 gap-1 text-center">
+        {stats.map((stat) => (
+          <div key={stat.label} className="min-w-0 px-0.5">
+            <p className="whitespace-nowrap text-[13px] font-semibold leading-tight tabular-nums text-ink sm:text-base">
+              {stat.value}
+            </p>
+            <p className="mt-0.5 whitespace-nowrap text-[10px] leading-tight text-ink-soft sm:text-[11px]">
+              {stat.label}
+            </p>
+          </div>
+        ))}
+      </div>
+      {missing > 0 ? (
+        <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-[11px] font-semibold text-warn ring-1 ring-warn/20">
+          <AlertTriangle className="size-3 shrink-0" aria-hidden />
+          חסרים <Ltr>{String(missing)}</Ltr>
+        </span>
+      ) : null}
+    </div>
   )
 }
 
-function ShiftExplanation({ shift }: { shift: ShiftSchedule }) {
-  const { data } = useApp()
+function StatusBadge({
+  shift,
+  now,
+  models,
+}: {
+  shift: ShiftSchedule
+  now: number
+  models: ReturnType<typeof resolveShiftModels>
+}) {
+  const health = presentAssignedHealth(shift)
+  const nowDate = new Date(now)
+  const today = shift.date === todayISO(nowDate)
+  const current = currentShiftModel(models, nowDate)
+  const minuteOfDay = nowDate.getHours() * 60 + nowDate.getMinutes()
+  const overnight = current.model.endMinutes <= current.model.startMinutes
+  const insideShiftWindow = overnight
+    ? minuteOfDay >= current.model.startMinutes || minuteOfDay < current.model.endMinutes
+    : minuteOfDay >= current.model.startMinutes && minuteOfDay < current.model.endMinutes
+  const inProgress =
+    current.date === shift.date &&
+    current.model.id === shift.shiftType &&
+    insideShiftWindow
+
+  return (
+    <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {health.kind === 'ok' ? (
+        <span
+          className="inline-flex items-center text-ok"
+          role="img"
+          aria-label="כל הנוכחים משובצים"
+          title="כל הנוכחים משובצים"
+        >
+          <CheckCircle2 className="size-4" aria-hidden />
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-[11px] font-semibold text-warn ring-1 ring-warn/20 sm:text-xs">
+          <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+          <Ltr>{String(health.count)}</Ltr> לא משובצים
+        </span>
+      )}
+      {shift.signOff?.signedAt ? (
+        <span className="text-[11px] font-medium text-ink-soft sm:text-xs">
+          נסגרה
+        </span>
+      ) : today ? (
+        <span className="rounded-md border border-line bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink-soft sm:text-xs">
+          {inProgress ? 'בעיצומה' : 'פתוחה'}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function buildExplanationGroups(
+  shift: ShiftSchedule,
+  lanes: ReturnType<typeof useApp>['data']['lanes'],
+  workers: ReturnType<typeof useApp>['data']['workers'],
+  history: ReturnType<typeof useApp>['data']['history'],
+) {
+  const saved = shift.explanations ?? []
+  const source =
+    saved.length > 0
+      ? saved
+      : explainSavedBoard({
+          assignments: shift.assignments,
+          activeLanes: lanes
+            .filter(
+              (lane) =>
+                shift.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
+            )
+            .map((lane) => ({
+              ...lane,
+              staffingStandard: effectiveStaffingStandard(
+                lane,
+                shift.staffingOverrides,
+              ),
+            })),
+          presentWorkers: workers.filter(
+            (worker) =>
+              shift.presentWorkerIds.includes(worker.id) &&
+              worker.id !== shift.gateManagerWorkerId,
+          ),
+          history: history.filter((item) => item.id !== shift.id),
+          allLanes: lanes,
+          date: shift.date,
+          shiftType: shift.shiftType,
+        })
+  return groupExplanations(source, lanes, workers)
+}
+
+function ShiftExplanation({
+  shift,
+  groups,
+}: {
+  shift: ShiftSchedule
+  groups: ReturnType<typeof groupExplanations>
+}) {
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const hasPlacements =
     !usesRounds(shift) &&
     shift.assignments.some((row) => row.workerIds.some(Boolean))
   const canExplain = (shift.explanations?.length ?? 0) > 0 || hasPlacements
-
-  const groups = useMemo(() => {
-    if (!open || !canExplain) return []
-    const saved = shift.explanations ?? []
-    const source =
-      saved.length > 0
-        ? saved
-        : explainSavedBoard({
-            assignments: shift.assignments,
-            activeLanes: data.lanes
-              .filter(
-                (lane) =>
-                  shift.activeLaneIds.includes(lane.id) && !isGateManagerLane(lane),
-              )
-              .map((lane) => ({
-                ...lane,
-                staffingStandard: effectiveStaffingStandard(
-                  lane,
-                  shift.staffingOverrides,
-                ),
-              })),
-            presentWorkers: data.workers.filter(
-              (worker) =>
-                shift.presentWorkerIds.includes(worker.id) &&
-                worker.id !== shift.gateManagerWorkerId,
-            ),
-            history: data.history.filter((item) => item.id !== shift.id),
-            allLanes: data.lanes,
-            date: shift.date,
-            shiftType: shift.shiftType,
-          })
-    return groupExplanations(source, data.lanes, data.workers)
-  }, [open, canExplain, shift, data.lanes, data.workers, data.history])
 
   if (!canExplain) return null
 
@@ -379,7 +456,7 @@ function ShiftExplanation({ shift }: { shift: ShiftSchedule }) {
         onClick={() => setOpen(true)}
         className="text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
-        הסבר השיבוץ
+        פירוט סיבות
       </button>
       <AssignmentExplainDialog
         open={open}
@@ -393,55 +470,203 @@ function ShiftExplanation({ shift }: { shift: ShiftSchedule }) {
   )
 }
 
-function ShiftAccordion({
+type WorkerEndRow = {
+  workerId: string
+  name: string
+  trainingRole?: 'trainee' | 'mentor'
+  end: NonNullable<ReturnType<typeof workerShiftEnd>>
+  earlyLeaveAt?: number
+}
+
+function EndTimeGroups({ rows }: { rows: WorkerEndRow[] }) {
+  const grouped = new Map<string, { end: WorkerEndRow['end']; workers: WorkerEndRow[] }>()
+  for (const row of rows) {
+    const key = `${row.end.dayOffset}:${row.end.minutes}`
+    const group = grouped.get(key) ?? { end: row.end, workers: [] }
+    group.workers.push(row)
+    grouped.set(key, group)
+  }
+  const groups = [...grouped.values()].sort(
+    (a, b) => a.end.dayOffset - b.end.dayOffset || a.end.minutes - b.end.minutes,
+  )
+
+  return (
+    <section className="min-w-0 rounded-xl border border-line/70 bg-surface/40 p-3">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-ink">סיום שעות לפי עובד</h3>
+        <span className="text-[11px] text-ink-soft">סיום מתוכנן</span>
+      </div>
+      {groups.length === 0 ? (
+        <p className="text-sm text-ink-soft">אין שעות סיום לעובדים במשמרת הזו.</p>
+      ) : (
+        <ul className="divide-y divide-line/70">
+          {groups.map((group) => (
+            <li
+              key={`${group.end.dayOffset}:${group.end.minutes}`}
+              className="flex min-w-0 items-start gap-2 py-2 first:pt-0 last:pb-0"
+            >
+              <div className="flex w-[4.5rem] shrink-0 items-center justify-center gap-1 whitespace-nowrap pt-0.5 text-sm font-semibold tabular-nums text-ink">
+                <Ltr>{formatMinutes(group.end.minutes)}</Ltr>
+                {group.end.dayOffset > 0 ? (
+                  <span className="text-[10px] font-medium text-ink-soft">למחרת</span>
+                ) : null}
+              </div>
+              <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                {group.workers.map((worker) => (
+                  <span
+                    key={worker.workerId}
+                    title={worker.earlyLeaveAt != null ? 'יציאה מוקדמת' : undefined}
+                    className={worker.earlyLeaveAt != null ? 'rounded-full ring-1 ring-warn/40' : undefined}
+                  >
+                    <PersonChip name={worker.name} trainingRole={worker.trainingRole} />
+                  </span>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+type HistoryLaneRow = ReturnType<typeof laneRowsForShift>[number]
+
+function LaneTable({
+  rows,
+  groups,
+  workersById,
+  search,
+}: {
+  rows: HistoryLaneRow[]
+  groups: ReturnType<typeof groupExplanations>
+  workersById: Map<string, ReturnType<typeof useApp>['data']['workers'][number]>
+  search: string
+}) {
+  const groupByLane = new Map(groups.map((group) => [group.laneId, group]))
+  return (
+    <div className="max-h-[26rem] min-w-0 overflow-auto rounded-lg border border-line/70">
+      <table className="w-full min-w-0 table-fixed border-collapse text-[12px]">
+        <colgroup>
+          <col className="w-[25%]" />
+          <col className="w-[55%]" />
+          <col className="w-[20%]" />
+        </colgroup>
+        <thead className="sticky top-0 z-10 bg-surface text-ink-soft">
+          <tr className="border-b border-line text-start">
+            <th scope="col" className="px-2 py-2 font-semibold">נתיב</th>
+            <th scope="col" className="px-2 py-2 font-semibold">עובד</th>
+            <th scope="col" className="px-2 py-2 font-semibold">קושי</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => {
+            const group = groupByLane.get(row.laneId)
+            const placements = new Map(
+              (group?.placements ?? []).map((placement) => [placement.workerId, placement]),
+            )
+            const difficulty =
+              row.intensity === 'hard'
+                ? { label: 'קשה', dot: 'bg-hard' }
+                : row.intensity === 'medium'
+                  ? { label: 'בינוני', dot: 'bg-mid' }
+                  : row.intensity === 'easy'
+                    ? { label: 'קל', dot: 'bg-easy' }
+                    : { label: 'לא ידוע', dot: 'bg-ink-soft' }
+            const hasStaffingException =
+              row.staffingStandard != null &&
+              row.workerIds.length !== row.staffingStandard
+            return (
+              <tr
+                key={row.laneId}
+                className={`${index % 2 ? 'bg-surface/50' : 'bg-card'} border-b border-line/60 last:border-b-0`}
+              >
+                <td
+                  className="px-2 py-1.5 font-semibold text-ink"
+                  title={group?.laneSummary}
+                >
+                  <span className="line-clamp-1">{row.name}</span>
+                  {hasStaffingException ? (
+                    <span
+                      className={`mt-0.5 inline-flex rounded px-1 text-[10px] font-semibold tabular-nums ${
+                        row.workerIds.length > (row.staffingStandard ?? 0)
+                          ? 'bg-hard-soft text-hard'
+                          : 'bg-warn-soft text-warn'
+                      }`}
+                      title="משובצים / נדרשים"
+                      aria-label={`${row.workerIds.length} משובצים מתוך ${row.staffingStandard} נדרשים`}
+                    >
+                      <Ltr>{row.workerIds.length}/{row.staffingStandard}</Ltr>
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-2 py-1.5">
+                  {row.workerIds.length > 0 ? (
+                    <div className="flex min-w-0 flex-wrap gap-1">
+                      {row.workerIds.map((workerId) => {
+                        const worker = workersById.get(workerId)
+                        const name = worker?.fullName ?? workerId
+                        const placement = placements.get(workerId)
+                        const reason = visibleExplanationReasons(
+                          placement?.reasons ?? [],
+                        ).join(' · ')
+                        const hit = search.trim() ? workerMatchesSearch(name, search) : false
+                        return (
+                          <span
+                            key={workerId}
+                            title={reason ? `${name} · ${reason}` : name}
+                            className={hit ? 'rounded-full ring-2 ring-accent ring-offset-1' : undefined}
+                          >
+                            <PersonChip name={name} trainingRole={worker?.trainingRole} />
+                          </span>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-ink-soft">לא שובץ</span>
+                  )}
+                </td>
+                <td className="px-2 py-1.5">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-ink">
+                    <span className={`size-2 shrink-0 rounded-full ${difficulty.dot}`} aria-hidden />
+                    {difficulty.label}
+                  </span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ShiftDetails({
   shift,
   search,
   onOpen,
-  onRequestDelete,
 }: {
   shift: ShiftSchedule
   search: string
   onOpen: () => void
-  onRequestDelete: () => void
 }) {
   const { data, module } = useApp()
-  const [open, setOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [versionsOpen, setVersionsOpen] = useState(false)
-  const [now, setNow] = useState(() => Date.now())
-  const menuRef = useRef<HTMLDivElement>(null)
-  const Icon = SHIFT_ICONS[shift.shiftType]
   const lanesById = useMemo(
-    () => new Map(data.lanes.map((l) => [l.id, l])),
+    () => new Map(data.lanes.map((lane) => [lane.id, lane])),
     [data.lanes],
   )
   const workersById = useMemo(
-    () => new Map(data.workers.map((w) => [w.id, w])),
+    () => new Map(data.workers.map((worker) => [worker.id, worker])),
     [data.workers],
   )
   const rows = useMemo(
     () => laneRowsForShift(shift, lanesById),
     [shift, lanesById],
   )
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const onPointer = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [menuOpen])
-
+  const explanationGroups = useMemo(
+    () => buildExplanationGroups(shift, data.lanes, data.workers, data.history),
+    [shift, data.lanes, data.workers, data.history],
+  )
   const models = resolveShiftModels(data.shiftModels, module)
   const visibleOperationEvents = filterMidShiftOperationEvents(
     shift.shiftOperationEvents,
@@ -449,25 +674,6 @@ function ShiftAccordion({
     shift.shiftType,
     models,
   )
-  const shiftName = shiftModelLabel(models, shift.shiftType)
-  const model = models.find((item) => item.id === shift.shiftType)
-  const windowLabel = model
-    ? formatShiftModelWindow(model)
-    : module === 'inspectors' &&
-        (shift.shiftType === 'morning' ||
-          shift.shiftType === 'afternoon' ||
-          shift.shiftType === 'night')
-      ? formatInspectorShiftWindow(shift.shiftType)
-      : formatShiftWindow(shift.shiftType)
-
-  const deleteLabel = `מחיקת משמרת ${shiftName} ${formatShiftDate(shift.date)}`
-  const stability = shiftBoardStability(shift)
-
-  useEffect(() => {
-    if (!open) return
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
-    return () => window.clearInterval(timer)
-  }, [open])
 
   const workerEndRows = shift.presentWorkerIds.flatMap((workerId) => {
     const end = workerShiftEnd(
@@ -481,8 +687,8 @@ function ShiftAccordion({
           {
             workerId,
             name: workersById.get(workerId)?.fullName ?? workerId,
+            trainingRole: workersById.get(workerId)?.trainingRole,
             end,
-            ended: end.timestamp <= now,
             earlyLeaveAt: shift.earlyLeaveAt?.[workerId],
           },
         ]
@@ -490,206 +696,19 @@ function ShiftAccordion({
   })
 
   return (
-    <div className="min-w-0 max-w-full rounded-xl border border-line bg-surface/80">
-      <div className="flex items-stretch gap-1">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2.5 text-start transition hover:bg-card/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
-        >
-          <Icon className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-semibold text-ink">
-                {shiftName}
-                {shift.audience === 'selector'
-                  ? ' · סלקטורים'
-                  : shift.audience === 'security'
-                    ? ' · מאבטחים'
-                    : ''}
-              </span>
-              {shift.signOff?.signedAt ? (
-                <span className="rounded-md bg-ok-soft px-1.5 py-0.5 text-[11px] font-bold text-ok">
-                  נסגרה
-                </span>
-              ) : null}
-              <span
-                className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-ink-soft ring-1 ring-line/70"
-                title={`${stability.changes} עריכות לאחר שמירה ראשונה`}
-              >
-                יציבות · {stability.label}
-              </span>
-              <Ltr className="text-[13px] text-ink-soft">
-                {windowLabel}
-              </Ltr>
-              <ChevronDown
-                className={`size-4 text-ink-soft transition ${open ? 'rotate-180' : ''}`}
-                aria-hidden
-              />
-            </div>
-            <p className="mt-0.5 text-[13px] text-ink-soft">
-              {shiftCountsLabel(shift)}
-            </p>
-            <div className="mt-1.5">
-              <HealthChip shift={shift} />
-            </div>
-          </div>
-        </button>
-        <div className="relative flex items-center pe-1" ref={menuRef}>
-          <button
-            type="button"
-            aria-label={`פעולות — ${deleteLabel.replace('מחיקת ', '')}`}
-            aria-expanded={menuOpen}
-            aria-haspopup="menu"
-            onClick={() => setMenuOpen((v) => !v)}
-            className="inline-flex size-10 items-center justify-center rounded-lg text-ink-soft transition hover:bg-card hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-          >
-            <MoreHorizontal className="size-5" aria-hidden />
-          </button>
-          {menuOpen ? (
-            <div
-              role="menu"
-              className="absolute end-0 top-full z-40 mt-1 min-w-[9rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium text-ink hover:bg-surface"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setVersionsOpen(true)
-                }}
-              >
-                <History className="size-3.5" aria-hidden />גרסאות שיבוץ
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full px-3 py-2 text-start text-[13px] font-medium text-ink hover:bg-surface"
-                onClick={() => {
-                  setMenuOpen(false)
-                  onOpen()
-                }}
-              >
-                פתיחה{shift.signOff?.signedAt ? '' : ' / עריכה'}
-              </button>
-              {shift.signOff?.signedAt ? null : (
-              <button
-                type="button"
-                role="menuitem"
-                aria-label={deleteLabel}
-                className="ui-btn-danger-ghost flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium"
-                onClick={() => {
-                  setMenuOpen(false)
-                  onRequestDelete()
-                }}
-              >
-                <Trash2 className="size-3.5" aria-hidden />
-                מחיקה
-              </button>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
+    <div className="min-w-0 space-y-3">
+      <div className="grid min-w-0 gap-3 md:grid-cols-2">
+        <EndTimeGroups rows={workerEndRows} />
 
-      {open ? (
-        <div className="min-w-0 overflow-hidden border-t border-line px-3 py-3">
-          {workerEndRows.length > 0 ? (
-            <section className="mb-3 rounded-xl border border-line/70 bg-surface/40 p-3">
-              <h3 className="mb-2 text-sm font-semibold text-ink">
-                סיום שעות לפי עובד
-              </h3>
-              <ul className="space-y-1.5 text-[13px]">
-                {workerEndRows.map((row) => (
-                  <li
-                    key={row.workerId}
-                    className="flex flex-wrap items-center justify-between gap-2"
-                  >
-                    <span className="font-medium text-ink">{row.name}</span>
-                    <span className={row.ended ? 'font-semibold text-ink' : 'text-ink-soft'}>
-                      {row.earlyLeaveAt != null
-                        ? 'יציאה מוקדמת'
-                        : row.ended
-                          ? 'השעות הסתיימו'
-                          : 'סיום מתוכנן'}
-                      {' · '}
-                      <Ltr>{formatMinutes(row.end.minutes)}</Ltr>
-                      {row.end.dayOffset > 0 ? ' · למחרת' : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          <ShiftExplanation shift={shift} />
-          {shift.shiftEvents?.length ? (
-            <ul className="mb-3 space-y-1">
-              {shift.shiftEvents.map((event) => (
-                <li key={event.id} className="rounded-xl bg-ok-soft/70 px-3 py-2 text-[13px] text-ink">
-                  <p className="font-semibold">שיקום לוח · {event.summary}</p>
-                  {event.lines.map((line) => (
-                    <p key={line} className="mt-0.5 text-ink-soft">
-                      {line}
-                    </p>
-                  ))}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {visibleOperationEvents.length ? (
-            <section className="mb-3 rounded-xl border border-line/70 bg-surface/40 p-3">
-              <h3 className="mb-2 text-sm font-semibold text-ink">
-                תיעוד שינויים בשיבוץ
-              </h3>
-              <ol className="space-y-2">
-                {[...visibleOperationEvents]
-                  .sort(
-                    (a, b) =>
-                      new Date(a.effectiveAt ?? a.recordedAt).getTime() -
-                      new Date(b.effectiveAt ?? b.recordedAt).getTime(),
-                  )
-                  .map((event) => {
-                    const action =
-                      event.kind === 'worker_moved'
-                        ? `הועבר/ה מ${event.fromLaneName ?? 'נתיב לא ידוע'} ל${event.toLaneName ?? 'נתיב לא ידוע'}`
-                        : event.kind === 'worker_assigned'
-                          ? `שובץ/ה ל${event.toLaneName ?? 'נתיב לא ידוע'}`
-                          : `הוסר/ה מ${event.fromLaneName ?? 'הנתיב'}`
-                    return (
-                      <li
-                        key={event.id}
-                        className="rounded-lg bg-card px-3 py-2 text-[13px]"
-                      >
-                        <p className="font-semibold text-ink">
-                          {event.workerName} {action}
-                        </p>
-                        <p className="mt-0.5 text-ink-soft">
-                          בתוקף:{' '}
-                          {event.effectiveAt
-                            ? formatOperationTime(event.effectiveAt)
-                            : 'לא צוין (ייתכן מתחילת המשמרת)'}
-                          {' · '}
-                          נרשם: {formatOperationTime(event.recordedAt)}
-                          {' · '}
-                          {event.actorName || 'מנהל'}
-                        </p>
-                      </li>
-                    )
-                  })}
-              </ol>
-            </section>
-          ) : null}
+        <section className="min-w-0 rounded-xl border border-line/70 bg-surface/40 p-3">
+          <h3 className="mb-2 text-sm font-semibold text-ink">הסבר השיבוץ</h3>
+          <ShiftExplanation shift={shift} groups={explanationGroups} />
           {usesRounds(shift) ? (
             <SelectorRoundTable
               rounds={shift.rounds ?? []}
-              lanes={selectorLanes(
-                data.lanes,
-                shift.activeLaneIds,
-              )}
-              workers={data.workers.filter((w) =>
-                shift.presentWorkerIds.includes(w.id),
+              lanes={selectorLanes(data.lanes, shift.activeLaneIds)}
+              workers={data.workers.filter((worker) =>
+                shift.presentWorkerIds.includes(worker.id),
               )}
               overrides={shift.staffingOverrides}
               ramashName={
@@ -701,72 +720,243 @@ function ShiftAccordion({
           ) : rows.length === 0 ? (
             <p className="text-[13px] text-ink-soft">אין שיבוצים בנתיבים</p>
           ) : (
-            <ul className="space-y-2.5">
-              {rows.map((row) => (
-                <li key={row.laneId}>
-                  <div className="mb-1 flex flex-wrap items-center gap-2">
-                    {row.intensity ? (
-                      <IntensityBadge intensity={row.intensity} />
-                    ) : (
-                      <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-semibold text-ink-soft ring-1 ring-line">
-                        לא ידוע
-                      </span>
-                    )}
-                    <span className="text-sm font-semibold text-ink">
-                      {row.name}
-                    </span>
-                    {row.staffingStandard != null ? (
-                      <StaffingBadge
-                        assigned={row.workerIds.length}
-                        standard={row.staffingStandard}
-                      />
-                    ) : (
-                      <Ltr className="text-[12px] text-ink-soft">
-                        {row.workerIds.length}/—
-                      </Ltr>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {row.workerIds.map((id) => {
-                      const worker = workersById.get(id)
-                      const name = worker?.fullName ?? id
-                      const hit = search.trim()
-                        ? workerMatchesSearch(name, search)
-                        : false
-                      return (
-                        <span
-                          key={id}
-                          className={
-                            hit
-                              ? 'rounded-full ring-2 ring-accent ring-offset-1'
-                              : undefined
-                          }
-                        >
-                          <PersonChip
-                            name={name}
-                            trainingRole={worker?.trainingRole}
-                          />
-                        </span>
-                      )
-                    })}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <LaneTable
+              rows={rows}
+              groups={explanationGroups}
+              workersById={workersById}
+              search={search}
+            />
           )}
+        </section>
+      </div>
+
+      {shift.shiftEvents?.length ? (
+        <ul className="space-y-1">
+          {shift.shiftEvents.map((event) => (
+            <li key={event.id} className="rounded-xl bg-ok-soft/70 px-3 py-2 text-[13px] text-ink">
+              <p className="font-semibold">שיקום לוח · {event.summary}</p>
+              {event.lines.map((line) => (
+                <p key={line} className="mt-0.5 text-ink-soft">{line}</p>
+              ))}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {visibleOperationEvents.length ? (
+        <section className="rounded-xl border border-line/70 bg-surface/40 p-3">
+          <h3 className="mb-2 text-sm font-semibold text-ink">תיעוד שינויים בשיבוץ</h3>
+          <ol className="space-y-2">
+            {[...visibleOperationEvents]
+              .sort(
+                (a, b) =>
+                  new Date(a.effectiveAt ?? a.recordedAt).getTime() -
+                  new Date(b.effectiveAt ?? b.recordedAt).getTime(),
+              )
+              .map((event) => {
+                const action =
+                  event.kind === 'worker_moved'
+                    ? `הועבר/ה מ${event.fromLaneName ?? 'נתיב לא ידוע'} ל${event.toLaneName ?? 'נתיב לא ידוע'}`
+                    : event.kind === 'worker_assigned'
+                      ? `שובץ/ה ל${event.toLaneName ?? 'נתיב לא ידוע'}`
+                      : `הוסר/ה מ${event.fromLaneName ?? 'הנתיב'}`
+                return (
+                  <li key={event.id} className="rounded-lg bg-card px-3 py-2 text-[13px]">
+                    <p className="font-semibold text-ink">{event.workerName} {action}</p>
+                    <p className="mt-0.5 text-ink-soft">
+                      בתוקף: {event.effectiveAt ? formatOperationTime(event.effectiveAt) : 'לא צוין (ייתכן מתחילת המשמרת)'}
+                      {' · '}נרשם: {formatOperationTime(event.recordedAt)}
+                      {' · '}{event.actorName || 'מנהל'}
+                    </p>
+                  </li>
+                )
+              })}
+          </ol>
+        </section>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onOpen}
+        className="text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        {shift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
+      </button>
+    </div>
+  )
+}
+
+function ShiftCard({
+  shift,
+  onOpen,
+  onRequestDelete,
+  open,
+  onToggle,
+}: {
+  shift: ShiftSchedule
+  onOpen: () => void
+  onRequestDelete: () => void
+  open: boolean
+  onToggle: () => void
+}) {
+  const { data, module } = useApp()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  const menuRef = useRef<HTMLDivElement>(null)
+  const Icon = SHIFT_ICONS[shift.shiftType]
+  const models = resolveShiftModels(data.shiftModels, module)
+  const shiftName = shiftModelLabel(models, shift.shiftType)
+  const model = models.find((item) => item.id === shift.shiftType)
+  const windowLabel = model
+    ? formatShiftModelWindow(model)
+    : module === 'inspectors' &&
+        (shift.shiftType === 'morning' ||
+          shift.shiftType === 'afternoon' ||
+          shift.shiftType === 'night')
+      ? formatInspectorShiftWindow(shift.shiftType)
+      : formatShiftWindow(shift.shiftType)
+  const deleteLabel = `מחיקת משמרת ${shiftName} ${formatShiftDate(shift.date)}`
+  const stability = shiftBoardStability(shift)
+  const detailsId = `history-shift-details-${shift.id}`
+
+  useEffect(() => {
+    if (shift.date !== todayISO()) return
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [shift.date])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointer = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  return (
+    <article
+      className={`min-w-0 max-w-full rounded-xl border bg-card/95 transition-colors ${
+        open
+          ? 'border-brand/50 shadow-[var(--shadow-panel)] ring-1 ring-brand/15'
+          : 'border-line hover:border-brand/25'
+      }`}
+    >
+      <div className="flex items-start gap-1">
+        <div className="relative flex shrink-0 items-start pt-1" ref={menuRef}>
           <button
             type="button"
-            onClick={onOpen}
-            className="mt-3 text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+            aria-label={`פעולות — ${deleteLabel.replace('מחיקת ', '')}`}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            onClick={() => setMenuOpen((value) => !value)}
+            className="inline-flex size-9 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
-            {shift.signOff?.signedAt ? 'צפייה' : 'עריכה'}
+            <MoreHorizontal className="size-5" aria-hidden />
           </button>
+          {menuOpen ? (
+            <div
+              role="menu"
+              className="absolute start-0 top-full z-40 mt-1 min-w-[9rem] overflow-hidden rounded-xl border border-line bg-card py-1 shadow-[var(--shadow-panel-hover)]"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium text-ink hover:bg-surface focus-visible:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setVersionsOpen(true)
+                }}
+              >
+                <History className="size-3.5" aria-hidden />גרסאות שיבוץ
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full px-3 py-2 text-start text-[13px] font-medium text-ink hover:bg-surface focus-visible:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onOpen()
+                }}
+              >
+                פתיחה{shift.signOff?.signedAt ? '' : ' / עריכה'}
+              </button>
+              {shift.signOff?.signedAt ? null : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-label={deleteLabel}
+                  className="ui-btn-danger-ghost flex w-full items-center gap-2 px-3 py-2 text-start text-[13px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onRequestDelete()
+                  }}
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                  מחיקה
+                </button>
+              )}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+        <button
+          type="button"
+          role="button"
+          aria-expanded={open}
+          aria-controls={detailsId}
+          aria-label={`${open ? 'סגירת' : 'פתיחת'} פירוט ${shiftName} ${formatShiftDate(shift.date)}`}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-start gap-2 px-2 py-2.5 text-start transition hover:bg-surface/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+        >
+          <Icon className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-semibold text-ink">{shiftName}</span>
+              {shift.audience === 'selector' || shift.audience === 'security' ? (
+                <span
+                  className="rounded-md bg-surface px-1.5 py-0.5 text-[12px] font-semibold text-ink ring-1 ring-line/70"
+                  title={
+                    shift.audience === 'selector'
+                      ? 'משמרת המיועדת לסלקטורים'
+                      : 'משמרת המיועדת למאבטחים'
+                  }
+                >
+                  {shift.audience === 'selector' ? 'סלקטורים' : 'מאבטחים'}
+                </span>
+              ) : null}
+              <ChevronDown
+                className={`size-4 shrink-0 text-ink-soft transition ${open ? 'rotate-180' : ''}`}
+                aria-hidden
+              />
+              <StatusBadge shift={shift} now={now} models={models} />
+              <span
+                className="rounded-md bg-surface px-1.5 py-0.5 text-[12px] font-semibold text-ink ring-1 ring-line/70"
+                title="מדד היציבות מבוסס על מספר העריכות לאחר השמירה הראשונה."
+              >
+                יציבות · {stability.label}
+              </span>
+              <Ltr className="text-[13px] text-ink-soft">{windowLabel}</Ltr>
+            </div>
+            <div className="mt-2">
+              <StatGrid shift={shift} />
+            </div>
+          </div>
+        </button>
+      </div>
       {versionsOpen ? (
         <ShiftVersionsDialog shift={shift} onClose={() => setVersionsOpen(false)} />
       ) : null}
-    </div>
+    </article>
   )
 }
 
@@ -906,6 +1096,23 @@ export function HistoryPage() {
     })
   }, [data.history, fromDate, toDate])
 
+  const historySummaryParts = [
+    `${shiftsInRange.length} ${pluralizeHe(shiftsInRange.length, {
+      one: 'שיבוץ בטווח',
+      two: 'שיבוצים בטווח',
+      many: 'שיבוצים בטווח',
+    })}`,
+    range === 'all'
+      ? 'כל ההיסטוריה'
+      : range === 'custom'
+        ? 'טווח מותאם'
+        : `${range} ימים אחרונים`,
+    ...shiftModels.map((model) => {
+      const count = shiftsInRange.filter((shift) => shift.shiftType === model.id).length
+      return `${count} ${model.name}`
+    }),
+  ]
+
   const shiftsForExport = useMemo(() => {
     return shiftsInRange.filter((h) => {
       if (
@@ -996,7 +1203,7 @@ export function HistoryPage() {
                   ? 'אין משמרות לייצוא בטווח'
                   : `ייצוא ${shiftsForExport.length} משמרות לאקסל (CSV)`
               }
-              className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-3 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-brand-deep disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="ui-btn ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-[13px] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               <Download className="size-3.5" aria-hidden />
               ייצוא לאקסל
@@ -1047,22 +1254,16 @@ export function HistoryPage() {
             customTo={customTo}
             onCustomFromChange={setCustomFrom}
             onCustomToChange={setCustomTo}
-            shiftsInRange={shiftsInRange.length}
             fromDate={fromDate}
             toDate={toDate}
           />
-          <p className="text-[13px] text-ink-soft">
-            {pluralizeHe(shiftsInRange.length, {
-              one: 'משמרת אחת',
-              two: 'שתי משמרות',
-              many: 'משמרות',
-            })}
-            {' · '}
-          {shiftModels.map((model) => (
-            <span key={model.id}>
-              {` · ${data.history.filter((shift) => shift.shiftType === model.id && (!fromDate || shift.date >= fromDate) && (!toDate || shift.date <= toDate)).length} ${model.name}`}
-            </span>
-          ))}
+          <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-soft">
+            {historySummaryParts.map((part, index) => (
+              <span key={`${index}-${part}`} className="inline-flex items-center gap-1.5">
+                {index > 0 ? <span aria-hidden>·</span> : null}
+                <span>{part}</span>
+              </span>
+            ))}
           </p>
 
           {mode === 'list' ? (
@@ -1095,10 +1296,11 @@ export function HistoryPage() {
                   <button
                     key={opt.id}
                     type="button"
+                    aria-pressed={typeFilter === opt.id}
                     onClick={() => setTypeFilter(opt.id)}
                     className={`rounded-lg px-2.5 py-1.5 font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                       typeFilter === opt.id
-                        ? 'bg-brand text-white shadow-sm'
+                        ? 'bg-brand text-white shadow-sm ring-1 ring-brand/30'
                         : 'text-ink-soft hover:text-ink'
                     }`}
                   >
@@ -1458,21 +1660,33 @@ function DayCard({
   onRequestDelete: (s: ShiftSchedule) => void
 }) {
   const { data, module } = useApp()
+  const [expandedShiftId, setExpandedShiftId] = useState<string | null>(null)
+  const [panelShift, setPanelShift] = useState<ShiftSchedule | null>(null)
   const models = resolveShiftModels(data.shiftModels, module)
+  const dayShifts = day.slots.flatMap((slot) =>
+    [slot.shift, slot.selectorShift].filter(
+      (shift): shift is ShiftSchedule => Boolean(shift),
+    ),
+  )
+  const expandedIndex = dayShifts.findIndex((shift) => shift.id === expandedShiftId)
+  const visiblePanelShift = dayShifts.find((shift) => shift.id === panelShift?.id) ?? panelShift
+
   return (
-    <section className="min-w-0 max-w-full rounded-xl border border-line bg-card/95 p-3 shadow-sm sm:p-4">
-      <header className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        {label.relative ? (
-          <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[12px] font-bold text-brand">
-            {label.relative}
-          </span>
-        ) : null}
+    <section className="min-w-0 max-w-full">
+      <header className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line/80 pb-2">
         <h3 className="font-display text-sm font-bold text-ink sm:text-base">
           {label.weekday}
         </h3>
         <Ltr className="text-[13px] text-ink-soft">{label.dateText}</Ltr>
+        {label.relative === 'היום' ? (
+          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-bold text-brand">
+            היום
+          </span>
+        ) : label.relative === 'אתמול' ? (
+          <span className="text-[12px] font-medium text-ink-soft">אתמול</span>
+        ) : null}
       </header>
-      <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3">
         {day.slots.map((slot) => {
           const shifts = [slot.shift, slot.selectorShift].filter(
             (s): s is NonNullable<typeof slot.shift> => Boolean(s),
@@ -1486,15 +1700,62 @@ function DayCard({
             )
           }
           return shifts.map((shift) => (
-            <ShiftAccordion
+            <ShiftCard
               key={shift.id}
               shift={shift}
-              search={search}
               onOpen={() => onOpen(shift.id)}
               onRequestDelete={() => onRequestDelete(shift)}
+              open={expandedShiftId === shift.id}
+              onToggle={() => {
+                if (expandedShiftId === shift.id) {
+                  setExpandedShiftId(null)
+                } else {
+                  setPanelShift(shift)
+                  setExpandedShiftId(shift.id)
+                }
+              }}
             />
           ))
         })}
+      </div>
+      <div className="relative mt-2">
+        {expandedShiftId && expandedIndex >= 0 ? (
+          <span
+            className="absolute -top-1 start-1/2 z-10 size-3 -translate-x-1/2 rotate-45 border-s border-t border-brand/35 bg-card md:[inset-inline-start:var(--connector-inline-start)]"
+            style={
+              {
+                '--connector-inline-start': `${((expandedIndex % 3) + 0.5) * (100 / 3)}%`,
+              } as React.CSSProperties
+            }
+            aria-hidden
+          />
+        ) : null}
+        <div
+          id={visiblePanelShift ? `history-shift-details-${visiblePanelShift.id}` : undefined}
+          aria-hidden={!expandedShiftId}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget && !expandedShiftId) {
+              setPanelShift(null)
+            }
+          }}
+          className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+            expandedShiftId ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+          }`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            {visiblePanelShift ? (
+              <div className={expandedShiftId ? 'visible' : 'invisible'}>
+                <div className="rounded-xl border border-brand/30 bg-card p-3 shadow-[var(--shadow-panel)] sm:p-4">
+                  <ShiftDetails
+                    shift={visiblePanelShift}
+                    search={search}
+                    onOpen={() => onOpen(visiblePanelShift.id)}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
     </section>
   )
