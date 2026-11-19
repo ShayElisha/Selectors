@@ -5,7 +5,6 @@
 - Required for production:
   - `MONGODB_URI` — Atlas connection string for selectors, organizations, and accounts
   - `SESSION_SECRET` — unique random secret (32+ chars) for signing session tokens
-  - `PII_ENCRYPTION_KEYS` — JSON object of key IDs to independent random secrets (each 32+ chars), for example `{"2026-01":"<random-secret>"}`; the active key ID is set by `PII_ENCRYPTION_ACTIVE_KEY_ID`
   - `CRON_SECRET` — unique random secret for `/api/cron/load-rest`; Vercel Cron sends it in the `Authorization` header
   - `SUPER_ADMIN_PHONE`, `SUPER_ADMIN_PASSWORD`, and `SUPER_ADMIN_EMAIL` — super-admin credentials and destination for its sign-in verification codes; use a dedicated phone and a strong password
   - `APP_URL` — exact public production origin (for example `https://app.example.com`); required for production CORS and email links
@@ -15,6 +14,8 @@
 - Required only when enabling the security (מאבטחים) module:
   - `MONGODB_URI_SECURITY` — separate Atlas connection string for security/guards data (same schema as selectors: workers, lanes, shifts, …)
 - Optional:
+  - `PII_ENCRYPTION_ENABLED` — defaults to enabled; set to `false` only for the temporary plaintext-storage mode described below
+  - `PII_ENCRYPTION_KEYS` — required when PII encryption is enabled: JSON object of key IDs to independent random secrets (each 32+ chars), for example `{"2026-01":"<random-secret>"}`; the active key ID is set by `PII_ENCRYPTION_ACTIVE_KEY_ID`
   - `PORT` — local API port; defaults to `3001`
   - `SMTP_FROM` — sender address; defaults to the authenticated SMTP mailbox
   - `SMTP_PASSWORD` — alias for `SMTP_PASS`
@@ -25,7 +26,7 @@
   - `BUG_REPORT_EMAIL` — destination for user bug reports
 - `LOAD_REST_CRON=0` disables the local nightly scheduler; Vercel Cron remains protected by `CRON_SECRET`.
 - Set production values in Vercel Project Settings → Environment Variables for every deployed environment. Never commit `.env`.
-- The server refuses to start in production unless a valid PII encryption key is configured. Do not deploy the code change before setting the key.
+- The server refuses to start in production unless a valid PII encryption key is configured, unless `PII_ENCRYPTION_ENABLED=false` is explicitly set.
 - Email verification is mandatory; there is no emergency bypass. A broken SMTP service or missing/invalid account email prevents login.
 - Before deployment, run `npm run mail:test -- <SUPER_ADMIN_EMAIL>` with the production SMTP settings and confirm delivery. Ensure every active manager account has a valid, accessible email address.
 
@@ -40,6 +41,10 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 ## PII encryption migration and key rotation
 
 Worker email, phone, and manager notes are encrypted at rest using AES-256-GCM. Lookup hashes are deterministic HMACs; they are not reversible. Audit records omit contact details.
+
+**Temporary plaintext mode:** If production must start before an encryption key is available, set `PII_ENCRYPTION_ENABLED=false`. The API will skip encryption-key parsing and store new or updated worker email, phone, and manager notes in plaintext; the server emits a warning at startup. This weakens protection for personal data at rest. Use this only as a temporary operational workaround, restrict database access, and restore encryption as soon as possible. Existing encrypted records cannot be read while encryption is disabled; re-enable encryption with their original keys to read them.
+
+To re-enable encryption, configure `PII_ENCRYPTION_KEYS` with valid random keys and set `PII_ENCRYPTION_ENABLED=true` (or remove it). Then run the PII migration with `--apply` to encrypt records written in plaintext while encryption was disabled. Verify the migration before removing any retained keys. Do not remove keys needed to read existing ciphertext or retained backups.
 
 1. Before enabling the new release, take and verify an Atlas backup.
 2. Set `PII_ENCRYPTION_KEYS` to a JSON object with a random 32+ character secret and set `PII_ENCRYPTION_ACTIVE_KEY_ID` to its key ID. Generate secrets with a cryptographically secure password manager or secret generator; never commit them.

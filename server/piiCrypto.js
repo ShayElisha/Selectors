@@ -10,6 +10,10 @@ const LEGACY_PREFIX = 'enc:v1:'
 const PREFIX = 'enc:v2:'
 const MIN_KEY_LENGTH = 32
 
+export function isPiiEncryptionEnabled() {
+  return process.env.PII_ENCRYPTION_ENABLED !== 'false'
+}
+
 function isProductionRuntime() {
   return (
     process.env.NODE_ENV === 'production' ||
@@ -87,6 +91,7 @@ function keyRing() {
 }
 
 export function assertPiiEncryptionConfigured() {
+  if (!isPiiEncryptionEnabled()) return false
   const ring = keyRing()
   const activeSecret = configuredKeys()[ring.activeId] || ''
   if (
@@ -103,7 +108,7 @@ export function assertPiiEncryptionConfigured() {
 /** Deterministic lookup token (not reversible), derived from the active key. */
 export function piiLookupHash(value) {
   const normalized = String(value || '').trim().toLowerCase()
-  if (!normalized) return ''
+  if (!normalized || !isPiiEncryptionEnabled()) return ''
   const ring = keyRing()
   if (!ring.activeId || configuredKeys()[ring.activeId].length < MIN_KEY_LENGTH) {
     throw new Error('PII encryption key is required to create lookup hashes')
@@ -115,7 +120,7 @@ export function piiLookupHash(value) {
 
 export function piiLookupCandidates(value) {
   const normalized = String(value || '').trim().toLowerCase()
-  if (!normalized) return []
+  if (!normalized || !isPiiEncryptionEnabled()) return []
   const keys = configuredKeys()
   const hashes = new Set([piiLookupHash(value)])
   for (const secret of Object.values(keys)) {
@@ -154,6 +159,7 @@ function decryptVersionOne(text) {
 export function encryptPii(value) {
   const text = String(value || '')
   if (!text) return ''
+  if (!isPiiEncryptionEnabled()) return text
   const ring = keyRing()
   if (!ring.activeId || configuredKeys()[ring.activeId].length < MIN_KEY_LENGTH) {
     throw new Error('PII encryption key is required before storing personal information')
@@ -178,6 +184,7 @@ export function encryptPii(value) {
 /** Decrypt a stored value using its key ID, or the legacy v1 key. */
 export function decryptPii(value) {
   const text = String(value || '')
+  if (!isPiiEncryptionEnabled()) return text
   if (text.startsWith(LEGACY_PREFIX)) {
     return decryptVersionOne(text)
   }
@@ -212,6 +219,12 @@ export function isPiiEncrypted(value) {
 export function sealWorkerPii(worker) {
   if (!worker) return worker
   const next = { ...worker }
+  if (!isPiiEncryptionEnabled()) {
+    delete next.emailLookup
+    delete next.phoneLookup
+    delete next.phoneSealed
+    return next
+  }
   for (const field of ['email', 'phone', 'managerNotes']) {
     if (next[field]) {
       const clear = isPiiEncrypted(next[field])
@@ -230,6 +243,12 @@ export function sealWorkerPii(worker) {
 export function openWorkerPii(worker) {
   if (!worker) return worker
   const next = { ...worker }
+  if (!isPiiEncryptionEnabled()) {
+    delete next.emailLookup
+    delete next.phoneLookup
+    delete next.phoneSealed
+    return next
+  }
   for (const field of ['email', 'phone', 'managerNotes']) {
     if (isPiiEncrypted(next[field])) next[field] = decryptPii(next[field])
   }

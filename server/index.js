@@ -79,12 +79,20 @@ import {
 import { assertRateLimit, clearRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { assertSessionSecretConfigured, createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
-import { assertPiiEncryptionConfigured } from './piiCrypto.js'
+import {
+  assertPiiEncryptionConfigured,
+  isPiiEncryptionEnabled,
+} from './piiCrypto.js'
 import { assertCookieMutationOrigin } from './csrf.js'
 import { revokeSessionId } from './sessionRevocation.js'
 
 assertSessionSecretConfigured()
 assertPiiEncryptionConfigured()
+if (!isPiiEncryptionEnabled()) {
+  console.warn(
+    'WARNING: PII encryption is disabled; personal information will be stored in plaintext. Set PII_ENCRYPTION_ENABLED=true and configure PII_ENCRYPTION_KEYS to re-enable encryption.',
+  )
+}
 import { createLoginChallenge, verifyLoginChallenge } from './loginChallenge.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 import { listSystemMessages, createSystemMessage } from './messages.js'
