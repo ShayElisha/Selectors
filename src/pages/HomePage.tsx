@@ -276,20 +276,16 @@ export function HomePage() {
       .map((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)
         if (!lane) return null
+        // The home board shows only the shift selected for the current clock time.
         const status = laneLiveStatus({
           shift: activeShift,
-          history: data.history,
+          history: [],
           lane,
           models: shiftModels,
           presets: data.workerWindowPresets ?? [],
           now: nowTick,
         })
-        const schedulesById = new Map(
-          [activeShift, ...data.history].map((schedule) => [
-            schedule.id,
-            schedule,
-          ]),
-        )
+        const schedulesById = new Map([[activeShift.id, activeShift]])
         const workers = status.activeWorkerSources.map(({ workerId, shiftId }) => {
           const worker = data.workers.find((w) => w.id === workerId)
           const sourceShift = schedulesById.get(shiftId)
@@ -346,7 +342,6 @@ export function HomePage() {
   }, [
     currentShift,
     draft,
-    data.history,
     data.lanes,
     data.workers,
     data.workerWindowPresets,

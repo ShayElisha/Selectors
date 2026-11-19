@@ -896,7 +896,9 @@ function createShiftOperationEvent(
     ...input,
     id: uuid(),
     effectiveAt:
-      parsedEffectiveAt && Number.isFinite(parsedEffectiveAt.getTime())
+      parsedEffectiveAt &&
+      Number.isFinite(parsedEffectiveAt.getTime()) &&
+      parsedEffectiveAt.getTime() <= Date.now()
         ? parsedEffectiveAt.toISOString()
         : null,
     recordedAt: '',

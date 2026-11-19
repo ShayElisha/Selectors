@@ -82,7 +82,6 @@ import {
 import { notify } from '../lib/notify'
 import {
   fromLocalDateTimeInput,
-  isValidOperationTime,
   shiftStartTimestamp,
 } from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
@@ -703,10 +702,6 @@ export function BoardStep({
             ?.startMinutes ?? Number.NaN,
         )
       : fromLocalDateTimeInput(operationTime)
-    if (!isValidOperationTime(effectiveAt)) {
-      notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
-      return
-    }
     runWithUndo('השינוי נרשם', () =>
       updateAssignment(
         pendingAssignment.laneId,
@@ -2304,13 +2299,6 @@ export function BoardStep({
                                     )
                                   : fromLocalDateTimeInput(operationTime)
                                 : undefined
-                              if (
-                                isSavedShift &&
-                                !isValidOperationTime(effectiveAt)
-                              ) {
-                                notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
-                                return
-                              }
                               runWithUndo('החלפה בין נתיבים', () =>
                                 swapAssignments(
                                   {
@@ -2457,13 +2445,6 @@ export function BoardStep({
                                     )
                                   : fromLocalDateTimeInput(operationTime)
                                 : undefined
-                              if (
-                                isSavedShift &&
-                                !isValidOperationTime(effectiveAt)
-                              ) {
-                                notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
-                                return
-                              }
                               runWithUndo(
                                 `${worker.fullName} נכנס במקום ${current?.fullName ?? ''}`,
                                 () =>

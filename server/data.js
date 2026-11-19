@@ -2402,24 +2402,25 @@ function appendShiftOperationEvents(previousEvents, submittedEvents, actor) {
   for (const event of Array.isArray(submittedEvents) ? submittedEvents : []) {
     const id = String(event?.id || "").trim().slice(0, 160);
     if (!id || knownIds.has(id)) continue;
-    const effectiveAt =
+    const submittedEffectiveAt =
       event?.effectiveAt == null || event.effectiveAt === ""
         ? null
         : new Date(String(event.effectiveAt));
-    if (
-      !SHIFT_OPERATION_KINDS.has(event?.kind) ||
-      (effectiveAt &&
-        (!Number.isFinite(effectiveAt.getTime()) ||
-          effectiveAt.getTime() > Date.now()))
-    ) {
+    if (!SHIFT_OPERATION_KINDS.has(event?.kind)) {
       const err = new Error("אירוע שינוי שיבוץ אינו תקין");
       err.status = 400;
       throw err;
     }
+    const effectiveAt =
+      submittedEffectiveAt &&
+      Number.isFinite(submittedEffectiveAt.getTime()) &&
+      submittedEffectiveAt.getTime() <= Date.now()
+        ? submittedEffectiveAt.toISOString()
+        : null;
     const normalized = {
       id,
       kind: event.kind,
-      effectiveAt: effectiveAt?.toISOString() ?? null,
+      effectiveAt,
       recordedAt,
       actorId: String(actor?.id || ""),
       actorName: String(actor?.fullName || "מנהל").slice(0, 120),

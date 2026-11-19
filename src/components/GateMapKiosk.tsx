@@ -103,7 +103,10 @@ function islandsFromAssignments(
       liveStatus?.activeWorkerIds ?? row?.workerIds ?? [],
       workers,
     )
-    const ended = peopleFromIds(liveStatus?.endedWorkerIds ?? [], workers)
+    const ended = peopleFromIds(
+      liveStatus?.currentShiftEndedWorkerIds ?? [],
+      workers,
+    )
     const required =
       liveStatus?.required ??
       effectiveStaffingStandard(lane, shift.staffingOverrides)
@@ -374,7 +377,9 @@ export function GateMapKiosk({
     currentAssignments.flatMap((item) => item.workerIds),
   )
   const endedWorkerIds = new Set(
-    [...liveStatuses.values()].flatMap((status) => status.endedWorkerIds),
+    [...liveStatuses.values()].flatMap(
+      (status) => status.currentShiftEndedWorkerIds,
+    ),
   )
   const unassigned = shift.presentWorkerIds
     .filter(
