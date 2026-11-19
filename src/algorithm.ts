@@ -820,6 +820,15 @@ function workerAssignedOnShift(
   return shiftPlacements(shift).some((p) => p.workerId === workerId)
 }
 
+function workerCompletedShift(
+  workerId: string,
+  shift: ShiftSchedule,
+): boolean {
+  if (!workerAssignedOnShift(workerId, shift)) return false
+  if (shift.earlyLeaveAt?.[workerId] != null) return false
+  return !shift.shiftDrops?.some((drop) => drop.workerId === workerId)
+}
+
 /** True when the worker worked (placement or gate manager) on any shift that day. */
 export function workerOnDutyThatDay(
   workerId: string,
@@ -1083,7 +1092,7 @@ export function isAfternoonShift(shiftType: ShiftType): boolean {
 }
 
 /**
- * Night recovery applies on the afternoon shifts of the calendar day after a night shift.
+ * Night recovery applies the day after a completed night shift.
  */
 export function needsAfternoonNightRecovery(
   workerId: string,
@@ -1100,7 +1109,7 @@ export function needsAfternoonNightRecovery(
     (h) =>
       h.date === nightDate &&
       h.shiftType === 'night' &&
-      workerAssignedOnShift(workerId, h),
+      workerCompletedShift(workerId, h),
   )
 }
 

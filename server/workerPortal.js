@@ -141,23 +141,36 @@ function workerAssignedOnShift(shift, workerId) {
   return false
 }
 
-function workerTouchedShift(shift, workerId) {
+function workerTouchedShift(shift, workerId, models) {
   if (!shift || !workerId) return false
-  if (
-    (shift.shiftOperationEvents || []).some(
-      (event) => String(event?.workerId || '') === String(workerId),
-    )
-  ) {
-    return true
-  }
+  if (workerOperationEventsFor(shift, workerId, models).length > 0) return true
   if ((shift.presentWorkerIds || []).includes(workerId)) return true
   if ((shift.shiftDrops || []).some((d) => d.workerId === workerId)) return true
   return workerAssignedOnShift(shift, workerId)
 }
 
-export function workerOperationEventsFor(shift, workerId) {
+function isMidShiftOperationEvent(shift, event, models) {
+  if (!shift?.date || !shift?.shiftType) return true
+  if (!event?.effectiveAt) return false
+  const effectiveAt = new Date(String(event.effectiveAt))
+  if (
+    !Number.isFinite(effectiveAt.getTime()) ||
+    effectiveAt.getTime() > Date.now()
+  ) {
+    return false
+  }
+  const local = israelParts(effectiveAt)
+  const effectiveMinutes = absoluteMinutes(local.date, local.minutes)
+  return effectiveMinutes > shiftStartAbs(shift, Array.isArray(models) ? models : [])
+}
+
+export function workerOperationEventsFor(shift, workerId, models) {
   return (shift?.shiftOperationEvents || [])
-    .filter((event) => String(event?.workerId || '') === String(workerId))
+    .filter(
+      (event) =>
+        String(event?.workerId || '') === String(workerId) &&
+        isMidShiftOperationEvent(shift, event, models),
+    )
     .map((event) => ({
       id: String(event.id || ''),
       kind: String(event.kind || ''),
@@ -172,19 +185,19 @@ function newestFirst(a, b) {
   return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
 }
 
-function findMyShift(history, workerId, date, shiftType) {
+function findMyShift(history, workerId, date, shiftType, models) {
   const list = history || []
   const slotMatches = list
     .filter(
       (s) =>
         s.date === date &&
         String(s.shiftType) === String(shiftType) &&
-        workerTouchedShift(s, workerId),
+        workerTouchedShift(s, workerId, models),
     )
     .sort(newestFirst)
   if (slotMatches[0]) return slotMatches[0]
   const dayMatches = list
-    .filter((s) => s.date === date && workerTouchedShift(s, workerId))
+    .filter((s) => s.date === date && workerTouchedShift(s, workerId, models))
     .sort(newestFirst)
   return dayMatches[0] || null
 }
@@ -295,7 +308,7 @@ function workerEndAbs(shift, workerId, presets, models) {
 function findRelevantShift(history, workerId, models, presets, now = new Date()) {
   const nowAbsolute = nowAbs(now)
   const list = (history || [])
-    .filter((s) => workerTouchedShift(s, workerId))
+    .filter((s) => workerTouchedShift(s, workerId, models))
     .sort((a, b) => shiftStartAbs(a, models) - shiftStartAbs(b, models))
 
   const active = list.find(
@@ -661,7 +674,7 @@ export async function getWorkerHome(req) {
           operationEvents:
             phase === 'upcoming'
               ? []
-              : workerOperationEventsFor(shift, actor.id),
+              : workerOperationEventsFor(shift, actor.id, state.shiftModels),
         }
       : null,
     placement,
@@ -771,7 +784,7 @@ export async function getWorkerHistory(req) {
       (s) =>
         s.date >= fromDate &&
         s.date <= toDate &&
-        workerTouchedShift(s, actor.id) &&
+        workerTouchedShift(s, actor.id, state.shiftModels) &&
         workerStartAbs(
           s,
           actor.id,
@@ -798,6 +811,7 @@ export async function getWorkerHistory(req) {
       id: shift.id,
       date: shift.date,
       shiftType: shift.shiftType,
+      shiftStartMinutes: shiftBounds(shift.shiftType, state.shiftModels).start,
       laneNames,
       placement,
       present: Boolean(shift.presentWorkerIds?.includes(actor.id)),
@@ -828,7 +842,11 @@ export async function getWorkerHistory(req) {
       drop,
       signedOff: Boolean(shift.signOff),
       updatedAt: shift.updatedAt,
-      operationEvents: workerOperationEventsFor(shift, actor.id),
+      operationEvents: workerOperationEventsFor(
+        shift,
+        actor.id,
+        state.shiftModels,
+      ),
     }
   })
 

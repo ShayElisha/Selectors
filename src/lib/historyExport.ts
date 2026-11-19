@@ -1,5 +1,6 @@
 import { INTENSITY_LABELS, SHIFT_TYPE_LABELS } from '../constants'
-import type { Lane, ShiftSchedule, Worker } from '../types'
+import { filterMidShiftOperationEvents } from './shiftOperationTime'
+import type { Lane, ShiftModel, ShiftSchedule, Worker } from '../types'
 import { laneRowsForShift } from './historyList'
 
 /** Escape a CSV cell (Excel-friendly, UTF-8) */
@@ -14,6 +15,7 @@ export type HistoryExportOptions = {
   toDate?: string
   workers: Worker[]
   lanes: Lane[]
+  shiftModels?: ShiftModel[]
 }
 
 /**
@@ -106,7 +108,15 @@ export function buildHistoryCsv(
       }
     }
 
-    for (const event of shift.shiftOperationEvents ?? []) {
+    const operationEvents = options.shiftModels
+      ? filterMidShiftOperationEvents(
+          shift.shiftOperationEvents,
+          shift.date,
+          shift.shiftType,
+          options.shiftModels,
+        )
+      : shift.shiftOperationEvents ?? []
+    for (const event of operationEvents) {
       const description =
         event.kind === 'worker_moved'
           ? `${event.workerName}: ${event.fromLaneName ?? 'נתיב לא ידוע'} ← ${event.toLaneName ?? 'נתיב לא ידוע'}`

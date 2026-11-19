@@ -6,7 +6,10 @@ import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { INTENSITY_LABELS, SHIFT_TYPE_LABELS } from '../constants'
 import { formatShiftDate } from '../lib/hebrew'
 import { formatMinutes } from '../lib/shiftModels'
-import { formatOperationTime } from '../lib/shiftOperationTime'
+import {
+  filterMidShiftOperationEvents,
+  formatOperationTime,
+} from '../lib/shiftOperationTime'
 import type { Intensity, ShiftType } from '../types'
 
 function shiftLabel(type: string) {
@@ -147,84 +150,99 @@ export function WorkerHistoryPage() {
           </p>
         ) : (
           <ul className="space-y-3">
-            {data.shifts.map((shift) => (
-              <li
-                key={shift.id}
-                className="rounded-xl border border-line/70 bg-surface/40 p-3"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-semibold text-ink">
-                    {formatShiftDate(shift.date)} · {shiftLabel(shift.shiftType)}
-                  </p>
-                  {shift.present ? (
-                    <span className="text-xs font-semibold text-ok">נוכח/ת</span>
-                  ) : (
-                    <span className="text-xs text-ink-soft">לא סומנה נוכחות</span>
-                  )}
-                </div>
-                <p className="mt-1 text-sm text-ink-soft">
-                  {shift.laneNames.length > 0
-                    ? `נתיבים: ${shift.laneNames.join(' · ')}`
-                    : 'לא שובצתם לנתיב'}
-                </p>
-                {(shift.operationEvents || []).length > 0 ? (
-                  <div className="mt-3 rounded-lg bg-surface px-3 py-2">
-                    <p className="text-xs font-semibold text-ink">
-                      שינויי שיבוץ אישיים
+            {data.shifts.map((shift) => {
+              const operationEvents = filterMidShiftOperationEvents(
+                shift.operationEvents,
+                shift.date,
+                shift.shiftType,
+                shift.shiftStartMinutes == null
+                  ? []
+                  : [
+                      {
+                        id: shift.shiftType,
+                        startMinutes: shift.shiftStartMinutes,
+                      },
+                    ],
+              )
+              return (
+                <li
+                  key={shift.id}
+                  className="rounded-xl border border-line/70 bg-surface/40 p-3"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="font-semibold text-ink">
+                      {formatShiftDate(shift.date)} · {shiftLabel(shift.shiftType)}
                     </p>
-                    <ul className="mt-1.5 space-y-2 text-xs text-ink-soft">
-                      {(shift.operationEvents || []).map((event) => (
-                        <li key={event.id}>
-                          <p className="font-medium text-ink">
-                            {operationKindLabel(event.kind)}
-                            {event.fromLaneName || event.toLaneName
-                              ? ` · ${[event.fromLaneName, event.toLaneName].filter(Boolean).join(' → ')}`
-                              : ''}
-                          </p>
-                          <p>
-                            {event.effectiveAt
-                              ? `בתוקף: ${formatOperationTime(event.effectiveAt)}`
-                              : 'מועד התוקף לא צוין'}
-                            {event.recordedAt
-                              ? ` · תועד: ${formatOperationTime(event.recordedAt)}`
-                              : ''}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
+                    {shift.present ? (
+                      <span className="text-xs font-semibold text-ok">נוכח/ת</span>
+                    ) : (
+                      <span className="text-xs text-ink-soft">לא סומנה נוכחות</span>
+                    )}
                   </div>
-                ) : null}
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
-                  {shift.lateMinutes != null ? (
-                    <span>איחור: {shift.lateMinutes} דק׳</span>
+                  <p className="mt-1 text-sm text-ink-soft">
+                    {shift.laneNames.length > 0
+                      ? `נתיבים: ${shift.laneNames.join(' · ')}`
+                      : 'לא שובצתם לנתיב'}
+                  </p>
+                  {operationEvents.length > 0 ? (
+                    <div className="mt-3 rounded-lg bg-surface px-3 py-2">
+                      <p className="text-xs font-semibold text-ink">
+                        שינויי שיבוץ אישיים
+                      </p>
+                      <ul className="mt-1.5 space-y-2 text-xs text-ink-soft">
+                        {operationEvents.map((event) => (
+                          <li key={event.id}>
+                            <p className="font-medium text-ink">
+                              {operationKindLabel(event.kind)}
+                              {event.fromLaneName || event.toLaneName
+                                ? ` · ${[event.fromLaneName, event.toLaneName].filter(Boolean).join(' → ')}`
+                                : ''}
+                            </p>
+                            <p>
+                              {event.effectiveAt
+                                ? `בתוקף: ${formatOperationTime(event.effectiveAt)}`
+                                : 'מועד התוקף לא צוין'}
+                              {event.recordedAt
+                                ? ` · תועד: ${formatOperationTime(event.recordedAt)}`
+                                : ''}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : null}
-                  {shift.earlyLeaveAt != null ? (
-                    <span>
-                      יציאה מוקדמת ב־
-                      <Ltr>{formatMinutes(shift.earlyLeaveAt)}</Ltr>
-                    </span>
-                  ) : shift.hoursEnded ? (
-                    <span className="font-semibold text-ink">
-                      השעות הסתיימו ב־
-                      <Ltr>{formatMinutes(shift.plannedEndMinutes)}</Ltr>
-                      {shift.plannedEndNextDay ? ' · למחרת' : ''}
-                    </span>
-                  ) : (
-                    <span>
-                      סיום מתוכנן ב־
-                      <Ltr>{formatMinutes(shift.plannedEndMinutes)}</Ltr>
-                      {shift.plannedEndNextDay ? ' · למחרת' : ''}
-                    </span>
-                  )}
-                  {shift.drop ? (
-                    <span>
-                      {dropKindLabel(shift.drop.kind)}
-                      {shift.drop.reason ? ` · ${shift.drop.reason}` : ''}
-                    </span>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
+                    {shift.lateMinutes != null ? (
+                      <span>איחור: {shift.lateMinutes} דק׳</span>
+                    ) : null}
+                    {shift.earlyLeaveAt != null ? (
+                      <span>
+                        יציאה מוקדמת ב־
+                        <Ltr>{formatMinutes(shift.earlyLeaveAt)}</Ltr>
+                      </span>
+                    ) : shift.hoursEnded ? (
+                      <span className="font-semibold text-ink">
+                        השעות הסתיימו ב־
+                        <Ltr>{formatMinutes(shift.plannedEndMinutes)}</Ltr>
+                        {shift.plannedEndNextDay ? ' · למחרת' : ''}
+                      </span>
+                    ) : (
+                      <span>
+                        סיום מתוכנן ב־
+                        <Ltr>{formatMinutes(shift.plannedEndMinutes)}</Ltr>
+                        {shift.plannedEndNextDay ? ' · למחרת' : ''}
+                      </span>
+                    )}
+                    {shift.drop ? (
+                      <span>
+                        {dropKindLabel(shift.drop.kind)}
+                        {shift.drop.reason ? ` · ${shift.drop.reason}` : ''}
+                      </span>
+                    ) : null}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </SectionCard>

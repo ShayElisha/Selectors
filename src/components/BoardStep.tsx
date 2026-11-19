@@ -2136,7 +2136,7 @@ export function BoardStep({
                     </label>
                   ) : null}
                   <p className="mb-4 text-xs text-ink-soft">
-                    ללא בחירת שעה, השינוי יתועד מתחילת המשמרת.
+                    ללא בחירת שעה, השינוי יישמר בשיבוץ אך לא יוצג בתיעוד השינויים.
                   </p>
                   <div className="flex justify-end gap-2">
                     <button
@@ -2271,7 +2271,7 @@ export function BoardStep({
                       </label>
                       ) : null}
                       <span className="mt-1 block text-xs text-ink-soft">
-                        ללא בחירת שעה, השינוי יתועד מתחילת המשמרת.
+                        ללא בחירת שעה, השינוי יישמר בשיבוץ אך לא יוצג בתיעוד השינויים.
                       </span>
                     </div>
                   ) : null}
@@ -2416,7 +2416,7 @@ export function BoardStep({
                       </label>
                       ) : null}
                       <span className="mt-1 block text-xs text-ink-soft">
-                        ללא בחירת שעה, השינוי יתועד מתחילת המשמרת.
+                        ללא בחירת שעה, השינוי יישמר בשיבוץ אך לא יוצג בתיעוד השינויים.
                       </span>
                     </div>
                   ) : null}

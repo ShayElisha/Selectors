@@ -40,7 +40,10 @@ import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerShiftEnd } from '../lib/workerShiftStatus'
-import { formatOperationTime } from '../lib/shiftOperationTime'
+import {
+  filterMidShiftOperationEvents,
+  formatOperationTime,
+} from '../lib/shiftOperationTime'
 import {
   formatShiftDate,
   formatShiftWindow,
@@ -440,6 +443,12 @@ function ShiftAccordion({
   }, [menuOpen])
 
   const models = resolveShiftModels(data.shiftModels, module)
+  const visibleOperationEvents = filterMidShiftOperationEvents(
+    shift.shiftOperationEvents,
+    shift.date,
+    shift.shiftType,
+    models,
+  )
   const shiftName = shiftModelLabel(models, shift.shiftType)
   const model = models.find((item) => item.id === shift.shiftType)
   const windowLabel = model
@@ -629,13 +638,13 @@ function ShiftAccordion({
               ))}
             </ul>
           ) : null}
-          {shift.shiftOperationEvents?.length ? (
+          {visibleOperationEvents.length ? (
             <section className="mb-3 rounded-xl border border-line/70 bg-surface/40 p-3">
               <h3 className="mb-2 text-sm font-semibold text-ink">
                 תיעוד שינויים בשיבוץ
               </h3>
               <ol className="space-y-2">
-                {[...shift.shiftOperationEvents]
+                {[...visibleOperationEvents]
                   .sort(
                     (a, b) =>
                       new Date(a.effectiveAt ?? a.recordedAt).getTime() -
@@ -962,6 +971,7 @@ export function HistoryPage() {
     downloadHistoryExcel(shiftsForExport, {
       workers: data.workers,
       lanes: data.lanes,
+      shiftModels,
       fromDate,
       toDate,
     })

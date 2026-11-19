@@ -18,7 +18,10 @@ import { IntensityBadge, Ltr, SectionCard } from '../components/ui'
 import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { formatMinutes } from '../lib/shiftModels'
-import { formatOperationTime } from '../lib/shiftOperationTime'
+import {
+  filterMidShiftOperationEvents,
+  formatOperationTime,
+} from '../lib/shiftOperationTime'
 import { notify } from '../lib/notify'
 import {
   phoneDigitsForWhatsApp,
@@ -204,6 +207,20 @@ export function WorkerHomePage() {
   const upcoming = phase === 'upcoming'
   const active = phase === 'active'
   const completed = phase === 'completed'
+  const visibleOperationEvents =
+    home?.shift && home.now?.shiftStartMinutes != null
+      ? filterMidShiftOperationEvents(
+          home.shift.operationEvents,
+          home.shift.date,
+          home.shift.shiftType,
+          [
+            {
+              id: home.shift.shiftType,
+              startMinutes: home.now.shiftStartMinutes,
+            },
+          ],
+        )
+      : []
 
   const startLeft = useEndsAtCountdown(home?.now?.shiftStartsAt)
   const shiftLeft = useEndsAtCountdown(home?.now?.shiftEndsAt)
@@ -529,13 +546,13 @@ export function WorkerHomePage() {
                 </div>
               </>
             ) : null}
-            {(home.shift.operationEvents || []).length > 0 ? (
+            {visibleOperationEvents.length > 0 ? (
               <div className="rounded-xl border border-line/70 bg-surface/40 p-3">
                 <p className="text-sm font-semibold text-ink">
                   שינויי שיבוץ אישיים
                 </p>
                 <ul className="mt-2 space-y-2 text-xs text-ink-soft">
-                  {(home.shift.operationEvents || []).map((event) => (
+                  {visibleOperationEvents.map((event) => (
                     <li key={event.id}>
                       <p className="font-medium text-ink">
                         {operationKindLabel(event.kind)}

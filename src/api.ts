@@ -820,6 +820,7 @@ export interface WorkerHistoryResponse {
     id: string
     date: string
     shiftType: string
+    shiftStartMinutes?: number
     laneNames: string[]
     placement: WorkerHomeResponse['placement']
     present: boolean

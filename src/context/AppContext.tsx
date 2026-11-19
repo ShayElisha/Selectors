@@ -50,6 +50,7 @@ import {
 } from '../api'
 import { notify } from '../lib/notify'
 import { allowLeaveUnsaved } from '../lib/unsavedLeaveRegistry'
+import { isMidShiftOperationTime } from '../lib/shiftOperationTime'
 import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
@@ -925,6 +926,19 @@ function workerOperationEvent(
     ...(fromLaneId ? { fromLaneId, fromLaneName: laneName(fromLaneId) } : {}),
     ...(toLaneId ? { toLaneId, toLaneName: laneName(toLaneId) } : {}),
   }, effectiveAt)
+}
+
+function isRecordableShiftChange(
+  shift: Pick<ShiftSchedule, 'date' | 'shiftType'>,
+  effectiveAt: string | undefined,
+  models: ShiftModel[],
+): boolean {
+  return isMidShiftOperationTime(
+    shift.date,
+    shift.shiftType,
+    effectiveAt,
+    models,
+  )
 }
 
 /** Stable snapshot used to detect whether the user changed the current shift. */
@@ -3435,6 +3449,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       workerId: string | null,
       effectiveAt?: string,
     ) => {
+      const operationModels = resolveShiftModels(
+        data.shiftModels,
+        activeModule(user),
+      )
       setDraft((d) => {
         if (!d) return d
         const padded = padAssignments(d.assignments, data.lanes, d.activeLaneIds, d.staffingOverrides).map(
@@ -3537,7 +3555,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const operationEvents: ShiftOperationEvent[] = []
         if (
           data.history.some((item) => item.id === d.id) &&
-          prevId !== (workerId ?? '')
+          prevId !== (workerId ?? '') &&
+          isRecordableShiftChange(d, effectiveAt, operationModels)
         ) {
           if (prevId) {
             operationEvents.push(
@@ -3584,7 +3603,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.history, data.lanes, data.workers],
+    [data.history, data.lanes, data.shiftModels, data.workers, user],
   )
 
   const updateSelectorCell = useCallback(
@@ -3652,6 +3671,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       b: { laneId: string; slotIndex: number },
       effectiveAt?: string,
     ) => {
+      const operationModels = resolveShiftModels(
+        data.shiftModels,
+        activeModule(user),
+      )
       setDraft((d) => {
         if (!d) return d
         if (a.laneId === b.laneId && a.slotIndex === b.slotIndex) return d
@@ -3683,7 +3706,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const operationEvents: ShiftOperationEvent[] = []
         if (
           a.laneId !== b.laneId &&
-          data.history.some((item) => item.id === d.id)
+          data.history.some((item) => item.id === d.id) &&
+          isRecordableShiftChange(d, effectiveAt, operationModels)
         ) {
           if (idA) {
             operationEvents.push(
@@ -3758,7 +3782,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.history, data.lanes, data.workers],
+    [data.history, data.lanes, data.shiftModels, data.workers, user],
   )
 
   const laneNoteAuditTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3813,6 +3837,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const replaceLeavingWorker = useCallback(
     (leavingId: string, replacementId: string, effectiveAt?: string) => {
+      const operationModels = resolveShiftModels(
+        data.shiftModels,
+        activeModule(user),
+      )
       setDraft((d) => {
         if (!d || usesRounds(d)) return d
         const next = replaceLeavingWorkerSeat({
@@ -3833,7 +3861,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )?.laneId
         const laneName = data.lanes.find((lane) => lane.id === laneId)?.name || laneId || ''
         const operationEvents: ShiftOperationEvent[] = []
-        if (laneId && data.history.some((item) => item.id === d.id)) {
+        if (
+          laneId &&
+          data.history.some((item) => item.id === d.id) &&
+          isRecordableShiftChange(d, effectiveAt, operationModels)
+        ) {
           operationEvents.push(
             workerOperationEvent(
               'worker_removed',
@@ -3884,7 +3916,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.history, data.lanes, data.workers],
+    [data.history, data.lanes, data.shiftModels, data.workers, user],
   )
 
   const addExtraWorkerToLane = useCallback(
