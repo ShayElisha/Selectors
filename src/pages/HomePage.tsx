@@ -304,8 +304,7 @@ export function HomePage() {
             windowLabel: preset?.label ?? personalWindowLabel(workerId),
           }
         })
-        const endedWorkers = status.endedWorkerIds
-          .filter((id) => activeShift.presentWorkerIds.includes(id))
+        const endedWorkers = status.currentShiftEndedWorkerIds
           .map((id) => ({
             id,
             name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,

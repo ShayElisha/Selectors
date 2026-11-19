@@ -13,6 +13,7 @@ export type LaneLiveStatus = {
   activeWorkerIds: string[]
   activeWorkerSources: { workerId: string; shiftId: string }[]
   endedWorkerIds: string[]
+  currentShiftEndedWorkerIds: string[]
   required: StaffingStandard
   missing: number
   autoClosed: boolean
@@ -123,6 +124,7 @@ export function laneLiveStatus(args: {
 
   const activeIds = new Set<string>()
   const endedIds = new Set<string>()
+  const currentShiftEndedIds = new Set<string>()
   const activeSources = new Map<string, string>()
   let latestEndedAt = 0
 
@@ -153,6 +155,7 @@ export function laneLiveStatus(args: {
       if (!interval || interval.start > now) continue
       if (interval.end <= now) {
         endedIds.add(workerId)
+        if (candidate.id === shift.id) currentShiftEndedIds.add(workerId)
         latestEndedAt = Math.max(latestEndedAt, interval.end)
       } else if (activeAssignedIds.has(workerId)) {
         activeIds.add(workerId)
@@ -163,7 +166,10 @@ export function laneLiveStatus(args: {
     }
   }
 
-  for (const workerId of activeIds) endedIds.delete(workerId)
+  for (const workerId of activeIds) {
+    endedIds.delete(workerId)
+    currentShiftEndedIds.delete(workerId)
+  }
   const reopenedAt = shift.laneReopenedAt?.[lane.id]
   const reopenedTimestamp = reopenedAt ? new Date(reopenedAt).getTime() : NaN
   const manuallyReopened =
@@ -183,6 +189,7 @@ export function laneLiveStatus(args: {
       shiftId,
     })),
     endedWorkerIds: [...endedIds],
+    currentShiftEndedWorkerIds: [...currentShiftEndedIds],
     required,
     missing,
     autoClosed,

@@ -116,6 +116,33 @@ describe('laneLiveStatus', () => {
     })
   })
 
+  it('only reports current-shift ended workers separately from yesterday shifts', () => {
+    const current = shift('current', ['today-worker'], {
+      date: '2026-11-19',
+      shiftType: 'morning',
+      workerWindows: { 'today-worker': 'until-15' },
+    })
+    const yesterday = shift('yesterday', ['yesterday-worker'], {
+      date: '2026-11-18',
+      shiftType: 'afternoon',
+      workerWindows: { 'yesterday-worker': 'until-15' },
+    })
+
+    expect(
+      laneLiveStatus({
+        shift: current,
+        history: [current, yesterday],
+        lane,
+        models,
+        presets,
+        now: new Date(2026, 10, 19, 16, 0).getTime(),
+      }),
+    ).toMatchObject({
+      endedWorkerIds: ['today-worker', 'yesterday-worker'],
+      currentShiftEndedWorkerIds: ['today-worker'],
+    })
+  })
+
   it('keeps the lane covered by an overlapping replacement shift', () => {
     const current = shift('current', ['worker-1', 'worker-2'], {
       workerWindows: {
