@@ -138,6 +138,12 @@ export type ContinuingAttendanceSource = {
   presentWorkerIds: string[]
   gateManagerWorkerId?: string
   workerWindows?: Record<string, string>
+  earlyLeaveAt?: Record<string, number>
+  shiftDrops?: {
+    workerId: string
+    kind: 'leave' | 'cancel' | 'noshow'
+    minutes: number
+  }[]
   windowAdjustments?: Record<
     string,
     { lateMinutes?: number; earlyMinutes?: number }
@@ -219,6 +225,7 @@ export function collectContinuingAttendance(opts: {
   catalog?: WorkerWindowPreset[] | null
   models?: ShiftModel[]
 }): ContinuingAttendance {
+  const minimumContinuationMinutes = 60
   const empty: ContinuingAttendance = {
     workerIds: [],
     workerWindows: {},
@@ -239,6 +246,15 @@ export function collectContinuingAttendance(opts: {
   const consideredWorkers = new Set<string>()
 
   const consider = (source: ContinuingAttendanceSource, id: string) => {
+    if (
+      source.shiftDrops?.some(
+        (drop) =>
+          drop.workerId === id &&
+          (drop.kind === 'cancel' || drop.kind === 'noshow'),
+      )
+    ) {
+      return false
+    }
     const saved = source.workerWindows?.[id]
     const preset = workerWindowById(saved, opts.catalog)
     if (!preset) return false
@@ -255,13 +271,39 @@ export function collectContinuingAttendance(opts: {
       opts.models,
     )
     if (!personalBounds) return false
+    const adjustment = source.windowAdjustments?.[id]
+    const lateMinutes = Math.max(0, Number(adjustment?.lateMinutes) || 0)
+    const earlyMinutes = Math.max(0, Number(adjustment?.earlyMinutes) || 0)
+    personalBounds.start += lateMinutes
+    personalBounds.end -= earlyMinutes
+    const leaveAt =
+      source.earlyLeaveAt?.[id] ??
+      source.shiftDrops?.find(
+        (drop) => drop.workerId === id && drop.kind === 'leave',
+      )?.minutes
+    if (leaveAt != null && Number.isFinite(Number(leaveAt))) {
+      let absoluteLeaveAt =
+        Date.parse(`${source.date}T00:00:00Z`) / (60 * 1000) +
+        Number(leaveAt)
+      if (
+        absoluteLeaveAt < sourceBounds.start &&
+        sourceBounds.end > sourceBounds.start + 24 * 60
+      ) {
+        absoluteLeaveAt += 24 * 60
+      }
+      personalBounds.end = Math.min(personalBounds.end, absoluteLeaveAt)
+    }
+    if (personalBounds.end <= personalBounds.start) return false
     const reachesTarget =
       personalBounds.start < targetBounds.end &&
       personalBounds.end > targetBounds.start
+    const continuesMeaningfully =
+      personalBounds.end >= targetBounds.start + minimumContinuationMinutes
     const crossesMidnightIntoTarget =
       source.date < opts.date && sourceBounds.end > targetBounds.start
     if (
       !reachesTarget ||
+      !continuesMeaningfully ||
       !(personalBounds.end > sourceBounds.end || crossesMidnightIntoTarget)
     ) {
       return false
@@ -270,7 +312,6 @@ export function collectContinuingAttendance(opts: {
     if (saved && !workerWindows[id]) {
       workerWindows[id] = saved
     }
-    const adjustment = source.windowAdjustments?.[id]
     if (adjustment && !windowAdjustments[id]) {
       windowAdjustments[id] = { ...adjustment }
     }

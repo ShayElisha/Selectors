@@ -13,6 +13,8 @@ import { isGateManagerLane } from '../lib/gateManager'
 import { visibleExplanationReasons } from './AssignmentExplainDialog'
 import { Ltr, TraineeBadge } from './ui'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
+import { laneLiveStatus, type LaneLiveStatus } from '../lib/laneLiveStatus'
+import { resolveShiftModels } from '../lib/shiftModels'
 import type {
   Intensity,
   Lane,
@@ -35,7 +37,10 @@ export type GateIsland = {
   intensity: Intensity
   required: StaffingStandard
   workers: GatePerson[]
+  endedWorkers: GatePerson[]
   missing: number
+  autoClosed: boolean
+  manuallyReopened: boolean
   notes?: string
 }
 
@@ -85,6 +90,7 @@ function islandsFromAssignments(
   lanes: Lane[],
   workers: Worker[],
   assignments: LaneAssignment[],
+  liveStatuses: Map<string, LaneLiveStatus>,
 ): GateIsland[] {
   const order = new Map(lanes.map((lane, index) => [lane.id, index]))
   const islands: GateIsland[] = []
@@ -92,16 +98,25 @@ function islandsFromAssignments(
     const lane = lanes.find((item) => item.id === laneId)
     if (!lane || isGateManagerLane(lane)) continue
     const row = assignments.find((item) => item.laneId === laneId)
-    const assignedIds = row?.workerIds ?? []
-    const assigned = peopleFromIds(assignedIds, workers)
-    const required = effectiveStaffingStandard(lane, shift.staffingOverrides)
+    const liveStatus = liveStatuses.get(laneId)
+    const assigned = peopleFromIds(
+      liveStatus?.activeWorkerIds ?? row?.workerIds ?? [],
+      workers,
+    )
+    const ended = peopleFromIds(liveStatus?.endedWorkerIds ?? [], workers)
+    const required =
+      liveStatus?.required ??
+      effectiveStaffingStandard(lane, shift.staffingOverrides)
     islands.push({
       laneId,
       name: lane.name,
       intensity: lane.intensity,
       required,
       workers: assigned,
-      missing: Math.max(0, required - assigned.length),
+      endedWorkers: ended,
+      missing: liveStatus?.missing ?? Math.max(0, required - assigned.length),
+      autoClosed: liveStatus?.autoClosed ?? false,
+      manuallyReopened: liveStatus?.manuallyReopened ?? false,
       notes: row?.notes,
     })
   }
@@ -130,7 +145,9 @@ function IslandNode({
       type="button"
       className={`gate-island gate-island--${island.intensity} ${
         island.missing > 0 ? 'gate-island--gap' : filled ? 'gate-island--ok' : ''
-      } ${empty ? 'gate-island--empty' : ''} ${selected ? 'is-selected' : ''}`}
+      } ${island.autoClosed ? 'gate-island--closed' : ''} ${
+        empty ? 'gate-island--empty' : ''
+      } ${selected ? 'is-selected' : ''}`}
       style={{ animationDelay: `${delayMs}ms` }}
       onClick={onSelect}
       aria-pressed={selected}
@@ -143,14 +160,23 @@ function IslandNode({
             <p className="gate-island__meta">
               {INTENSITY_LABELS[island.intensity]} · תקן {island.required}
             </p>
+            {island.autoClosed ? (
+              <span className="mt-1 inline-flex rounded-md bg-hard-soft px-1.5 py-0.5 text-[10px] font-bold text-hard ring-1 ring-hard/20">
+                סגור אוטומטית · חסר מחליף
+              </span>
+            ) : island.manuallyReopened ? (
+              <span className="mt-1 inline-flex rounded-md bg-ok-soft px-1.5 py-0.5 text-[10px] font-bold text-ok ring-1 ring-ok/20">
+                נפתח ידנית
+              </span>
+            ) : null}
           </div>
           <span
             className={`gate-island__status ${
-              island.missing > 0 ? 'is-gap' : 'is-ok'
+              island.autoClosed || island.missing > 0 ? 'is-gap' : 'is-ok'
             }`}
             aria-hidden
           >
-            {island.missing > 0 ? (
+            {island.autoClosed || island.missing > 0 ? (
               <AlertTriangle className="size-5" />
             ) : (
               <CheckCircle2 className="size-5" />
@@ -176,6 +202,11 @@ function IslandNode({
         {island.missing > 0 ? (
           <p className="gate-island__gap">חסר {island.missing}</p>
         ) : null}
+        {island.endedWorkers.length > 0 ? (
+          <p className="mt-1 text-[11px] font-medium text-ink-soft">
+            הסתיימו שעות: {island.endedWorkers.map((person) => person.name).join(' · ')}
+          </p>
+        ) : null}
       </div>
     </button>
   )
@@ -190,7 +221,7 @@ export function GateMapKiosk({
   lanes: Lane[]
   workers: Worker[]
 }) {
-  const { data } = useApp()
+  const { data, module } = useApp()
   const [now, setNow] = useState(() => Date.now())
   const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null)
   const rounds = shift.rounds ?? []
@@ -213,6 +244,42 @@ export function GateMapKiosk({
     return shift.assignments
   }, [hasRounds, rounds, activeRoundIndex, shift.assignments])
 
+  const shiftModels = useMemo(
+    () => resolveShiftModels(data.shiftModels, module),
+    [data.shiftModels, module],
+  )
+  const liveStatuses = useMemo(
+    () =>
+      new Map(
+        shift.activeLaneIds.flatMap((laneId) => {
+          const lane = lanes.find((item) => item.id === laneId)
+          return lane
+            ? [
+                [
+                  laneId,
+                  laneLiveStatus({
+                    shift,
+                    history: data.history,
+                    lane,
+                    models: shiftModels,
+                    presets: data.workerWindowPresets ?? [],
+                    now,
+                  }),
+                ] as const,
+              ]
+            : []
+        }),
+      ),
+    [
+      data.history,
+      data.workerWindowPresets,
+      lanes,
+      now,
+      shift,
+      shiftModels,
+    ],
+  )
+
   const islands = useMemo(
     () =>
       islandsFromAssignments(
@@ -220,12 +287,14 @@ export function GateMapKiosk({
         lanes,
         workers,
         currentAssignments,
+        liveStatuses,
       ),
     [
       shift,
       lanes,
       workers,
       currentAssignments,
+      liveStatuses,
     ],
   )
 
@@ -304,11 +373,15 @@ export function GateMapKiosk({
   const assignedIds = new Set(
     currentAssignments.flatMap((item) => item.workerIds),
   )
+  const endedWorkerIds = new Set(
+    [...liveStatuses.values()].flatMap((status) => status.endedWorkerIds),
+  )
   const unassigned = shift.presentWorkerIds
     .filter(
       (id) =>
         !assignedIds.has(id) &&
-        id !== shift.gateManagerWorkerId,
+        id !== shift.gateManagerWorkerId &&
+        !endedWorkerIds.has(id),
     )
     .map((id) => {
       const worker = workers.find((item) => item.id === id)
@@ -515,6 +588,16 @@ export function GateMapKiosk({
                   )
                 })
               )}
+              {selected.autoClosed ? (
+                <p className="rounded-lg bg-hard-soft px-3 py-2 text-[13px] font-semibold text-hard">
+                  הנתיב נסגר אוטומטית: אין מספיק עובדים פעילים ואין משמרת חלופית שמכסה כעת.
+                </p>
+              ) : null}
+              {selected.endedWorkers.length > 0 ? (
+                <p className="text-[12px] text-ink-soft">
+                  הסתיימו שעות: {selected.endedWorkers.map((person) => person.name).join(' · ')}
+                </p>
+              ) : null}
               {selected.notes ? (
                 <p className="gate-detail__notes">{selected.notes}</p>
               ) : null}
