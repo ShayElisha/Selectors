@@ -678,6 +678,15 @@ export async function postAuditEvent(
   }
 }
 
+export interface WorkerOperationEvent {
+  id: string
+  kind: string
+  effectiveAt: string | null
+  recordedAt: string
+  fromLaneName: string | null
+  toLaneName: string | null
+}
+
 export interface WorkerHomeResponse {
   me: {
     id: string
@@ -704,6 +713,7 @@ export interface WorkerHomeResponse {
     assignmentMode?: string
     signOff?: unknown
     updatedAt?: string
+    operationEvents?: WorkerOperationEvent[]
   } | null
   placement: {
     lanes: {
@@ -815,6 +825,7 @@ export interface WorkerHistoryResponse {
     } | null
     signedOff: boolean
     updatedAt?: string
+    operationEvents?: WorkerOperationEvent[]
   }[]
   cancellations: {
     shiftId: string

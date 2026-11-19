@@ -124,7 +124,7 @@ export function buildHistoryCsv(
         '',
         '',
         'שינוי בשיבוץ',
-        event.effectiveAt,
+        event.effectiveAt ?? 'לא צוין (ייתכן מתחילת המשמרת)',
         event.recordedAt,
         event.actorName,
         description,

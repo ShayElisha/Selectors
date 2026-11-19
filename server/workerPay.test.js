@@ -14,11 +14,14 @@ import {
   createPayEntriesForCompletedShifts,
   createPayEntriesForShift,
   addWorkerPayEntry,
+  getWorkerPay,
   saveWorkerPayRate,
 } from './workerPay.js'
 
 describe('worker pay entries', () => {
   let collection
+  let shiftsCollection
+  let presetsCollection
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -27,8 +30,19 @@ describe('worker pay entries', () => {
       updateOne: vi.fn().mockResolvedValue({ matchedCount: 1 }),
       createIndex: vi.fn().mockResolvedValue(undefined),
     }
+    shiftsCollection = {
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue([]) })),
+    }
+    presetsCollection = {
+      find: vi.fn(() => ({ toArray: vi.fn().mockResolvedValue([]) })),
+    }
     getDb.mockResolvedValue({
-      collection: () => collection,
+      collection: (name) =>
+        name === 'worker_pay'
+          ? collection
+          : name === 'shifts'
+            ? shiftsCollection
+            : presetsCollection,
     })
     requireWorkerActor.mockResolvedValue({
       actor: { id: 'w1', fullName: 'בודק' },
@@ -185,7 +199,7 @@ describe('worker pay entries', () => {
     )
   })
 
-  it('creates a full-shift pay entry when no personal hours are selected', async () => {
+  it('does not create a pay entry when no personal hours are selected', async () => {
     await createPayEntriesForShift(
       {
         id: 'morning',
@@ -198,15 +212,33 @@ describe('worker pay entries', () => {
       [{ id: 'morning', startMinutes: 360, endMinutes: 870 }],
     )
 
+    expect(collection.updateOne).not.toHaveBeenCalled()
+  })
+
+  it('creates a pay entry when the worker has a stored personal-hours preset', async () => {
+    await createPayEntriesForShift(
+      {
+        id: 'morning',
+        date: '2026-11-18',
+        shiftType: 'morning',
+        presentWorkerIds: ['w1'],
+        workerWindows: { w1: 'long' },
+      },
+      [{ id: 'long', start: 360, end: 1110 }],
+      { orgId: 'org-1', module: 'inspectors' },
+      [{ id: 'morning', startMinutes: 360, endMinutes: 870 }],
+    )
+
     expect(collection.updateOne).toHaveBeenCalledWith(
       { orgId: 'org-1', workerId: 'w1' },
       expect.objectContaining({
         $set: expect.objectContaining({
           entries: [
             expect.objectContaining({
+              sourceShiftId: 'morning',
               date: '2026-11-18',
               start: '06:00',
-              end: '14:30',
+              end: '18:30',
               kind: 'work',
             }),
           ],
@@ -214,5 +246,81 @@ describe('worker pay entries', () => {
       }),
       { upsert: true },
     )
+  })
+
+  it('shows manual entries but hides generated entries without a stored personal shift', async () => {
+    collection.findOne.mockResolvedValue({
+      orgId: 'org-1',
+      workerId: 'w1',
+      basis: 'hourly',
+      amount: 60,
+      rates: [],
+      entries: [
+        {
+          id: 'manual',
+          date: '2026-11-18',
+          start: '08:00',
+          end: '16:00',
+          kind: 'work',
+        },
+        {
+          id: 'generated',
+          sourceShiftId: 'morning',
+          date: '2026-11-18',
+          start: '06:00',
+          end: '14:30',
+          kind: 'work',
+        },
+      ],
+    })
+    shiftsCollection.find.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 'morning',
+          presentWorkerIds: ['w1'],
+          workerWindows: {},
+        },
+      ]),
+    })
+
+    const result = await getWorkerPay({}, {})
+
+    expect(result.entries.map((entry) => entry.id)).toEqual(['manual'])
+  })
+
+  it('shows generated entries only when the referenced personal shift exists in storage', async () => {
+    collection.findOne.mockResolvedValue({
+      orgId: 'org-1',
+      workerId: 'w1',
+      basis: 'hourly',
+      amount: 60,
+      rates: [],
+      entries: [
+        {
+          id: 'generated',
+          sourceShiftId: 'morning',
+          date: '2026-11-18',
+          start: '06:00',
+          end: '18:30',
+          kind: 'work',
+        },
+      ],
+    })
+    shiftsCollection.find.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          id: 'morning',
+          presentWorkerIds: ['w1'],
+          workerWindows: { w1: 'long' },
+        },
+      ]),
+    })
+    presetsCollection.find.mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([{ id: 'long' }]),
+    })
+
+    const result = await getWorkerPay({}, {})
+
+    expect(result.entries.map((entry) => entry.id)).toEqual(['generated'])
   })
 })

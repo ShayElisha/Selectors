@@ -304,10 +304,12 @@ export function HomePage() {
             windowLabel: preset?.label ?? personalWindowLabel(workerId),
           }
         })
-        const endedWorkers = status.endedWorkerIds.map((id) => ({
-          id,
-          name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,
-        }))
+        const endedWorkers = status.endedWorkerIds
+          .filter((id) => activeShift.presentWorkerIds.includes(id))
+          .map((id) => ({
+            id,
+            name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,
+          }))
         return {
           laneId,
           laneName: lane.name,

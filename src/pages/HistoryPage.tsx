@@ -638,8 +638,8 @@ function ShiftAccordion({
                 {[...shift.shiftOperationEvents]
                   .sort(
                     (a, b) =>
-                      new Date(a.effectiveAt).getTime() -
-                      new Date(b.effectiveAt).getTime(),
+                      new Date(a.effectiveAt ?? a.recordedAt).getTime() -
+                      new Date(b.effectiveAt ?? b.recordedAt).getTime(),
                   )
                   .map((event) => {
                     const action =
@@ -657,7 +657,10 @@ function ShiftAccordion({
                           {event.workerName} {action}
                         </p>
                         <p className="mt-0.5 text-ink-soft">
-                          בתוקף: {formatOperationTime(event.effectiveAt)}
+                          בתוקף:{' '}
+                          {event.effectiveAt
+                            ? formatOperationTime(event.effectiveAt)
+                            : 'לא צוין (ייתכן מתחילת המשמרת)'}
                           {' · '}
                           נרשם: {formatOperationTime(event.recordedAt)}
                           {' · '}
