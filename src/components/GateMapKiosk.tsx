@@ -262,7 +262,7 @@ export function GateMapKiosk({
                   laneId,
                   laneLiveStatus({
                     shift,
-                    history: data.history,
+                    history: [],
                     lane,
                     models: shiftModels,
                     presets: data.workerWindowPresets ?? [],
@@ -274,7 +274,6 @@ export function GateMapKiosk({
         }),
       ),
     [
-      data.history,
       data.workerWindowPresets,
       lanes,
       now,
