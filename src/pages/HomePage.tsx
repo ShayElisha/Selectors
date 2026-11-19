@@ -1316,6 +1316,35 @@ export function HomePage() {
     : headerStatus === 'משובץ'
       ? 'bg-ok-soft text-ok ring-ok/20'
       : 'bg-surface text-ink-soft ring-line'
+  const actionShift = shownIsCurrent ? currentShift : displayedShift
+  const actionShiftType = shownIsCurrent ? currentCtx.shiftType : shownSlot.shiftType
+  const actionDate = shownIsCurrent ? currentCtx.date : shownSlot.date
+  const actionDescription = activeDraftSummary ? (
+    <>
+      {shiftModelLabel(shiftModels, actionShiftType)} · <Ltr>{formatShiftDate(actionDate)}</Ltr> ·{' '}
+      {pluralizeHe(activeDraftSummary.lanes, lanePlural)} ·{' '}
+      {pluralizeHe(activeDraftSummary.present, workerPlural)} נוכחים
+      {activeDraftSummary.assigned > 0
+        ? ` · ${pluralizeHe(activeDraftSummary.assigned, workerPlural)} משובצים`
+        : ''}
+      . אפשר להמשיך את הטיוטה או לבטל אותה.
+    </>
+  ) : actionShift ? (
+    <>
+      משמרת {shiftModelLabel(shiftModels, actionShiftType)} ·{' '}
+      <Ltr>{formatShiftDate(actionDate)}</Ltr> ·{' '}
+      <ShiftWindowLabel shiftType={actionShiftType} inspectors={inspectorModule} />.{' '}
+      {actionShift.signOff?.signedAt
+        ? 'השיבוץ נסגר ואפשר לצפות בו.'
+        : 'השיבוץ שמור וניתן לעריכה.'}
+    </>
+  ) : (
+    <>
+      אין עדיין שיבוץ שמור למשמרת {shiftModelLabel(shiftModels, actionShiftType)} ·{' '}
+      <Ltr>{formatShiftDate(actionDate)}</Ltr> ·{' '}
+      <ShiftWindowLabel shiftType={actionShiftType} inspectors={inspectorModule} />. אפשר להתחיל משמרת חדשה.
+    </>
+  )
   const shiftTabOptions: ShiftTabOption[] = shiftsForShownDay.map(({ model, shift }) => {
     const draftForTab =
       draft && draft.date === shownSlot.date && draft.shiftType === model.id
@@ -1344,43 +1373,25 @@ export function HomePage() {
           </ul>
         </section>
       ) : null}
-      {/* Current shift and assignment table */}
-      <SectionCard
-        printRoot
-        className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
-        title={
-          <span className="flex flex-wrap items-center gap-2">
-            <span>משמרת {shiftModelLabel(shiftModels, shownSlot.shiftType)}</span>
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${headerStatusClass}`}
-            >
-              {headerStatus === 'טיוטה פעילה' ? (
-                <RefreshCw className="size-3.5" aria-hidden />
-              ) : headerStatus === 'נסגרה' ? (
-                <Lock className="size-3.5" aria-hidden />
-              ) : headerStatus === 'משובץ' ? (
-                <CheckCircle2 className="size-3.5" aria-hidden />
-              ) : null}
-              {headerStatus}
+      {shownIsCurrent || displayedShift ? (
+        <section
+          className="flex flex-col gap-3 rounded-2xl border border-brand/15 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 shadow-[var(--shadow-panel)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-5"
+          aria-label="פעולות ליצירה ועריכת משמרת"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand ring-1 ring-brand/15">
+              <ClipboardPenLine className="size-5" aria-hidden />
             </span>
-          </span>
-        }
-        subtitle={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <ShiftWindowLabel shiftType={shownSlot.shiftType} inspectors={inspectorModule} />
-            {activeDraftSummary ? (
-              <span className="text-[13px] text-ink-soft">
-                {pluralizeHe(activeDraftSummary.lanes, lanePlural)} ·{' '}
-                {pluralizeHe(activeDraftSummary.present, workerPlural)} נוכחים
-                {activeDraftSummary.assigned > 0
-                  ? ` · ${pluralizeHe(activeDraftSummary.assigned, workerPlural)} משובצים`
-                  : ''}
-              </span>
-            ) : null}
-          </span>
-        }
-        actions={
-          <>
+            <div className="min-w-0">
+              <h2 className="font-display text-base font-bold text-ink sm:text-lg">
+                יצירה ועריכת משמרת
+              </h2>
+              <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
+                {actionDescription}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 no-print">
             {activeDraftSummary ? (
               <>
                 <button
@@ -1415,7 +1426,7 @@ export function HomePage() {
                   בטל טיוטה
                 </button>
               </>
-            ) : shownIsCurrent ? currentShift ? (
+            ) : shownIsCurrent && currentShift ? (
               <>
                 <button
                   type="button"
@@ -1435,7 +1446,7 @@ export function HomePage() {
                   משמרת חדשה
                 </button>
               </>
-            ) : (
+            ) : shownIsCurrent ? (
               <button
                 type="button"
                 onClick={() => startShift()}
@@ -1463,18 +1474,47 @@ export function HomePage() {
                 שיבוץ סלקטורים
               </button>
             ) : null}
-            {shownIsCurrent && currentShift ? (
-              <button
-                type="button"
-                onClick={() => void boardKioskRef.current?.enter()}
-                className="ui-btn-ghost inline-flex size-10 items-center justify-center rounded-xl text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                title="מסך קיוסק"
-                aria-label="פתיחת מסך קיוסק"
-              >
-                <Maximize2 className="size-4" aria-hidden />
-              </button>
-            ) : null}
-          </>
+          </div>
+        </section>
+      ) : null}
+      {/* Current shift and assignment table */}
+      <SectionCard
+        printRoot
+        className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>משמרת {shiftModelLabel(shiftModels, shownSlot.shiftType)}</span>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${headerStatusClass}`}
+            >
+              {headerStatus === 'טיוטה פעילה' ? (
+                <RefreshCw className="size-3.5" aria-hidden />
+              ) : headerStatus === 'נסגרה' ? (
+                <Lock className="size-3.5" aria-hidden />
+              ) : headerStatus === 'משובץ' ? (
+                <CheckCircle2 className="size-3.5" aria-hidden />
+              ) : null}
+              {headerStatus}
+            </span>
+          </span>
+        }
+        subtitle={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <ShiftWindowLabel shiftType={shownSlot.shiftType} inspectors={inspectorModule} />
+          </span>
+        }
+        actions={
+          shownIsCurrent && currentShift ? (
+            <button
+              type="button"
+              onClick={() => void boardKioskRef.current?.enter()}
+              className="ui-btn-ghost inline-flex size-10 items-center justify-center rounded-xl text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              title="מסך קיוסק"
+              aria-label="פתיחת מסך קיוסק"
+            >
+              <Maximize2 className="size-4" aria-hidden />
+            </button>
+          ) : null
         }
       >
         <div className="mb-4 space-y-3 no-print">
