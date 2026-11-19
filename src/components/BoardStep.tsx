@@ -82,7 +82,7 @@ import {
 import { notify } from '../lib/notify'
 import {
   fromLocalDateTimeInput,
-  toLocalDateTimeInput,
+  shiftStartTimestamp,
 } from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
@@ -294,9 +294,12 @@ export function BoardStep({
     slotIndex: number
     workerId: string
   } | null>(null)
-  const [operationTime, setOperationTime] = useState(() =>
-    toLocalDateTimeInput(),
-  )
+  const [operationTime, setOperationTime] = useState('')
+  const [operationTimeUnknown, setOperationTimeUnknown] = useState(true)
+  const setOperationTimeEnabled = (enabled: boolean) => {
+    setOperationTimeUnknown(!enabled)
+    setOperationTime('')
+  }
 
   const explainTriggerRef = useRef<HTMLButtonElement | null>(null)
   const shareRootRef = useRef<HTMLDivElement | null>(null)
@@ -678,7 +681,8 @@ export function BoardStep({
         workerId !== currentWorkerId &&
         data.history.some((item) => item.id === draft.id)
       ) {
-        setOperationTime(toLocalDateTimeInput())
+        setOperationTime('')
+        setOperationTimeUnknown(true)
         setPendingAssignment({ laneId, slotIndex, workerId })
         return
       }
@@ -691,7 +695,13 @@ export function BoardStep({
 
   const confirmPendingAssignment = () => {
     if (!pendingAssignment) return
-    const effectiveAt = fromLocalDateTimeInput(operationTime)
+    const effectiveAt = operationTimeUnknown
+      ? shiftStartTimestamp(
+          draft.date,
+          laneStatusModels.find((model) => model.id === draft.shiftType)
+            ?.startMinutes ?? Number.NaN,
+        )
+      : fromLocalDateTimeInput(operationTime)
     if (!effectiveAt) {
       notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
       return
@@ -701,7 +711,7 @@ export function BoardStep({
         pendingAssignment.laneId,
         pendingAssignment.slotIndex,
         pendingAssignment.workerId,
-        effectiveAt,
+        effectiveAt ?? undefined,
       ),
     )
     setPendingAssignment(null)
@@ -1462,7 +1472,8 @@ export function BoardStep({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setOperationTime(toLocalDateTimeInput())
+                                        setOperationTime('')
+                                        setOperationTimeUnknown(true)
                                         setSwapTarget({
                                           laneId,
                                           slotIndex,
@@ -1743,7 +1754,8 @@ export function BoardStep({
                                     className="mt-1 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-start text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
                                     onClick={() => {
                                       setLaneActionMenu(null)
-                                      setOperationTime(toLocalDateTimeInput())
+                                      setOperationTime('')
+                                      setOperationTimeUnknown(true)
                                       setLeaveTarget({ laneId, workerId: id })
                                     }}
                                   >
@@ -1853,7 +1865,8 @@ export function BoardStep({
                           <button
                             type="button"
                             onClick={() => {
-                              setOperationTime(toLocalDateTimeInput())
+                              setOperationTime('')
+                              setOperationTimeUnknown(true)
                               setSwapTarget({ laneId, slotIndex, workerId })
                             }}
                             className="inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] text-brand transition hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand no-print"
@@ -2104,17 +2117,30 @@ export function BoardStep({
                   <p className="mb-3 text-sm text-ink-soft">
                     {worker?.fullName ?? 'העובד'} · {lane?.name ?? 'העמדה'}
                   </p>
-                  <label className="mb-2 block text-xs font-medium text-ink-soft">
-                    מתי השינוי נכנס לתוקף?
+                  <label className="mb-3 flex items-start gap-2 text-xs text-ink-soft">
                     <input
-                      type="datetime-local"
-                      value={operationTime}
-                      onChange={(event) => setOperationTime(event.target.value)}
-                      className="ui-field mt-1 !py-2 text-sm"
+                      type="checkbox"
+                      checked={!operationTimeUnknown}
+                      onChange={(event) =>
+                        setOperationTimeEnabled(event.target.checked)
+                      }
+                      className="mt-0.5 accent-brand"
                     />
+                    <span>בחירת שעה מדויקת (ברירת מחדל: מתחילת המשמרת)</span>
                   </label>
+                  {!operationTimeUnknown ? (
+                    <label className="mb-3 block text-xs font-medium text-ink-soft">
+                      מתי השינוי נכנס לתוקף?
+                      <input
+                        type="datetime-local"
+                        value={operationTime}
+                        onChange={(event) => setOperationTime(event.target.value)}
+                        className="ui-field mt-1 !py-2 text-sm"
+                      />
+                    </label>
+                  ) : null}
                   <p className="mb-4 text-xs text-ink-soft">
-                    שעת הרישום ומבצע הפעולה יישמרו אוטומטית. ניתן לבחור שעה קודמת אם מדווחים באיחור.
+                    ללא בחירת שעה, השינוי יתועד מתחילת המשמרת.
                   </p>
                   <div className="flex justify-end gap-2">
                     <button
@@ -2225,18 +2251,33 @@ export function BoardStep({
                     </button>
                   </div>
                   {data.history.some((item) => item.id === draft.id) ? (
-                    <label className="mb-3 block text-xs font-medium text-ink-soft">
-                      שעת תוקף ההחלפה
-                      <input
-                        type="datetime-local"
-                        value={operationTime}
-                        onChange={(event) => setOperationTime(event.target.value)}
-                        className="ui-field mt-1 !py-2 text-sm"
-                      />
-                      <span className="mt-1 block">
-                        מועד הרישום ומבצע הפעולה יישמרו אוטומטית.
+                    <div className="mb-3">
+                      <label className="flex items-start gap-2 text-xs text-ink-soft">
+                        <input
+                          type="checkbox"
+                          checked={!operationTimeUnknown}
+                          onChange={(event) =>
+                            setOperationTimeEnabled(event.target.checked)
+                          }
+                          className="mt-0.5 accent-brand"
+                        />
+                        <span>בחירת שעה מדויקת (ברירת מחדל: מתחילת המשמרת)</span>
+                      </label>
+                      {!operationTimeUnknown ? (
+                      <label className="block text-xs font-medium text-ink-soft">
+                        מתי השינוי נכנס לתוקף?
+                        <input
+                          type="datetime-local"
+                          value={operationTime}
+                          onChange={(event) => setOperationTime(event.target.value)}
+                          className="ui-field mt-1 !py-2 text-sm"
+                        />
+                      </label>
+                      ) : null}
+                      <span className="mt-1 block text-xs text-ink-soft">
+                        ללא בחירת שעה, השינוי יתועד מתחילת המשמרת.
                       </span>
-                    </label>
+                    </div>
                   ) : null}
                   {options.length === 0 ? (
                     <p className="rounded-xl bg-surface px-3 py-3 text-sm text-ink-soft">
@@ -2253,7 +2294,14 @@ export function BoardStep({
                                 (item) => item.id === draft.id,
                               )
                               const effectiveAt = isSavedShift
-                                ? fromLocalDateTimeInput(operationTime)
+                                ? operationTimeUnknown
+                                  ? shiftStartTimestamp(
+                                      draft.date,
+                                      laneStatusModels.find(
+                                        (model) => model.id === draft.shiftType,
+                                      )?.startMinutes ?? Number.NaN,
+                                    )
+                                  : fromLocalDateTimeInput(operationTime)
                                 : undefined
                               if (isSavedShift && !effectiveAt) {
                                 notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
@@ -2352,18 +2400,33 @@ export function BoardStep({
                     </button>
                   </div>
                   {data.history.some((item) => item.id === draft.id) ? (
-                    <label className="mb-3 block text-xs font-medium text-ink-soft">
-                      שעת תוקף ההחלפה
-                      <input
-                        type="datetime-local"
-                        value={operationTime}
-                        onChange={(event) => setOperationTime(event.target.value)}
-                        className="ui-field mt-1 !py-2 text-sm"
-                      />
-                      <span className="mt-1 block">
-                        מועד הרישום ומבצע הפעולה יישמרו אוטומטית.
+                    <div className="mb-3">
+                      <label className="flex items-start gap-2 text-xs text-ink-soft">
+                        <input
+                          type="checkbox"
+                          checked={!operationTimeUnknown}
+                          onChange={(event) =>
+                            setOperationTimeEnabled(event.target.checked)
+                          }
+                          className="mt-0.5 accent-brand"
+                        />
+                        <span>בחירת שעה מדויקת (ברירת מחדל: מתחילת המשמרת)</span>
+                      </label>
+                      {!operationTimeUnknown ? (
+                      <label className="block text-xs font-medium text-ink-soft">
+                        מתי השינוי נכנס לתוקף?
+                        <input
+                          type="datetime-local"
+                          value={operationTime}
+                          onChange={(event) => setOperationTime(event.target.value)}
+                          className="ui-field mt-1 !py-2 text-sm"
+                        />
+                      </label>
+                      ) : null}
+                      <span className="mt-1 block text-xs text-ink-soft">
+                        ללא בחירת שעה, השינוי יתועד מתחילת המשמרת.
                       </span>
-                    </label>
+                    </div>
                   ) : null}
                   {options.length === 0 ? (
                     <p className="rounded-xl bg-surface px-3 py-3 text-sm text-ink-soft">
@@ -2381,7 +2444,14 @@ export function BoardStep({
                                 (item) => item.id === draft.id,
                               )
                               const effectiveAt = isSavedShift
-                                ? fromLocalDateTimeInput(operationTime)
+                                ? operationTimeUnknown
+                                  ? shiftStartTimestamp(
+                                      draft.date,
+                                      laneStatusModels.find(
+                                        (model) => model.id === draft.shiftType,
+                                      )?.startMinutes ?? Number.NaN,
+                                    )
+                                  : fromLocalDateTimeInput(operationTime)
                                 : undefined
                               if (isSavedShift && !effectiveAt) {
                                 notify.error('שעת השינוי לא תקינה או שהיא בעתיד')

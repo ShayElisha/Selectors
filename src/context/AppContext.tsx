@@ -897,7 +897,7 @@ function createShiftOperationEvent(
     effectiveAt:
       parsedEffectiveAt && Number.isFinite(parsedEffectiveAt.getTime())
         ? parsedEffectiveAt.toISOString()
-        : new Date().toISOString(),
+        : null,
     recordedAt: '',
     actorId: '',
     actorName: '',

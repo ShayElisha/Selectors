@@ -475,6 +475,37 @@ describe('state and shift persistence', () => {
     )
   })
 
+  it('records assignment history when the effective time is unknown', async () => {
+    const saved = await upsertShift(
+      'shift-with-unknown-operation-time',
+      {
+        date: '2026-10-12',
+        shiftType: 'morning',
+        assignmentMode: 'single',
+        assignments: [],
+        shiftOperationEvents: [
+          {
+            id: 'operation-unknown-time',
+            kind: 'worker_moved',
+            workerId: 'worker-1',
+            workerName: 'דני',
+            effectiveAt: null,
+          },
+        ],
+      },
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope },
+    )
+
+    expect(saved.history[0].shiftOperationEvents).toHaveLength(1)
+    expect(saved.history[0].shiftOperationEvents[0]).toMatchObject({
+      effectiveAt: null,
+      actorId: 'manager-1',
+      actorName: 'Manager',
+    })
+    expect(saved.history[0].shiftOperationEvents[0].recordedAt).toBeTruthy()
+  })
+
   it('rejects future-dated assignment events', async () => {
     await expect(
       upsertShift(

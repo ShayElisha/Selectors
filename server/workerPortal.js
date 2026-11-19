@@ -143,9 +143,29 @@ function workerAssignedOnShift(shift, workerId) {
 
 function workerTouchedShift(shift, workerId) {
   if (!shift || !workerId) return false
+  if (
+    (shift.shiftOperationEvents || []).some(
+      (event) => String(event?.workerId || '') === String(workerId),
+    )
+  ) {
+    return true
+  }
   if ((shift.presentWorkerIds || []).includes(workerId)) return true
   if ((shift.shiftDrops || []).some((d) => d.workerId === workerId)) return true
   return workerAssignedOnShift(shift, workerId)
+}
+
+export function workerOperationEventsFor(shift, workerId) {
+  return (shift?.shiftOperationEvents || [])
+    .filter((event) => String(event?.workerId || '') === String(workerId))
+    .map((event) => ({
+      id: String(event.id || ''),
+      kind: String(event.kind || ''),
+      effectiveAt: event.effectiveAt || null,
+      recordedAt: String(event.recordedAt || ''),
+      fromLaneName: event.fromLaneName || null,
+      toLaneName: event.toLaneName || null,
+    }))
 }
 
 function newestFirst(a, b) {
@@ -638,6 +658,10 @@ export async function getWorkerHome(req) {
           assignmentMode: shift.assignmentMode,
           signOff: shift.signOff || null,
           updatedAt: shift.updatedAt,
+          operationEvents:
+            phase === 'upcoming'
+              ? []
+              : workerOperationEventsFor(shift, actor.id),
         }
       : null,
     placement,
@@ -804,6 +828,7 @@ export async function getWorkerHistory(req) {
       drop,
       signedOff: Boolean(shift.signOff),
       updatedAt: shift.updatedAt,
+      operationEvents: workerOperationEventsFor(shift, actor.id),
     }
   })
 

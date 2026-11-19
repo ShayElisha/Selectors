@@ -6,6 +6,7 @@ import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { INTENSITY_LABELS, SHIFT_TYPE_LABELS } from '../constants'
 import { formatShiftDate } from '../lib/hebrew'
 import { formatMinutes } from '../lib/shiftModels'
+import { formatOperationTime } from '../lib/shiftOperationTime'
 import type { Intensity, ShiftType } from '../types'
 
 function shiftLabel(type: string) {
@@ -16,6 +17,13 @@ function dropKindLabel(kind: string) {
   if (kind === 'leave') return 'יציאה מוקדמת'
   if (kind === 'noshow') return 'אי הגעה'
   return 'ביטול הגעה'
+}
+
+function operationKindLabel(kind: string) {
+  if (kind === 'worker_moved') return 'הועברתם בין נתיבים'
+  if (kind === 'worker_assigned') return 'שובצתם לנתיב'
+  if (kind === 'worker_removed') return 'הוסרתם מנתיב'
+  return 'עודכן השיבוץ שלכם'
 }
 
 export function WorkerHistoryPage() {
@@ -159,6 +167,33 @@ export function WorkerHistoryPage() {
                     ? `נתיבים: ${shift.laneNames.join(' · ')}`
                     : 'לא שובצתם לנתיב'}
                 </p>
+                {(shift.operationEvents || []).length > 0 ? (
+                  <div className="mt-3 rounded-lg bg-surface px-3 py-2">
+                    <p className="text-xs font-semibold text-ink">
+                      שינויי שיבוץ אישיים
+                    </p>
+                    <ul className="mt-1.5 space-y-2 text-xs text-ink-soft">
+                      {(shift.operationEvents || []).map((event) => (
+                        <li key={event.id}>
+                          <p className="font-medium text-ink">
+                            {operationKindLabel(event.kind)}
+                            {event.fromLaneName || event.toLaneName
+                              ? ` · ${[event.fromLaneName, event.toLaneName].filter(Boolean).join(' → ')}`
+                              : ''}
+                          </p>
+                          <p>
+                            {event.effectiveAt
+                              ? `בתוקף: ${formatOperationTime(event.effectiveAt)}`
+                              : 'מועד התוקף לא צוין'}
+                            {event.recordedAt
+                              ? ` · תועד: ${formatOperationTime(event.recordedAt)}`
+                              : ''}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
                   {shift.lateMinutes != null ? (
                     <span>איחור: {shift.lateMinutes} דק׳</span>

@@ -275,7 +275,82 @@ export async function getWorkerPay(req, query = {}, kind = 'worker') {
     throw httpError('טווח תאריכים לא תקין', 400)
   }
   const doc = await loadDoc(orgId, workerId)
-  return publicDoc(doc, from, to)
+  const entries = await entriesWithValidPersonalShiftSources(
+    orgId,
+    workerId,
+    doc.entries,
+  )
+  return publicDoc({ ...doc, entries }, from, to)
+}
+
+async function entriesWithValidPersonalShiftSources(orgId, workerId, entries) {
+  const sourceIds = [
+    ...new Set(
+      entries
+        .map((entry) => String(entry.sourceShiftId || ''))
+        .filter(Boolean),
+    ),
+  ]
+  if (sourceIds.length === 0) return entries
+
+  const db = await getDb('inspectors')
+  const shifts = await db
+    .collection('shifts')
+    .find(
+      {
+        orgId,
+        module: 'inspectors',
+        id: { $in: sourceIds },
+      },
+      { projection: { id: 1, presentWorkerIds: 1, workerWindows: 1 } },
+    )
+    .toArray()
+  const shiftsById = new Map(
+    shifts.map((shift) => [String(shift.id), shift]),
+  )
+  const windowIds = [
+    ...new Set(
+      shifts
+        .filter((shift) =>
+          (shift.presentWorkerIds || []).some(
+            (id) => String(id) === String(workerId),
+          ),
+        )
+        .map((shift) => String(shift.workerWindows?.[workerId] || ''))
+        .filter(Boolean),
+    ),
+  ]
+  if (windowIds.length === 0) {
+    return entries.filter((entry) => !entry.sourceShiftId)
+  }
+
+  const presets = await db
+    .collection('worker_window_presets')
+    .find(
+      {
+        orgId,
+        module: 'inspectors',
+        id: { $in: windowIds },
+      },
+      { projection: { id: 1 } },
+    )
+    .toArray()
+  const presetIds = new Set(presets.map((preset) => String(preset.id)))
+
+  return entries.filter((entry) => {
+    if (!entry.sourceShiftId) return true
+    const shift = shiftsById.get(String(entry.sourceShiftId))
+    if (
+      !shift ||
+      !(shift.presentWorkerIds || []).some(
+        (id) => String(id) === String(workerId),
+      )
+    ) {
+      return false
+    }
+    const windowId = String(shift.workerWindows?.[workerId] || '')
+    return Boolean(windowId && presetIds.has(windowId))
+  })
 }
 
 export function getManagerPay(req, query) {
@@ -428,7 +503,7 @@ export function deleteManagerPayEntry(req, entryId) {
 
 /**
  * Create pay entries for workers in a signed-off shift.
- * Uses personal hours when selected, otherwise the configured shift window.
+ * Creates entries only for workers with a personal-hours preset stored in the database.
  */
 export async function createPayEntriesForShift(
   shift,
@@ -464,11 +539,12 @@ export async function createPayEntriesForShift(
   }
 
   for (const workerId of presentWorkers) {
-    const windowId = workerWindows[workerId]
-    if (
-      windowId &&
-      !workerWindowPresets?.some((preset) => preset.id === windowId)
-    ) {
+    const windowId = String(workerWindows[workerId] || '')
+    if (!windowId) continue
+    const preset = workerWindowPresets?.find(
+      (item) => String(item.id) === windowId,
+    )
+    if (!preset) {
       console.warn(`Worker ${workerId} has window ${windowId} but preset not found`)
       continue
     }

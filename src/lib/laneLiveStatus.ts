@@ -1,5 +1,6 @@
 import { workerShiftInterval } from './workerShiftStatus'
 import { effectiveStaffingStandard } from './shiftStaffing'
+import { isGateManagerLane } from './gateManager'
 import type {
   Lane,
   ShiftModel,
@@ -133,7 +134,8 @@ export function laneLiveStatus(args: {
     for (const workerId of allLaneWorkerIds(candidate, lane.id)) {
       if (
         !candidate.presentWorkerIds.includes(workerId) ||
-        candidate.gateManagerWorkerId === workerId ||
+        (candidate.gateManagerWorkerId === workerId &&
+          !isGateManagerLane(lane)) ||
         candidate.shiftDrops?.some(
           (drop) =>
             drop.workerId === workerId &&

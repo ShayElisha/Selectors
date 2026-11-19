@@ -176,7 +176,8 @@ export interface ShiftChangeEvent {
 export interface ShiftOperationEvent {
   id: string
   kind: 'worker_moved' | 'worker_assigned' | 'worker_removed'
-  effectiveAt: string
+  /** Null when the exact time was not known at the time of recording. */
+  effectiveAt: string | null
   recordedAt: string
   actorId: string
   actorName: string

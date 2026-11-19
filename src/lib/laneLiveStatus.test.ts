@@ -48,6 +48,49 @@ function shift(
 describe('laneLiveStatus', () => {
   const now = new Date(2026, 10, 18, 16, 0).getTime()
 
+  it('counts the gate manager on the gate lane but not on regular lanes', () => {
+    const gateLane: Lane = {
+      id: 'gate',
+      name: 'מנהל שער',
+      staffingStandard: 1,
+      requiredCertifications: [],
+      intensity: 'medium',
+    }
+    const current = shift('current', ['gate-worker'], {
+      activeLaneIds: ['lane-a', 'gate'],
+      assignments: [
+        { laneId: 'lane-a', workerIds: ['gate-worker'] },
+        { laneId: 'gate', workerIds: ['gate-worker'] },
+      ],
+      staffingOverrides: { 'lane-a': 1, gate: 1 },
+      gateManagerWorkerId: 'gate-worker',
+    })
+
+    expect(
+      laneLiveStatus({
+        shift: current,
+        history: [current],
+        lane: gateLane,
+        models,
+        presets,
+        now,
+      }),
+    ).toMatchObject({
+      activeWorkerIds: ['gate-worker'],
+      missing: 0,
+    })
+    expect(
+      laneLiveStatus({
+        shift: current,
+        history: [current],
+        lane,
+        models,
+        presets,
+        now,
+      }).activeWorkerIds,
+    ).toEqual([])
+  })
+
   it('auto-closes a lane when a worker ends and active staffing falls below standard', () => {
     const current = shift('current', ['worker-1', 'worker-2'], {
       workerWindows: {

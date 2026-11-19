@@ -18,6 +18,7 @@ import { IntensityBadge, Ltr, SectionCard } from '../components/ui'
 import { useWorkerPortal } from '../context/WorkerPortalContext'
 import { SHIFT_TYPE_LABELS } from '../constants'
 import { formatMinutes } from '../lib/shiftModels'
+import { formatOperationTime } from '../lib/shiftOperationTime'
 import { notify } from '../lib/notify'
 import {
   phoneDigitsForWhatsApp,
@@ -28,6 +29,13 @@ import type { Intensity, ShiftType } from '../types'
 
 function shiftLabel(type: string) {
   return SHIFT_TYPE_LABELS[type as ShiftType] || type
+}
+
+function operationKindLabel(kind: string) {
+  if (kind === 'worker_moved') return 'הועברתם בין נתיבים'
+  if (kind === 'worker_assigned') return 'שובצתם לנתיב'
+  if (kind === 'worker_removed') return 'הוסרתם מנתיב'
+  return 'עודכן השיבוץ שלכם'
 }
 
 function formatCountdown(totalSeconds: number) {
@@ -520,6 +528,33 @@ export function WorkerHomePage() {
                   ) : null}
                 </div>
               </>
+            ) : null}
+            {(home.shift.operationEvents || []).length > 0 ? (
+              <div className="rounded-xl border border-line/70 bg-surface/40 p-3">
+                <p className="text-sm font-semibold text-ink">
+                  שינויי שיבוץ אישיים
+                </p>
+                <ul className="mt-2 space-y-2 text-xs text-ink-soft">
+                  {(home.shift.operationEvents || []).map((event) => (
+                    <li key={event.id}>
+                      <p className="font-medium text-ink">
+                        {operationKindLabel(event.kind)}
+                        {event.fromLaneName || event.toLaneName
+                          ? ` · ${[event.fromLaneName, event.toLaneName].filter(Boolean).join(' → ')}`
+                          : ''}
+                      </p>
+                      <p>
+                        {event.effectiveAt
+                          ? `בתוקף: ${formatOperationTime(event.effectiveAt)}`
+                          : 'מועד התוקף לא צוין'}
+                        {event.recordedAt
+                          ? ` · תועד: ${formatOperationTime(event.recordedAt)}`
+                          : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </div>
         )}

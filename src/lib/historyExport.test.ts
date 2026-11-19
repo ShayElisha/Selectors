@@ -124,4 +124,37 @@ describe('buildHistoryCsv', () => {
     expect(csv).toContain('מנהל')
     expect(csv).toContain('דני: נתיב א ← נתיב ב')
   })
+
+  it('exports an unknown effective time without inventing a timestamp', () => {
+    const shifts: ShiftSchedule[] = [
+      {
+        id: 's-unknown-time',
+        date: '2026-09-20',
+        shiftType: 'morning',
+        presentWorkerIds: [],
+        activeLaneIds: [],
+        assignments: [],
+        shiftOperationEvents: [
+          {
+            id: 'op-unknown-time',
+            kind: 'worker_moved',
+            workerId: 'w1',
+            workerName: 'דני',
+            fromLaneName: 'נתיב א',
+            toLaneName: 'נתיב ב',
+            effectiveAt: null,
+            recordedAt: '2026-09-20T09:00:00.000Z',
+            actorId: 'manager-1',
+            actorName: 'מנהל',
+          },
+        ],
+        createdAt: '2026-09-20T06:00:00.000Z',
+        updatedAt: '2026-09-20T06:00:00.000Z',
+      },
+    ]
+
+    const csv = buildHistoryCsv(shifts, { workers: [], lanes: [] })
+    expect(csv).toContain('לא צוין (ייתכן מתחילת המשמרת)')
+    expect(csv).toContain('2026-09-20T09:00:00.000Z')
+  })
 })
