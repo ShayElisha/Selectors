@@ -801,7 +801,7 @@ export function HomePage() {
       <SectionCard
         printRoot
         className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
-        title={`משמרת נוכחית · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
+        title="פרטי השיבוץ"
         subtitle={
           <>
             <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
@@ -817,37 +817,6 @@ export function HomePage() {
           ) : null
         }
       >
-        <div
-          className="mb-3 flex flex-wrap gap-1.5 no-kiosk"
-          role="group"
-          aria-label="חלונות משמרת"
-        >
-          {shiftModels.map((model) => {
-            const active = model.id === currentCtx.shiftType
-            return (
-              <button
-                key={model.id}
-                type="button"
-                aria-pressed={active}
-                className={`inline-flex min-h-9 flex-col items-start justify-center rounded-full border px-3 py-1.5 text-start transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                  active
-                    ? 'border-brand/35 bg-brand/10 text-brand shadow-sm'
-                    : 'border-line/80 bg-surface/60 text-ink-soft hover:border-brand/25 hover:bg-card hover:text-ink'
-                }`}
-              >
-                <span className="text-[12px] font-semibold leading-none sm:text-[13px]">
-                  {model.name}
-                </span>
-                <span className="mt-0.5 text-[11px] leading-none opacity-90">
-                  <Ltr>
-                    {formatShiftModelWindow(model).replace(' עד ', '–')}
-                  </Ltr>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
         {shiftHealth && (
           <div className="mb-3 no-print">
             {shiftHealth.warnings.length === 0 &&
@@ -934,7 +903,6 @@ export function HomePage() {
           >
             {usesRounds(currentShift) ? (
               <SelectorRoundTable
-                layout={module === 'selectors' ? 'table' : 'cards'}
                 rounds={currentShift.rounds ?? []}
                 lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
                 workers={data.workers.filter((worker) =>
