@@ -801,7 +801,7 @@ export function HomePage() {
       <SectionCard
         printRoot
         className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
-        title="פרטי השיבוץ"
+        title={`משמרת נוכחית · ${shiftModelLabel(shiftModels, currentCtx.shiftType)}`}
         subtitle={
           <>
             <Ltr>{formatShiftDate(currentCtx.date)}</Ltr>
@@ -903,6 +903,7 @@ export function HomePage() {
           >
             {usesRounds(currentShift) ? (
               <SelectorRoundTable
+                layout={module === 'selectors' ? 'table' : 'cards'}
                 rounds={currentShift.rounds ?? []}
                 lanes={selectorLanes(data.lanes, currentShift.activeLaneIds)}
                 workers={data.workers.filter((worker) =>

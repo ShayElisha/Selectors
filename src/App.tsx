@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
-import { Component, lazy, Suspense, useEffect, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import { postClientErrorRemote } from './api'
 import { AppProvider, useApp } from './context/AppContext'
 import { ThemeProvider, useTheme } from './lib/theme'
@@ -16,51 +16,49 @@ import {
 } from './auth'
 import { PageLoader } from './components/PageLoader'
 import { WorkerPortalProvider } from './context/WorkerPortalContext'
+import { HomePage } from './pages/HomePage'
+import { ShiftPage } from './pages/ShiftPage'
+import { WorkersPage } from './pages/WorkersPage'
+import { LanesPage } from './pages/LanesPage'
+import { CertsPage } from './pages/CertsPage'
+import { HistoryPage } from './pages/HistoryPage'
+import { TrackingPage } from './pages/TrackingPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
+import { AuditPage } from './pages/AuditPage'
+import { ReportsPage } from './pages/ReportsPage'
+import { BriefingsPage } from './pages/BriefingsPage'
+import { IncidentsPage } from './pages/IncidentsPage'
+import { ShiftModelsPage } from './pages/ShiftModelsPage'
+import { WorkerWindowsPage } from './pages/WorkerWindowsPage'
+import { CustomsBrokersPage } from './pages/CustomsBrokersPage'
+import { OrgSettingsPage } from './pages/OrgSettingsPage'
+import { LoginPage } from './pages/LoginPage'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { RegisterPage } from './pages/RegisterPage'
+import { SuperAdminPage } from './pages/SuperAdminPage'
+import { AdminErrorsPage } from './pages/AdminErrorsPage'
+import { WorkerProfilePage } from './pages/WorkerProfilePage'
+import { WorkerHomePage } from './pages/WorkerHomePage'
+import { WorkerHistoryPage } from './pages/WorkerHistoryPage'
+import { WorkerBriefingsPage } from './pages/WorkerBriefingsPage'
+import { WorkerNotificationsPage } from './pages/WorkerNotificationsPage'
+import { WorkerHelpPage } from './pages/WorkerHelpPage'
+import { WorkerContactsPage } from './pages/WorkerContactsPage'
+import { WorkerFaultsPage } from './pages/WorkerFaultsPage'
+import { WorkerEquipmentPage } from './pages/WorkerEquipmentPage'
+import { WorkerPayPage, ManagerPayPage } from './pages/WorkerPayPage'
+import { EquipmentRequestsPage } from './pages/EquipmentRequestsPage'
+import { OpenShiftsPage } from './pages/OpenShiftsPage'
+import { WorkerPortalProfilePage } from './pages/WorkerPortalProfilePage'
+import { ChangePasswordPage } from './pages/ChangePasswordPage'
+import { AlgorithmPage } from './pages/AlgorithmPage'
+import { HelpPage } from './pages/HelpPage'
+import { ReportPage } from './pages/ReportPage'
+import { NotFoundPage } from './pages/NotFoundPage'
+import { CancellationsPage } from './pages/CancellationsPage'
+import { ShiftHandoffPage } from './pages/ShiftHandoffPage'
+import { StationMapPage } from './pages/StationMapPage'
 import { isAppPath } from './routes'
-
-const HomePage = lazy(() => import('./pages/HomePage').then((page) => ({ default: page.HomePage })))
-const ShiftPage = lazy(() => import('./pages/ShiftPage').then((page) => ({ default: page.ShiftPage })))
-const WorkersPage = lazy(() => import('./pages/WorkersPage').then((page) => ({ default: page.WorkersPage })))
-const LanesPage = lazy(() => import('./pages/LanesPage').then((page) => ({ default: page.LanesPage })))
-const CertsPage = lazy(() => import('./pages/CertsPage').then((page) => ({ default: page.CertsPage })))
-const HistoryPage = lazy(() => import('./pages/HistoryPage').then((page) => ({ default: page.HistoryPage })))
-const TrackingPage = lazy(() => import('./pages/TrackingPage').then((page) => ({ default: page.TrackingPage })))
-const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((page) => ({ default: page.AnalyticsPage })))
-const AuditPage = lazy(() => import('./pages/AuditPage').then((page) => ({ default: page.AuditPage })))
-const ReportsPage = lazy(() => import('./pages/ReportsPage').then((page) => ({ default: page.ReportsPage })))
-const BriefingsPage = lazy(() => import('./pages/BriefingsPage').then((page) => ({ default: page.BriefingsPage })))
-const IncidentsPage = lazy(() => import('./pages/IncidentsPage').then((page) => ({ default: page.IncidentsPage })))
-const ShiftModelsPage = lazy(() => import('./pages/ShiftModelsPage').then((page) => ({ default: page.ShiftModelsPage })))
-const WorkerWindowsPage = lazy(() => import('./pages/WorkerWindowsPage').then((page) => ({ default: page.WorkerWindowsPage })))
-const CustomsBrokersPage = lazy(() => import('./pages/CustomsBrokersPage').then((page) => ({ default: page.CustomsBrokersPage })))
-const OrgSettingsPage = lazy(() => import('./pages/OrgSettingsPage').then((page) => ({ default: page.OrgSettingsPage })))
-const LoginPage = lazy(() => import('./pages/LoginPage').then((page) => ({ default: page.LoginPage })))
-const PrivacyPage = lazy(() => import('./pages/PrivacyPage').then((page) => ({ default: page.PrivacyPage })))
-const RegisterPage = lazy(() => import('./pages/RegisterPage').then((page) => ({ default: page.RegisterPage })))
-const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage').then((page) => ({ default: page.SuperAdminPage })))
-const AdminErrorsPage = lazy(() => import('./pages/AdminErrorsPage').then((page) => ({ default: page.AdminErrorsPage })))
-const WorkerProfilePage = lazy(() => import('./pages/WorkerProfilePage').then((page) => ({ default: page.WorkerProfilePage })))
-const WorkerHomePage = lazy(() => import('./pages/WorkerHomePage').then((page) => ({ default: page.WorkerHomePage })))
-const WorkerHistoryPage = lazy(() => import('./pages/WorkerHistoryPage').then((page) => ({ default: page.WorkerHistoryPage })))
-const WorkerBriefingsPage = lazy(() => import('./pages/WorkerBriefingsPage').then((page) => ({ default: page.WorkerBriefingsPage })))
-const WorkerNotificationsPage = lazy(() => import('./pages/WorkerNotificationsPage').then((page) => ({ default: page.WorkerNotificationsPage })))
-const WorkerHelpPage = lazy(() => import('./pages/WorkerHelpPage').then((page) => ({ default: page.WorkerHelpPage })))
-const WorkerContactsPage = lazy(() => import('./pages/WorkerContactsPage').then((page) => ({ default: page.WorkerContactsPage })))
-const WorkerFaultsPage = lazy(() => import('./pages/WorkerFaultsPage').then((page) => ({ default: page.WorkerFaultsPage })))
-const WorkerEquipmentPage = lazy(() => import('./pages/WorkerEquipmentPage').then((page) => ({ default: page.WorkerEquipmentPage })))
-const WorkerPayPage = lazy(() => import('./pages/WorkerPayPage').then((page) => ({ default: page.WorkerPayPage })))
-const ManagerPayPage = lazy(() => import('./pages/WorkerPayPage').then((page) => ({ default: page.ManagerPayPage })))
-const EquipmentRequestsPage = lazy(() => import('./pages/EquipmentRequestsPage').then((page) => ({ default: page.EquipmentRequestsPage })))
-const OpenShiftsPage = lazy(() => import('./pages/OpenShiftsPage').then((page) => ({ default: page.OpenShiftsPage })))
-const WorkerPortalProfilePage = lazy(() => import('./pages/WorkerPortalProfilePage').then((page) => ({ default: page.WorkerPortalProfilePage })))
-const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage').then((page) => ({ default: page.ChangePasswordPage })))
-const AlgorithmPage = lazy(() => import('./pages/AlgorithmPage').then((page) => ({ default: page.AlgorithmPage })))
-const HelpPage = lazy(() => import('./pages/HelpPage').then((page) => ({ default: page.HelpPage })))
-const ReportPage = lazy(() => import('./pages/ReportPage').then((page) => ({ default: page.ReportPage })))
-const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((page) => ({ default: page.NotFoundPage })))
-const CancellationsPage = lazy(() => import('./pages/CancellationsPage').then((page) => ({ default: page.CancellationsPage })))
-const ShiftHandoffPage = lazy(() => import('./pages/ShiftHandoffPage').then((page) => ({ default: page.ShiftHandoffPage })))
-const StationMapPage = lazy(() => import('./pages/StationMapPage').then((page) => ({ default: page.StationMapPage })))
 
 function ProtectedWorkerShell() {
   const { user } = useApp()
@@ -170,24 +168,22 @@ export default function App() {
         <AppToaster />
         <ErrorReporter />
         <ErrorBoundary>
-          <Suspense fallback={<PageLoader fullScreen label="טוען מסך…" />}>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="/admin" element={<SuperAdminPage />} />
-              <Route path="/admin/errors" element={<AdminErrorsPage />} />
-              <Route path="/privacy" element={<PrivacyPage />} />
-              <Route path="/help" element={<HelpPage />} />
-              <Route path="/report" element={<ReportPage />} />
-              <Route path="/algorithm" element={<AlgorithmPage />} />
-              <Route
-                path="/portal/:module/*"
-                element={<ProtectedWorkerShell />}
-              />
-              <Route path="/worker/*" element={<LegacyWorkerPortalRedirect />} />
-              <Route path="/*" element={<ProtectedShell />} />
-            </Routes>
-          </Suspense>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/admin" element={<SuperAdminPage />} />
+            <Route path="/admin/errors" element={<AdminErrorsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/help" element={<HelpPage />} />
+            <Route path="/report" element={<ReportPage />} />
+            <Route path="/algorithm" element={<AlgorithmPage />} />
+            <Route
+              path="/portal/:module/*"
+              element={<ProtectedWorkerShell />}
+            />
+            <Route path="/worker/*" element={<LegacyWorkerPortalRedirect />} />
+            <Route path="/*" element={<ProtectedShell />} />
+          </Routes>
         </ErrorBoundary>
       </AppProvider>
     </ThemeProvider>

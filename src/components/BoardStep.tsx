@@ -82,6 +82,7 @@ import {
 import { notify } from '../lib/notify'
 import {
   fromLocalDateTimeInput,
+  isValidOperationTime,
   shiftStartTimestamp,
 } from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
@@ -702,7 +703,7 @@ export function BoardStep({
             ?.startMinutes ?? Number.NaN,
         )
       : fromLocalDateTimeInput(operationTime)
-    if (!effectiveAt) {
+    if (!isValidOperationTime(effectiveAt)) {
       notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
       return
     }
@@ -2303,7 +2304,10 @@ export function BoardStep({
                                     )
                                   : fromLocalDateTimeInput(operationTime)
                                 : undefined
-                              if (isSavedShift && !effectiveAt) {
+                              if (
+                                isSavedShift &&
+                                !isValidOperationTime(effectiveAt)
+                              ) {
                                 notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
                                 return
                               }
@@ -2453,7 +2457,10 @@ export function BoardStep({
                                     )
                                   : fromLocalDateTimeInput(operationTime)
                                 : undefined
-                              if (isSavedShift && !effectiveAt) {
+                              if (
+                                isSavedShift &&
+                                !isValidOperationTime(effectiveAt)
+                              ) {
                                 notify.error('שעת השינוי לא תקינה או שהיא בעתיד')
                                 return
                               }

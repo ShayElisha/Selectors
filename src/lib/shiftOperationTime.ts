@@ -12,6 +12,14 @@ export function fromLocalDateTimeInput(value: string): string | null {
     : null
 }
 
+export function isValidOperationTime(
+  value: string | null | undefined,
+): value is string {
+  if (!value) return false
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) && timestamp <= Date.now()
+}
+
 export function shiftStartTimestamp(
   dateValue: string,
   startMinutes: number,
