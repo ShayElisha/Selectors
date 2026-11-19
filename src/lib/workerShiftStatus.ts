@@ -7,15 +7,24 @@ export type WorkerShiftEnd = {
   timestamp: number
 }
 
-export function workerShiftEnd(
+export type WorkerShiftInterval = {
+  start: number
+  end: number
+}
+
+function shiftInterval(
   shift: Pick<
     ShiftSchedule,
-    'date' | 'shiftType' | 'workerWindows' | 'windowAdjustments' | 'earlyLeaveAt'
+    | 'date'
+    | 'shiftType'
+    | 'workerWindows'
+    | 'windowAdjustments'
+    | 'earlyLeaveAt'
   >,
   workerId: string,
   models: ShiftModel[],
   presets: WorkerWindowPreset[],
-): WorkerShiftEnd | null {
+): WorkerShiftInterval | null {
   const model = models.find((item) => item.id === shift.shiftType)
   const fallback = MAIN_SHIFT_BOUNDS[shift.shiftType]
   if (!model && !fallback) return null
@@ -26,20 +35,43 @@ export function workerShiftEnd(
   const crossesMidnight = shiftEnd > 24 * 60
 
   const preset = workerWindowById(shift.workerWindows?.[workerId], presets)
+  let start = shiftStart
   let end = shiftEnd
   if (preset) {
-    const start = preset.start
-    end = preset.end
-    if (end <= start) end += 24 * 60
-    if (crossesMidnight && start < 12 * 60 && preset.end > preset.start) {
+    const duration =
+      preset.end > preset.start
+        ? preset.end - preset.start
+        : preset.end + 24 * 60 - preset.start
+    const candidates = [-24 * 60, 0, 24 * 60].map((offset) => {
+      const candidateStart = preset.start + offset
+      const candidateEnd = candidateStart + duration
+      const overlap = Math.max(
+        0,
+        Math.min(candidateEnd, shiftEnd) -
+          Math.max(candidateStart, shiftStart),
+      )
+      return { start: candidateStart, end: candidateEnd, overlap }
+    })
+    const best = candidates.reduce((selected, candidate) =>
+      candidate.overlap > selected.overlap ? candidate : selected,
+    )
+    start = best.start
+    end = best.end
+    if (crossesMidnight && best.overlap === 0 && preset.start < shiftStart) {
+      start += 24 * 60
       end += 24 * 60
     }
   }
 
+  const lateMinutes = Math.max(
+    0,
+    Number(shift.windowAdjustments?.[workerId]?.lateMinutes) || 0,
+  )
   const earlyMinutes = Math.max(
     0,
     Number(shift.windowAdjustments?.[workerId]?.earlyMinutes) || 0,
   )
+  start += lateMinutes
   end -= earlyMinutes
 
   const leaveAt = shift.earlyLeaveAt?.[workerId]
@@ -49,23 +81,53 @@ export function workerShiftEnd(
     end = Math.min(end, leave)
   }
 
-  if (!Number.isFinite(end) || end <= 0) return null
-  const dayOffset = Math.floor(end / (24 * 60))
-  const minutes = ((end % (24 * 60)) + 24 * 60) % (24 * 60)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
   const [year, month, day] = shift.date.split('-').map(Number)
   if (![year, month, day].every(Number.isFinite)) return null
-  const timestamp = new Date(year!, month! - 1, day!, 0, end).getTime()
-  if (!Number.isFinite(timestamp)) return null
-  return { minutes, dayOffset, timestamp }
+  const dateAtMinutes = (minutes: number) =>
+    new Date(year!, month! - 1, day!, 0, minutes).getTime()
+  const interval = { start: dateAtMinutes(start), end: dateAtMinutes(end) }
+  return Number.isFinite(interval.start) && Number.isFinite(interval.end)
+    ? interval
+    : null
+}
+
+export function workerShiftInterval(
+  shift: Parameters<typeof shiftInterval>[0],
+  workerId: string,
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
+): WorkerShiftInterval | null {
+  return shiftInterval(shift, workerId, models, presets)
+}
+
+export function workerShiftEnd(
+  shift: Parameters<typeof shiftInterval>[0],
+  workerId: string,
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
+): WorkerShiftEnd | null {
+  const interval = shiftInterval(shift, workerId, models, presets)
+  if (!interval) return null
+  const date = new Date(interval.end)
+  const [year, month, day] = shift.date.split('-').map(Number)
+  const shiftDate = Date.UTC(year!, month! - 1, day!)
+  const endDate = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  const dayOffset = Math.round((endDate - shiftDate) / (24 * 60 * 60_000))
+  return {
+    minutes: date.getHours() * 60 + date.getMinutes(),
+    dayOffset,
+    timestamp: interval.end,
+  }
 }
 
 export function workerShiftHasEnded(
-  shift: Parameters<typeof workerShiftEnd>[0],
+  shift: Parameters<typeof shiftInterval>[0],
   workerId: string,
   models: ShiftModel[],
   presets: WorkerWindowPreset[],
   now = Date.now(),
 ): boolean {
-  const end = workerShiftEnd(shift, workerId, models, presets)
-  return end != null && end.timestamp <= now
+  const interval = shiftInterval(shift, workerId, models, presets)
+  return interval != null && interval.end <= now
 }

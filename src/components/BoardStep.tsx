@@ -85,6 +85,8 @@ import {
   toLocalDateTimeInput,
 } from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
+import { laneLiveStatus } from '../lib/laneLiveStatus'
+import { resolveShiftModels } from '../lib/shiftModels'
 import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
@@ -181,6 +183,11 @@ export function BoardStep({
     () => resolveWorkerWindows(data.workerWindowPresets),
     [data.workerWindowPresets],
   )
+  const [laneStatusNow, setLaneStatusNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setLaneStatusNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const {
     updateAssignment,
     swapAssignments,
@@ -197,11 +204,49 @@ export function BoardStep({
     setWindowAdjustment,
     setWorkerWindow,
     setLaneStaffingStandard,
+    manuallyUnfreezeLane,
     user,
+    module,
     draftDirty,
     restoreDraftSnapshot,
     assigning,
   } = useApp()
+
+  const laneStatusModels = useMemo(
+    () => resolveShiftModels(data.shiftModels, module),
+    [data.shiftModels, module],
+  )
+  const liveLaneStatuses = useMemo(
+    () =>
+      new Map(
+        draft.activeLaneIds.flatMap((laneId) => {
+          const lane = data.lanes.find((item) => item.id === laneId)
+          return lane
+            ? [
+                [
+                  laneId,
+                  laneLiveStatus({
+                    shift: draft,
+                    history: data.history,
+                    lane,
+                    models: laneStatusModels,
+                    presets: data.workerWindowPresets ?? [],
+                    now: laneStatusNow,
+                  }),
+                ] as const,
+              ]
+            : []
+        }),
+      ),
+    [
+      data.history,
+      data.lanes,
+      data.workerWindowPresets,
+      draft,
+      laneStatusModels,
+      laneStatusNow,
+    ],
+  )
 
   const draftRef = useRef(draft)
   draftRef.current = draft
@@ -1486,7 +1531,11 @@ export function BoardStep({
 
             const emptyLane = !(assignment?.workerIds.some(Boolean))
             const healedTone = draft.healHighlights?.find((item) => item.laneId === laneId)?.tone
-            const frozen = emptyLane && draft.frozenLaneIds?.includes(laneId)
+            const liveStatus = liveLaneStatuses.get(laneId)
+            const autoClosed = liveStatus?.autoClosed ?? false
+            const frozen =
+              autoClosed ||
+              (emptyLane && draft.frozenLaneIds?.includes(laneId))
             return (
               <div
                 key={laneId}
@@ -1513,10 +1562,31 @@ export function BoardStep({
                           lane.name
                         )}
                       </h4>
-                      {frozen ? (
+                      {autoClosed ? (
+                        <span className="rounded-md bg-hard-soft px-1.5 py-0.5 text-[10px] font-bold text-hard ring-1 ring-hard/30">
+                          קפוא אוטומטית · אין מספיק כוח אדם
+                        </span>
+                      ) : frozen ? (
                         <span className="rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-bold text-warn ring-1 ring-warn/30">
                           בחור תקן / מוקפא
                         </span>
+                      ) : liveStatus?.manuallyReopened ? (
+                        <span className="rounded-md bg-ok-soft px-1.5 py-0.5 text-[10px] font-bold text-ok ring-1 ring-ok/30">
+                          נפתח ידנית
+                        </span>
+                      ) : null}
+                      {autoClosed && !locked ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-hard/30 px-2 py-1 text-[10px] font-bold text-hard transition hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                          onClick={() =>
+                            runWithUndo('הנתיב שוחרר ידנית', () => {
+                              void manuallyUnfreezeLane(laneId)
+                            })
+                          }
+                        >
+                          שחרור ידני
+                        </button>
                       ) : null}
                       {isGateLane ? (
                         <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand">

@@ -94,6 +94,64 @@ describe('collectContinuingAttendance', () => {
     expect(result.sourceHadWindows).toBe(true)
   })
 
+  it('does not mark short handover overlap as continuing attendance', () => {
+    const models: ShiftModel[] = [
+      { id: 'morning', name: 'בוקר', startMinutes: 6 * 60, endMinutes: 14 * 60 + 30, order: 0 },
+      { id: 'afternoonA', name: 'צהריים', startMinutes: 14 * 60 + 30, endMinutes: 18 * 60 + 30, order: 1 },
+    ]
+    const catalog = [
+      ...testWindowPresets,
+      { id: '0600-1500', label: 'בוקר עד 15:00', start: 6 * 60, end: 15 * 60 },
+      { id: '0600-1530', label: 'בוקר עד 15:30', start: 6 * 60, end: 15 * 60 + 30 },
+    ]
+    const source = {
+      date: '2026-11-17',
+      shiftType: 'morning',
+      updatedAt: '2026-11-17T10:00:00.000Z',
+      presentWorkerIds: ['finishes-at-15', 'continues-one-hour'],
+      workerWindows: {
+        'finishes-at-15': '0600-1500',
+        'continues-one-hour': '0600-1530',
+      },
+    }
+
+    expect(
+      collectContinuingAttendance({
+        history: [source],
+        date: '2026-11-17',
+        shiftType: 'afternoonA',
+        catalog,
+        models,
+      }).workerIds,
+    ).toEqual(['continues-one-hour'])
+  })
+
+  it('uses early departure and adjusted hours when deciding continuation', () => {
+    const result = collectContinuingAttendance({
+      history: [
+        {
+          date: '2026-11-17',
+          shiftType: 'morning',
+          updatedAt: '2026-11-17T10:00:00.000Z',
+          presentWorkerIds: ['early-leave', 'early-adjustment'],
+          workerWindows: {
+            'early-leave': '0600-1830',
+            'early-adjustment': '0600-1830',
+          },
+          earlyLeaveAt: { 'early-leave': 15 * 60 },
+          windowAdjustments: {
+            'early-adjustment': { earlyMinutes: 3 * 60 + 30 },
+          },
+        },
+      ],
+      date: '2026-11-17',
+      shiftType: 'afternoonA',
+      catalog: testWindowPresets,
+    })
+
+    expect(result.workerIds).toEqual([])
+  })
+
   it('reports when morning exists but has no personal hours saved', () => {
     const result = collectContinuingAttendance({
       history: [

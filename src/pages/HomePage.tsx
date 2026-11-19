@@ -71,6 +71,7 @@ import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerWindowById } from '../lib/shiftCatalog'
+import { laneLiveStatus } from '../lib/laneLiveStatus'
 
 /** Optional health snapshot if/when persisted on ShiftSchedule. */
 export interface ShiftHealthSnapshot {
@@ -275,28 +276,48 @@ export function HomePage() {
       .map((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)
         if (!lane) return null
-        const assignment = activeShift.assignments.find((a) => a.laneId === laneId)
-        const workers = (assignment?.workerIds ?? [])
-          .filter(Boolean)
-          .map((id) => {
-            const worker = data.workers.find((w) => w.id === id)
-            return {
-              id,
-              name: worker?.fullName ?? id,
-              trainingRole: worker?.trainingRole,
-              windowLabel: personalWindowLabel(id),
-            }
-          })
+        const status = laneLiveStatus({
+          shift: activeShift,
+          history: data.history,
+          lane,
+          models: shiftModels,
+          presets: data.workerWindowPresets ?? [],
+          now: nowTick,
+        })
+        const schedulesById = new Map(
+          [activeShift, ...data.history].map((schedule) => [
+            schedule.id,
+            schedule,
+          ]),
+        )
+        const workers = status.activeWorkerSources.map(({ workerId, shiftId }) => {
+          const worker = data.workers.find((w) => w.id === workerId)
+          const sourceShift = schedulesById.get(shiftId)
+          const preset = workerWindowById(
+            sourceShift?.workerWindows?.[workerId],
+            data.workerWindowPresets,
+          )
+          return {
+            id: workerId,
+            name: worker?.fullName ?? workerId,
+            trainingRole: worker?.trainingRole,
+            windowLabel: preset?.label ?? personalWindowLabel(workerId),
+          }
+        })
+        const endedWorkers = status.endedWorkerIds.map((id) => ({
+          id,
+          name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,
+        }))
         return {
           laneId,
           laneName: lane.name,
           intensity: lane.intensity as Intensity,
-          staffingStandard: effectiveStaffingStandard(
-            lane,
-            activeShift.staffingOverrides,
-          ),
+          staffingStandard: status.required,
           assigned: workers.length,
           workers,
+          endedWorkers,
+          autoClosed: status.autoClosed,
+          manuallyReopened: status.manuallyReopened,
         }
       })
       .filter(Boolean) as {
@@ -311,6 +332,9 @@ export function HomePage() {
         trainingRole?: 'trainee' | 'mentor'
         windowLabel: string
       }[]
+      endedWorkers: { id: string; name: string }[]
+      autoClosed: boolean
+      manuallyReopened: boolean
     }[]
     const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
     return rows.sort(
@@ -318,7 +342,17 @@ export function HomePage() {
       (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
       a.laneName.localeCompare(b.laneName, 'he'),
     )
-  }, [currentShift, draft, data.lanes, data.workers, personalWindowLabel])
+  }, [
+    currentShift,
+    draft,
+    data.history,
+    data.lanes,
+    data.workers,
+    data.workerWindowPresets,
+    nowTick,
+    personalWindowLabel,
+    shiftModels,
+  ])
 
   const currentUnassigned = useMemo(() => {
     if (!currentShift) return []
@@ -362,7 +396,7 @@ export function HomePage() {
       present: draft.presentWorkerIds.length,
       assigned,
     }
-  }, [draft])
+  }, [draft, shiftModels])
 
   /** Short same-lane returns within 2 calendar days (from history). */
   const currentHeadcount = useMemo(
@@ -957,8 +991,19 @@ export function HomePage() {
                                 index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
                               }`}
                             >
-                              <td className="px-3 py-2 align-middle text-center font-semibold text-ink">
-                                {row.laneName}
+                              <td className="px-3 py-2 align-middle text-center">
+                                <span className="font-semibold text-ink">
+                                  {row.laneName}
+                                </span>
+                                {row.autoClosed ? (
+                                  <span className="mt-1 block text-[10px] font-bold text-hard">
+                                    סגור אוטומטית · אין מספיק כוח אדם
+                                  </span>
+                                ) : row.manuallyReopened ? (
+                                  <span className="mt-1 block text-[10px] font-bold text-ok">
+                                    נפתח ידנית
+                                  </span>
+                                ) : null}
                               </td>
                               <td className="px-3 py-2 align-middle text-center">
                                 <div className="flex justify-center">
@@ -967,7 +1012,8 @@ export function HomePage() {
                               </td>
                               <td className="px-3 py-2 align-middle text-center">
                                 <div className="flex flex-wrap items-center justify-center gap-1.5">
-                                  {row.workers.length === 0 ? (
+                                  {row.workers.length === 0 &&
+                                  row.endedWorkers.length === 0 ? (
                                     <button
                                       type="button"
                                       onClick={primaryEdit}
@@ -976,6 +1022,10 @@ export function HomePage() {
                                     >
                                       לא משובץ
                                     </button>
+                                  ) : row.workers.length === 0 ? (
+                                    <span className="text-[11px] font-medium text-ink-soft">
+                                      אין עובדים פעילים
+                                    </span>
                                   ) : (
                                     row.workers.map((person) => (
                                       <PersonChip
@@ -985,6 +1035,14 @@ export function HomePage() {
                                       />
                                     ))
                                   )}
+                                  {row.endedWorkers.length > 0 ? (
+                                    <span className="w-full text-[10px] text-ink-soft">
+                                      הסתיימו שעות:{' '}
+                                      {row.endedWorkers
+                                        .map((person) => person.name)
+                                        .join(' · ')}
+                                    </span>
+                                  ) : null}
                                   {staffingOff ? (
                                     <span
                                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ring-1 sm:text-[11px] ${

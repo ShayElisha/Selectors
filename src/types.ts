@@ -335,6 +335,8 @@ export interface ShiftSchedule {
   frozenLaneIds?: string[]
   /** Frozen lanes with full metadata (when/why frozen, decision history). */
   frozenLanes?: FrozenLane[]
+  /** Lanes explicitly reopened by a manager in shift editing, keyed by ISO time. */
+  laneReopenedAt?: Record<string, string>
   /** Real-time board changes, newest last. */
   shiftEvents?: ShiftChangeEvent[]
   /** Assignment changes, including effective time and server-recorded actor/time. */

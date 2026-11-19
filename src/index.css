@@ -1487,6 +1487,15 @@ html.kiosk-immersive body {
   animation: gate-gap-glow 1.6s ease-in-out infinite;
 }
 
+.gate-island--closed .gate-island__card {
+  border-color: color-mix(in srgb, var(--color-hard) 75%, var(--color-line));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-hard) 30%, transparent),
+    0 0 18px color-mix(in srgb, var(--color-hard) 25%, transparent),
+    var(--shadow-panel);
+  animation: none;
+}
+
 /* Phones: stronger intensity lighting (soft outer glow is weak on mobile GPUs) */
 @media (hover: none), (max-width: 900px) {
   .gate-island__card {

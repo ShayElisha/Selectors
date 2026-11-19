@@ -175,7 +175,6 @@ import {
   type SelectorRoundHoursSettings,
 } from '../lib/selectorRoundHours'
 import {
-  frozenLaneIds,
   recordUnfreezeDecision,
   shouldPromptUnfreeze,
 } from '../lib/frozenLanes'
@@ -446,6 +445,7 @@ export interface ShiftDraft {
   frozenLaneIds?: string[]
   /** Frozen lanes with full metadata (when/why frozen, decision history). */
   frozenLanes?: import('../types').FrozenLane[]
+  laneReopenedAt?: Record<string, string>
   seatSegments?: SeatSegment[]
   seatSpan?: { startMinutes: number; endMinutes: number }
   isSelfHealed?: boolean
@@ -955,6 +955,7 @@ function snapshotDraft(d: ShiftDraft): string {
     shiftOperationEvents: d.shiftOperationEvents ?? [],
     staffingOverrides: d.staffingOverrides ?? {},
     headcountStandard: d.headcountStandard ?? null,
+    laneReopenedAt: d.laneReopenedAt ?? {},
   })
 }
 
@@ -1759,6 +1760,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           shiftDrops: item.shiftDrops,
           signOff: normalizeSignOff(item.signOff),
           frozenLaneIds: item.frozenLaneIds,
+          laneReopenedAt: item.laneReopenedAt,
           seatSegments: item.seatSegments,
           seatSpan: item.seatSpan,
           isSelfHealed: item.isSelfHealed,
@@ -1853,6 +1855,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { seatSegments: d.seatSegments, seatSpan: d.seatSpan }
         : {}),
       ...(d.frozenLaneIds?.length ? { frozenLaneIds: d.frozenLaneIds } : {}),
+      ...(d.laneReopenedAt && Object.keys(d.laneReopenedAt).length > 0
+        ? { laneReopenedAt: d.laneReopenedAt }
+        : {}),
       ...(d.shiftEvents?.length ? { shiftEvents: d.shiftEvents } : {}),
       ...(d.shiftOperationEvents?.length
         ? { shiftOperationEvents: d.shiftOperationEvents }
@@ -4186,29 +4191,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [unfreezePrompt, draft, data.shiftModels, user])
 
   const manuallyUnfreezeLane = useCallback(async (laneId: string) => {
-    if (!draft) return
-
-    const frozenLanes = (draft.frozenLanes ?? []).filter(
-      (fl: FrozenLane) => fl.laneId !== laneId,
-    )
-    const frozenIds = frozenLaneIds(frozenLanes)
-    
+    if (!draft || draft.signOff?.signedAt) return
+    const reopenedAt = new Date().toISOString()
     setDraft((d) => {
-      if (!d) return d
+      if (!d || d.signOff?.signedAt) return d
+      const frozenLanes = (d.frozenLanes ?? []).filter(
+        (fl: FrozenLane) => fl.laneId !== laneId,
+      )
+      const frozenIds = (d.frozenLaneIds ?? []).filter((id) => id !== laneId)
       return {
         ...d,
         frozenLanes,
         frozenLaneIds: frozenIds.length ? frozenIds : undefined,
+        laneReopenedAt: {
+          ...(d.laneReopenedAt ?? {}),
+          [laneId]: reopenedAt,
+        },
       }
     })
     
     const lane = data.lanes.find((l) => l.id === laneId)
-    toast.success(`🔓 נתיב ${lane?.name || '?'} נפתח ידנית`)
-    
-    if (unfreezeAndReassignRef.current) {
-      await unfreezeAndReassignRef.current()
-    }
-  }, [draft, data.lanes])
+    toast.success(`🔓 נתיב ${lane?.name || '?'} סומן לפתיחה ידנית`)
+  }, [draft, data.lanes, setDraft])
 
   const remindUnfreezeLater = useCallback(() => {
     if (!unfreezePrompt) return
