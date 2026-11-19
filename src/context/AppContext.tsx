@@ -28,6 +28,7 @@ import {
   fetchAppData,
   restoreShiftVersionRemote,
   loginRemote,
+  logoutRemote,
   postAuditEvent,
   refreshSessionRemote,
   requestPasswordResetRemote,
@@ -1458,6 +1459,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    void logoutRemote().catch((err) => {
+      console.error('Server logout failed', err)
+    })
     clearClientAuthStorage()
     setUser(null)
     setAssignmentModes(DEFAULT_ASSIGNMENT_MODES)

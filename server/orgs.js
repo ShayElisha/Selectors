@@ -7,6 +7,7 @@ import {
   withDbTransaction,
 } from './db.js'
 import { appendAuditLog } from './audit.js'
+import { piiLookupCandidates, sealWorkerPii } from './piiCrypto.js'
 import {
   sendModulesOpenedEmail,
   sendNewOrganizationAdminEmail,
@@ -634,15 +635,20 @@ export async function setOrganizationManagerEmail(orgId, emailRaw) {
 
   // Best-effort: keep matching worker rows in module DBs in sync for the same phone.
   const phone = normalizePhone(manager.phone)
+  const sealedEmail = sealWorkerPii({ email })
   for (const target of operationalDbTargets()) {
     try {
       const db = await getDb(target)
       await db.collection('workers').updateMany(
         {
           orgId: String(orgId),
-          $or: [{ phone }, { phone: manager.phone }],
+          $or: [
+            { phoneLookup: { $in: piiLookupCandidates(phone) } },
+            { phone },
+            { phone: manager.phone },
+          ],
         },
-        { $set: { email, isOrgManager: true } },
+        { $set: { ...sealedEmail, isOrgManager: true } },
       )
     } catch (err) {
       console.error(
@@ -656,8 +662,8 @@ export async function setOrganizationManagerEmail(orgId, emailRaw) {
     action: 'org_manager_email',
     orgId: String(orgId),
     details: previous
-      ? `מייל מנהל הארגון עודכן מ־${previous} ל־${email}`
-      : `מייל מנהל הארגון הוגדר: ${email}`,
+      ? 'מייל מנהל הארגון עודכן'
+      : 'מייל מנהל הארגון הוגדר',
   })
 }
 

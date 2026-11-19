@@ -33,7 +33,6 @@ function sanitizeApiMessage(message: string): string {
 function authHeaders(): HeadersInit {
   const s = loadSession()
   const headers: Record<string, string> = {}
-  if (s?.token) headers.Authorization = `Bearer ${s.token}`
   if (s?.module) headers['X-App-Module'] = s.module
   return headers
 }
@@ -44,14 +43,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...authHeaders(),
     ...(init?.headers ?? {}),
   }
-  let res = await fetch(path, { ...init, headers })
+  let res = await fetch(path, { ...init, headers, credentials: 'same-origin' })
   if (res.status === 304) {
     const method = (init?.method ?? 'GET').toUpperCase()
     if (method === 'GET' && path === '/api/data') {
       const cached = loadAppDataCache()
       if (cached) return cached as T
     }
-    res = await fetch(path, { ...init, cache: 'reload', headers })
+    res = await fetch(path, {
+      ...init,
+      cache: 'reload',
+      headers,
+      credentials: 'same-origin',
+    })
   }
   if (!res.ok) {
     let message = `API error ${res.status}`
@@ -287,17 +291,20 @@ export function loginRemote(
           }
         : {}),
     }),
-  })
+  }).then((result) =>
+    'id' in result ? { ...result, token: 'cookie-session' } : result,
+  )
 }
 
-export function verifyLoginCodeRemote(
+export async function verifyLoginCodeRemote(
   challengeId: string,
   code: string,
 ): Promise<SessionUser & { token: string }> {
-  return request('/api/login/verify', {
+  const session = await request<SessionUser>('/api/login/verify', {
     method: 'POST',
     body: JSON.stringify({ challengeId, code }),
   })
+  return { ...session, token: 'cookie-session' }
 }
 
 export function registerOrganizationRemote(body: {
@@ -517,8 +524,13 @@ export interface OrgAssignmentSettings {
   organization?: OrgProfile
 }
 
-export function refreshSessionRemote(): Promise<SessionUser & { token: string }> {
-  return request('/api/session')
+export async function refreshSessionRemote(): Promise<SessionUser & { token: string }> {
+  const session = await request<SessionUser>('/api/session')
+  return { ...session, token: 'cookie-session' }
+}
+
+export function logoutRemote(): Promise<{ ok: boolean }> {
+  return request('/api/logout', { method: 'POST' })
 }
 
 export function reportShiftPresence(shiftId: string): Promise<{ others: string[] }> {
@@ -615,7 +627,7 @@ export function checkCrossModuleConflictsRemote(body: {
 export interface SystemErrorEntry {
   id: string
   at: string
-  source: 'server' | 'client'
+  source: 'server' | 'client' | 'background_job'
   status: number
   method: string
   path: string

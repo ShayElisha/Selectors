@@ -1,20 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { connectMock, closeMock, MongoClient } = vi.hoisted(() => {
+const { connectMock, closeMock, transactionMock, MongoClient } = vi.hoisted(() => {
   const connectMock = vi.fn()
   const closeMock = vi.fn(async () => {})
+  const transactionMock = vi.fn(async (fn) => fn())
   class MongoClient {
     constructor() {
       this.connect = connectMock
       this.close = closeMock
       this.db = () => ({ collection: () => ({}) })
       this.startSession = () => ({
-        withTransaction: async (fn) => fn(),
+        withTransaction: (...args) => transactionMock(...args),
         endSession: async () => {},
       })
     }
   }
-  return { connectMock, closeMock, MongoClient }
+  return { connectMock, closeMock, transactionMock, MongoClient }
 })
 
 vi.mock('mongodb', () => ({ MongoClient }))
@@ -23,6 +24,8 @@ describe('db TLS error mapping', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+    connectMock.mockReset().mockResolvedValue(undefined)
+    transactionMock.mockImplementation(async (fn) => fn())
     vi.stubEnv('MONGODB_URI', 'mongodb://localhost:27017/selectors')
     vi.stubEnv('MONGODB_URI_SECURITY', 'mongodb://localhost:27017/security')
     globalThis.__mongoClients = {}
@@ -65,5 +68,23 @@ describe('db TLS error mapping', () => {
     const client = await getClient('security')
     expect(client).toBeTruthy()
     expect(globalThis.__mongoClients?.security).toBeTruthy()
+  })
+
+  it('does not retry a transaction callback without a transaction', async () => {
+    transactionMock.mockRejectedValueOnce(
+      Object.assign(new Error('Transaction numbers are only allowed on a replica set member'), {
+        code: 20,
+      }),
+    )
+    const { withDbTransaction } = await import('./db.js')
+    const write = vi.fn()
+
+    await expect(
+      withDbTransaction(async () => write(), 'selectors'),
+    ).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringMatching(/שינויים חלקיים/),
+    })
+    expect(write).not.toHaveBeenCalled()
   })
 })

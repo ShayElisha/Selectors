@@ -79,12 +79,20 @@ import {
 import { assertRateLimit, clearRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
 import { assertSessionSecretConfigured, createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
+import { assertPiiEncryptionConfigured } from './piiCrypto.js'
+import { assertCookieMutationOrigin } from './csrf.js'
+import { revokeSessionId } from './sessionRevocation.js'
 
 assertSessionSecretConfigured()
+assertPiiEncryptionConfigured()
 import { createLoginChallenge, verifyLoginChallenge } from './loginChallenge.js'
 import { listBugReports, setBugReportHandled, submitBugReport } from './support.js'
 import { listSystemMessages, createSystemMessage } from './messages.js'
 import { runDailyLoadRest, scheduleLocalLoadRestCron } from './loadRest.js'
+import {
+  processBackgroundJobs,
+  scheduleLocalBackgroundJobProcessor,
+} from './backgroundJobs.js'
 import {
   runShiftReminderPass,
   scheduleLocalShiftReminderCron,
@@ -145,6 +153,14 @@ app.use(
     },
   }),
 )
+app.use('/api', (req, res, next) => {
+  try {
+    assertCookieMutationOrigin(req, allowedOrigins)
+    next()
+  } catch (error) {
+    sendError(res, error)
+  }
+})
 app.use((req, res, next) => {
   if (req.body != null && typeof req.body === 'object') {
     next()
@@ -183,6 +199,26 @@ function sendError(res, err) {
 
 app.use('/api', createActiveUserMiddleware(sendError))
 
+function setSessionCookie(res, token) {
+  const secure = process.env.NODE_ENV === 'production' || process.env.VERCEL
+    ? '; Secure'
+    : ''
+  res.setHeader(
+    'Set-Cookie',
+    `getin_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${secure}`,
+  )
+}
+
+function clearSessionCookie(res) {
+  const secure = process.env.NODE_ENV === 'production' || process.env.VERCEL
+    ? '; Secure'
+    : ''
+  res.setHeader(
+    'Set-Cookie',
+    `getin_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`,
+  )
+}
+
 function assertCronAuth(req) {
   const secret = process.env.CRON_SECRET?.trim()
   if (!secret) {
@@ -209,7 +245,9 @@ app.post('/api/cron/load-rest', async (req, res) => {
       typeof req.body?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)
         ? req.body.date
         : undefined
-    res.json(await runDailyLoadRest({ date }))
+    const rest = await runDailyLoadRest({ date })
+    const backgroundJobs = await processBackgroundJobs()
+    res.json({ ...rest, backgroundJobs })
   } catch (err) {
     sendError(res, err)
   }
@@ -222,7 +260,9 @@ app.get('/api/cron/load-rest', async (req, res) => {
       typeof req.query?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
         ? req.query.date
         : undefined
-    res.json(await runDailyLoadRest({ date }))
+    const rest = await runDailyLoadRest({ date })
+    const backgroundJobs = await processBackgroundJobs()
+    res.json({ ...rest, backgroundJobs })
   } catch (err) {
     sendError(res, err)
   }
@@ -242,6 +282,15 @@ app.get('/api/cron/shift-reminders', async (req, res) => {
   try {
     assertCronAuth(req)
     res.json(await runShiftReminderPass())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/cron/background-jobs', async (req, res) => {
+  try {
+    assertCronAuth(req)
+    res.json({ processed: await processBackgroundJobs() })
   } catch (err) {
     sendError(res, err)
   }
@@ -320,7 +369,8 @@ app.post('/api/login/verify', async (req, res) => {
       passwordChanged: challenge.passwordChanged,
     })
     const token = createSessionToken(user)
-    res.json({ ...user, token })
+    setSessionCookie(res, token)
+    res.json(user)
   } catch (err) {
     sendError(res, err)
   }
@@ -732,9 +782,12 @@ app.post('/api/register', async (req, res) => {
 
 app.get('/api/session', async (req, res) => {
   try {
+    const tokenUser = verifySessionToken(getBearerToken(req))
     const user = req.activeUser || requireUser(req)
     if (user.role === 'super_admin') {
-      res.json({ ...user, token: createSessionToken(user) })
+      const token = createSessionToken({ ...user, exp: user.exp })
+      setSessionCookie(res, token)
+      res.json(user)
       return
     }
     const fresh = req.activeUser || await refreshManagerSession(user)
@@ -747,8 +800,24 @@ app.get('/api/session', async (req, res) => {
     ) {
       fresh.module = requested
     }
-    const token = createSessionToken(fresh)
-    res.json({ ...fresh, token })
+    const token = createSessionToken({
+      ...fresh,
+      jti: tokenUser?.jti,
+      exp: tokenUser?.exp,
+    })
+    setSessionCookie(res, token)
+    res.json(fresh)
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/logout', async (req, res) => {
+  try {
+    const user = requireUser(req)
+    await revokeSessionId(user.jti, user.exp)
+    clearSessionCookie(res)
+    res.json({ ok: true })
   } catch (err) {
     sendError(res, err)
   }
@@ -1263,6 +1332,7 @@ app.post('/api/mail-test', async (req, res) => {
 
 app.get('/api/debug/challenges', async (req, res) => {
   try {
+    requireSuperAdmin(req)
     const db = await getDb()
     const collection = db.collection('login_challenges')
     const challenges = await collection.find({}).sort({ createdAt: -1 }).limit(10).toArray()
@@ -1297,6 +1367,7 @@ async function start() {
   
   scheduleLocalLoadRestCron()
   scheduleLocalShiftReminderCron()
+  scheduleLocalBackgroundJobProcessor()
   app.listen(PORT, () => {
     console.log(`API listening on http://127.0.0.1:${PORT}`)
   })

@@ -154,7 +154,7 @@ export function loadSession(): SessionUser | null {
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as SessionUser
-    if (!parsed?.id || !parsed?.phone || !parsed?.token) return null
+    if (!parsed?.id || !parsed?.phone) return null
     if (
       parsed.role !== 'super_admin' &&
       parsed.role !== 'org_manager' &&
@@ -182,6 +182,7 @@ export function loadSession(): SessionUser | null {
         : null
     return {
       ...parsed,
+      token: 'cookie-session',
       orgId: parsed.orgId || null,
       orgName: parsed.orgName || null,
       modules,
@@ -196,7 +197,10 @@ export function loadSession(): SessionUser | null {
 }
 
 export function saveSession(user: SessionUser): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user))
+  const session = Object.fromEntries(
+    Object.entries(user).filter(([key]) => key !== 'token'),
+  )
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }
 
 export function clearSession(): void {

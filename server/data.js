@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { waitUntil } from "@vercel/functions";
 import {
   getAuditCollection,
   getDb,
@@ -26,26 +25,11 @@ import {
   upsertManagerAccount,
 } from "./orgs.js";
 import { openWorkerPii, sealWorkerPii } from "./piiCrypto.js";
-import { createPayEntriesForCompletedShifts } from "./workerPay.js";
 import { syncContinuedWorkerHours } from "./workerShiftContinuity.js";
-
-function scheduleBackgroundTask(label, task) {
-  const pending = Promise.resolve()
-    .then(task)
-    .catch((err) => {
-      console.error(`[${label}] background task failed`, err?.message || err);
-    });
-  if (process.env.VERCEL) {
-    try {
-      waitUntil(pending);
-    } catch (err) {
-      console.error(
-        `[${label}] could not register background task`,
-        err?.message || err,
-      );
-    }
-  }
-}
+import {
+  enqueueBackgroundJob,
+  kickBackgroundJobProcessor,
+} from "./backgroundJobs.js";
 
 function publicModules(modules) {
   return {
@@ -682,7 +666,8 @@ export async function assertUniqueWorkerContacts(workers, scope) {
       continue;
     }
     const otherLabel = moduleLabelHe(target);
-    for (const other of docs) {
+    for (const rawOther of docs) {
+      const other = openWorkerPii(rawOther) || rawOther;
       const phone = normalizePhone(other.phone);
       if (phone && phoneOwners.has(phone)) {
         const local = phoneOwners.get(phone);
@@ -2534,6 +2519,7 @@ export async function upsertShift(id, body, actor, options = {}) {
   let savedShiftModels = [];
   let savedWorkers = [];
   let updatedSchedules = [];
+  const outboxId = randomUUID();
   for (let attempt = 0; attempt < 5 && !saved; attempt++) {
     if (attempt > 0) invalidateStateCache(scope);
     const latest = attempt === 0 ? state : await readState(scope);
@@ -2655,6 +2641,66 @@ export async function upsertShift(id, body, actor, options = {}) {
           { upsert: true, ...txOpts },
         );
       }
+      const header = shiftAuditHeader(savedSchedule);
+      const movement = summarizeAssignmentChanges(
+        latestPrevious,
+        savedSchedule,
+        { workers: latest.workers, lanes: latest.lanes },
+      );
+      await enqueueBackgroundJob(db, session, {
+        id: `${outboxId}:audit`,
+        type: "shift.audit",
+        scope,
+        payload: {
+          action: closing
+            ? "shift_signoff"
+            : isNew
+              ? "shift_save"
+              : "shift_update",
+          actor: actor
+            ? { id: String(actor.id || ""), fullName: String(actor.fullName || "") }
+            : null,
+          details: closing
+            ? `נסגרה משמרת ${savedSchedule.date} · ${savedSchedule.shiftType} · ${savedSchedule.signOff.signerName}`
+            : movement
+              ? `${header} · ${movement}`
+              : header,
+          orgId: scope?.orgId,
+          module: scope?.module,
+        },
+      });
+      if (scope?.orgId && scope?.module && !closing) {
+        const notifyFields = (shift) => {
+          if (!shift) return null;
+          return {
+            id: shift.id,
+            date: shift.date,
+            shiftType: shift.shiftType,
+            updatedAt: shift.updatedAt,
+            gateManagerWorkerId: shift.gateManagerWorkerId,
+            assignments: shift.assignments,
+            rounds: shift.rounds,
+            seatSegments: shift.seatSegments,
+          };
+        };
+        await enqueueBackgroundJob(db, session, {
+          id: `${outboxId}:assignment-notice`,
+          type: "shift.assignment-notice",
+          scope,
+          payload: {
+            shiftId: savedSchedule.id,
+            previous: notifyFields(latestPrevious),
+            actor: actor
+              ? { id: String(actor.id || ""), fullName: String(actor.fullName || "") }
+              : null,
+          },
+        });
+      }
+      await enqueueBackgroundJob(db, session, {
+        id: `${outboxId}:payroll`,
+        type: "shift.payroll",
+        scope,
+      });
     }, target);
     const savedState = {
       ...latest,
@@ -2678,53 +2724,7 @@ export async function upsertShift(id, body, actor, options = {}) {
       : publicData(savedState);
   }
   if (!saved) throw conflictError(await readState(scope));
-
-  const header = shiftAuditHeader(savedSchedule);
-  const movement = summarizeAssignmentChanges(previous, savedSchedule, {
-    workers: state.workers,
-    lanes: state.lanes,
-  });
-  const details = movement ? `${header} · ${movement}` : header;
-
-  scheduleBackgroundTask("audit", () =>
-    appendAuditLog({
-      action: closing ? "shift_signoff" : isNew ? "shift_save" : "shift_update",
-      actor,
-      details: closing
-        ? `נסגרה משמרת ${savedSchedule.date} · ${savedSchedule.shiftType} · ${savedSchedule.signOff.signerName}`
-        : details,
-      orgId: scope?.orgId,
-      module: scope?.module,
-    }),
-  );
-
-  // Keep the response focused on persisting the shift; Vercel waitUntil keeps
-  // non-critical notifications alive after the response is sent.
-  if (scope?.orgId && scope?.module && !closing) {
-    scheduleBackgroundTask("worker-alerts", async () => {
-      const { notifyWorkersOfAssignmentChanges } = await import("./workerAlerts.js");
-      await notifyWorkersOfAssignmentChanges({
-        previous,
-        next: savedSchedule,
-        scope,
-        actor,
-        lanes: state.lanes,
-        models: state.shiftModels,
-      });
-    });
-  }
-
-  if (savedHistory) {
-    scheduleBackgroundTask("payroll", () =>
-      createPayEntriesForCompletedShifts(
-        savedHistory,
-        savedWorkerWindowPresets,
-        savedShiftModels,
-        scope,
-        savedWorkers,
-      ),
-    );
-  }
+  kickBackgroundJobProcessor();
 
   return saved;
 }
@@ -2801,7 +2801,8 @@ async function loadWorkerContactMap(scope, ids) {
     .find({ ...scopeFilter(scope), id: { $in: wanted } })
     .project({ id: 1, phone: 1, fullName: 1 })
     .toArray();
-  for (const worker of docs) {
+  for (const rawWorker of docs) {
+    const worker = openWorkerPii(rawWorker) || rawWorker;
     const id = String(worker.id || "");
     const phone = normalizePhone(worker.phone);
     if (!id || !phone) continue;
@@ -3030,6 +3031,7 @@ export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
     signerId: String(actor?.id || ""),
     signature: typed,
   };
+  const outboxId = randomUUID();
 
   if (unique.length === 0) {
     return { locked: 0, data: publicData(await readState(scope)) };
@@ -3131,6 +3133,25 @@ export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
           { upsert: true, ...txOpts },
         );
       }
+      await enqueueBackgroundJob(db, session, {
+        id: `${outboxId}:audit`,
+        type: "shift.audit",
+        scope,
+        payload: {
+          action: "shift_signoff_bulk",
+          actor: actor
+            ? { id: String(actor.id || ""), fullName: String(actor.fullName || "") }
+            : null,
+          details: `ננעלו ${locked} משמרות · ${name}`,
+          orgId: scope?.orgId,
+          module: scope?.module,
+        },
+      });
+      await enqueueBackgroundJob(db, session, {
+        id: `${outboxId}:payroll`,
+        type: "shift.payroll",
+        scope,
+      });
     }, target);
 
     const savedState = {
@@ -3144,31 +3165,7 @@ export async function signOffShiftsBulk(ids, signature, actor, options = {}) {
 
   if (!saved) throw conflictError(await readState(scope));
 
-  try {
-    await appendAuditLog({
-      action: "shift_signoff_bulk",
-      actor,
-      details: `ננעלו ${locked} משמרות · ${name}`,
-      orgId: scope?.orgId,
-      module: scope?.module,
-    });
-  } catch (err) {
-    console.error("Failed to append bulk shift sign-off audit log:", err);
-  }
-
-  // Only release payroll after each continuing worker's final shift is closed.
-  try {
-    await createPayEntriesForCompletedShifts(
-      saved.history,
-      saved.workerWindowPresets,
-      saved.shiftModels,
-      scope,
-      saved.workers,
-    )
-  } catch (err) {
-    // Log but don't fail the sign-off if pay entry creation fails
-    console.error("Failed to create pay entries:", err);
-  }
+  kickBackgroundJobProcessor();
 
   return { locked, data: saved };
 }

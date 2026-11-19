@@ -5,6 +5,7 @@
 - Required for production:
   - `MONGODB_URI` — Atlas connection string for selectors, organizations, and accounts
   - `SESSION_SECRET` — unique random secret (32+ chars) for signing session tokens
+  - `PII_ENCRYPTION_KEYS` — JSON object of key IDs to independent random secrets (each 32+ chars), for example `{"2026-01":"<random-secret>"}`; the active key ID is set by `PII_ENCRYPTION_ACTIVE_KEY_ID`
   - `CRON_SECRET` — unique random secret for `/api/cron/load-rest`; Vercel Cron sends it in the `Authorization` header
   - `SUPER_ADMIN_PHONE`, `SUPER_ADMIN_PASSWORD`, and `SUPER_ADMIN_EMAIL` — super-admin credentials and destination for its sign-in verification codes; use a dedicated phone and a strong password
   - `APP_URL` — exact public production origin (for example `https://app.example.com`); required for production CORS and email links
@@ -24,6 +25,7 @@
   - `BUG_REPORT_EMAIL` — destination for user bug reports
 - `LOAD_REST_CRON=0` disables the local nightly scheduler; Vercel Cron remains protected by `CRON_SECRET`.
 - Set production values in Vercel Project Settings → Environment Variables for every deployed environment. Never commit `.env`.
+- The server refuses to start in production unless a valid PII encryption key is configured. Do not deploy the code change before setting the key.
 - Email verification is mandatory; there is no emergency bypass. A broken SMTP service or missing/invalid account email prevents login.
 - Before deployment, run `npm run mail:test -- <SUPER_ADMIN_EMAIL>` with the production SMTP settings and confirm delivery. Ensure every active manager account has a valid, accessible email address.
 
@@ -34,6 +36,20 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 1. Atlas → Network Access
 2. Prefer a narrow IP allowlist (Vercel egress / office IPs) instead of `0.0.0.0/0`
 3. Enable Atlas continuous backup / point-in-time restore for the cluster
+
+## PII encryption migration and key rotation
+
+Worker email, phone, and manager notes are encrypted at rest using AES-256-GCM. Lookup hashes are deterministic HMACs; they are not reversible. Audit records omit contact details.
+
+1. Before enabling the new release, take and verify an Atlas backup.
+2. Set `PII_ENCRYPTION_KEYS` to a JSON object with a random 32+ character secret and set `PII_ENCRYPTION_ACTIVE_KEY_ID` to its key ID. Generate secrets with a cryptographically secure password manager or secret generator; never commit them.
+3. If the database contains legacy `enc:v1:` values, retain the previous value in `PII_ENCRYPTION_KEY` during migration so the script can decrypt them. Keep all existing v2 key IDs in `PII_ENCRYPTION_KEYS`.
+4. Run `npm run migrate:pii` once in dry-run mode and review only the per-database counts. Then run `npm run migrate:pii -- --apply` against the intended database environment.
+5. Verify the migration counts and application reads, then deploy. The migration is idempotent and can be rerun after restoring a backup.
+6. To rotate: add the new key alongside the old key, set `PII_ENCRYPTION_ACTIVE_KEY_ID` to the new ID, deploy, run the migration with `--apply`, verify records can be read, and only then remove the old key. Keep the old key available until verification and backup-retention windows have passed.
+7. Keep a separately secured offline backup of every key needed by retained database backups. Losing an encryption key makes its ciphertext unrecoverable.
+
+Do not remove `PII_ENCRYPTION_KEY` while any legacy `enc:v1:` values or backups still require it.
 
 ## Monitoring
 
@@ -64,6 +80,7 @@ Set `APP_URL` to the exact public site origin so the API CORS allowlist matches 
 
 - Vercel Cron hits `GET /api/cron/load-rest` daily at `23:00 UTC` (~02:00 Israel daylight time)
 - Local `npm run start:api` / `dev:api` also runs the same check around 02:00 Asia/Jerusalem
+- The same cron pass retries durable background jobs. Jobs are also kicked immediately after being written; Hobby's daily cron is the recovery path for failed attempts. On Pro, add a five-minute `/api/cron/background-jobs` cron for faster retries.
 - Workers who had no real שיבוץ the previous Israel day get a −2 rest credit recorded; the tracking עומס already applies −2 per idle shift-family day from history (presence alone no longer blocks rest)
 
 ## Shift reminders
