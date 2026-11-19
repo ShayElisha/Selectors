@@ -18,6 +18,7 @@ const ALLOWED_CLIENT_ACTIONS = new Set([
  * @param {{ action: string, actor?: AuditActor, details?: string, orgId?: string, module?: string, before?: unknown, after?: unknown }} entry
  */
 export async function appendAuditLog({
+  id,
   action,
   actor,
   details,
@@ -28,14 +29,13 @@ export async function appendAuditLog({
 }) {
   const col = await getAuditCollection(mongoTarget(module))
   const doc = {
-    id: randomUUID(),
+    id: id ? String(id) : randomUUID(),
     at: new Date().toISOString(),
     action: String(action || 'unknown'),
     actor: actor
       ? {
           id: actor.id || '',
           fullName: actor.fullName || '',
-          phone: actor.phone || '',
         }
       : null,
     details: String(details || ''),
@@ -44,7 +44,15 @@ export async function appendAuditLog({
     ...(orgId ? { orgId: String(orgId) } : {}),
     ...(module ? { module: String(module) } : {}),
   }
-  await col.insertOne(doc)
+  if (id) {
+    await col.updateOne(
+      { _id: doc.id },
+      { $setOnInsert: { ...doc, _id: doc.id } },
+      { upsert: true },
+    )
+  } else {
+    await col.insertOne(doc)
+  }
   return {
     id: doc.id,
     at: doc.at,
@@ -260,7 +268,7 @@ export function diffAppDataAuditEvents(prev, next) {
       events.push({
         action: 'data_update',
         details: `נוסף בודק: ${w.fullName || w.id}`,
-        after: { id: w.id, fullName: w.fullName, phone: w.phone },
+        after: { id: w.id, fullName: w.fullName },
       })
       continue
     }

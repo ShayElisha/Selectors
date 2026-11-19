@@ -189,7 +189,7 @@ export async function getSystemErrorCollection() {
   return db.collection('system_errors')
 }
 
-/** Run writes together so a save does not leave half the models updated. */
+/** Run writes together; never replay multi-document writes without atomicity. */
 export async function withDbTransaction(fn, target = 'selectors') {
   const client = await getClient(target)
   const session = client.startSession()
@@ -206,7 +206,12 @@ export async function withDbTransaction(fn, target = 'selectors') {
       /transaction numbers are only allowed/i.test(message) ||
       /Transaction numbers/.test(message)
     if (!unsupported) throw err
-    return fn(undefined)
+    const mapped = new Error(
+      'מסד הנתונים אינו תומך בטרנזקציות; הפעולה בוטלה ללא שמירת שינויים חלקיים',
+    )
+    mapped.status = 503
+    mapped.cause = err
+    throw mapped
   } finally {
     await session.endSession()
   }

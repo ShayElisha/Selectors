@@ -50,6 +50,21 @@ describe('email-verified session tokens', () => {
     })
   })
 
+  it('preserves the original expiry when a session cookie is refreshed', () => {
+    const exp = Date.now() + 60_000
+    const token = createSessionToken({
+      id: 'manager-1',
+      fullName: 'Manager',
+      phone: '0501234567',
+      role: 'org_manager',
+      orgId: 'org-1',
+      modules: { selectors: true },
+      exp,
+    })
+
+    expect(verifySessionToken(token)?.exp).toBe(exp)
+  })
+
   it('rejects sessions issued before email verification was required', () => {
     const token = signedToken({
       id: 'manager-1',

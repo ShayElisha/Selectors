@@ -7,8 +7,9 @@ const {
   getMetaCollection,
   getStateCollection,
   createPayEntriesForCompletedShifts,
+  enqueueBackgroundJob,
+  kickBackgroundJobProcessor,
   appendAuditLog,
-  waitUntil,
 } = vi.hoisted(() => {
   const buckets = new Map()
   const operations = new Map()
@@ -131,12 +132,22 @@ const {
     operations,
     rows,
     createPayEntriesForCompletedShifts: vi.fn(async () => {}),
+    enqueueBackgroundJob: vi.fn(async (db, session, job) => {
+      await db.collection('background_jobs').updateOne(
+        { _id: job.id },
+        { $setOnInsert: { _id: job.id, ...job, status: 'pending' } },
+        { upsert: true, ...(session ? { session } : {}) },
+      )
+    }),
+    kickBackgroundJobProcessor: vi.fn(),
     appendAuditLog: vi.fn(async () => {}),
-    waitUntil: vi.fn(),
   }
 })
 
-vi.mock('@vercel/functions', () => ({ waitUntil }))
+vi.mock('./backgroundJobs.js', () => ({
+  enqueueBackgroundJob,
+  kickBackgroundJobProcessor,
+}))
 vi.mock('./db.js', () => ({
   getDb,
   getMetaCollection,
@@ -223,6 +234,10 @@ describe('state and shift persistence', () => {
     buckets.clear()
     operations.clear()
     vi.clearAllMocks()
+    appendAuditLog.mockReset().mockResolvedValue(undefined)
+    enqueueBackgroundJob.mockClear()
+    kickBackgroundJobProcessor.mockClear()
+    createPayEntriesForCompletedShifts.mockReset().mockResolvedValue(undefined)
     scope = { orgId: `test-org-${scopeSequence++}`, module: 'selectors' }
     metaId = `${scope.orgId}:${scope.module}`
     seedState()
@@ -659,15 +674,11 @@ describe('state and shift persistence', () => {
       { scope, compact: true },
     )
 
-    expect(createPayEntriesForCompletedShifts).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: 'closed-shift', signOff: expect.any(Object) })],
-      [],
-      [],
-      scope,
-      expect.arrayContaining([
-        expect.objectContaining({ id: inspector.id, staffKind: 'inspector' }),
-      ]),
-    )
+    expect(
+      buckets.get('inspectors:background_jobs').some(
+        (job) => job.type === 'shift.payroll' && job.scope.orgId === scope.orgId,
+      ),
+    ).toBe(true)
   })
 
   it('returns a saved shift without waiting for background payroll work', async () => {
@@ -700,8 +711,12 @@ describe('state and shift persistence', () => {
       )
 
       expect(result.shift.id).toBe('shift-with-slow-payroll')
-      expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise))
-      expect(createPayEntriesForCompletedShifts).toHaveBeenCalledOnce()
+      expect(
+        buckets
+          .get('inspectors:background_jobs')
+          .some((job) => job.type === 'shift.payroll' && job.status === 'pending'),
+      ).toBe(true)
+      expect(createPayEntriesForCompletedShifts).not.toHaveBeenCalled()
     } finally {
       finishPayroll?.()
       if (previousVercel === undefined) delete process.env.VERCEL
@@ -754,33 +769,27 @@ describe('state and shift persistence', () => {
     })
   })
 
-  it('returns success when audit logging fails after bulk sign-off is persisted', async () => {
+  it('enqueues audit and payroll atomically with bulk sign-off', async () => {
     seedState({
       revision: 4,
       historyRevision: 4,
       shifts: [{ id: 'shift-a', date: '2026-10-12', shiftType: 'morning' }],
     })
-    appendAuditLog.mockRejectedValueOnce(new Error('audit store unavailable'))
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const result = await signOffShiftsBulk(
+      ['shift-a'],
+      'Manager',
+      { id: 'manager-1', fullName: 'Manager' },
+      { scope, expectedRevision: 4 },
+    )
 
-    try {
-      const result = await signOffShiftsBulk(
-        ['shift-a'],
-        'Manager',
-        { id: 'manager-1', fullName: 'Manager' },
-        { scope, expectedRevision: 4 },
-      )
-
-      expect(result.locked).toBe(1)
-      expect(result.data.history.find((shift) => shift.id === 'shift-a')?.signOff?.signerName)
-        .toBe('Manager')
-      expect(errorSpy).toHaveBeenCalledWith(
-        'Failed to append bulk shift sign-off audit log:',
-        expect.any(Error),
-      )
-    } finally {
-      errorSpy.mockRestore()
-    }
+    expect(result.locked).toBe(1)
+    expect(result.data.history.find((shift) => shift.id === 'shift-a')?.signOff?.signerName)
+      .toBe('Manager')
+    const jobs = buckets.get('selectors:background_jobs')
+    expect(jobs.some((job) => job.type === 'shift.audit' && job.status === 'pending'))
+      .toBe(true)
+    expect(jobs.some((job) => job.type === 'shift.payroll' && job.status === 'pending'))
+      .toBe(true)
   })
 
   it('refuses to modify an already signed-off shift', async () => {

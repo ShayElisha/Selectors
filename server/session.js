@@ -1,6 +1,6 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const MIN_SECRET_LENGTH = 32
 
 const PLACEHOLDER_SECRETS = new Set([
@@ -81,11 +81,13 @@ function fromB64url(str) {
  *   modules?: { selectors?: boolean, inspectors?: boolean, security?: boolean },
  *   module?: 'selectors' | 'inspectors' | 'security' | null,
  *   tokenVersion?: number,
+ *   exp?: number,
  * }} user
  * @returns {string}
  */
 export function createSessionToken(user) {
   const payload = {
+    jti: user.jti || randomUUID(),
     id: user.id,
     fullName: user.fullName,
     phone: user.phone,
@@ -102,7 +104,10 @@ export function createSessionToken(user) {
     staffKind: user.staffKind || null,
     tokenVersion: Number(user.tokenVersion || 0),
     mfa: true,
-    exp: Date.now() + SESSION_TTL_MS,
+    exp:
+      Number.isFinite(Number(user.exp)) && Number(user.exp) > Date.now()
+        ? Number(user.exp)
+        : Date.now() + SESSION_TTL_MS,
   }
   const body = b64url(JSON.stringify(payload))
   const sig = b64url(createHmac('sha256', getSecret()).update(body).digest())
@@ -151,6 +156,8 @@ export function verifySessionToken(token) {
       Number(modules.selectors) + Number(modules.inspectors) + Number(modules.security)
     return {
       id: String(payload.id),
+      jti: String(payload.jti || ''),
+      exp: Number(payload.exp),
       fullName: String(payload.fullName || ''),
       phone: String(payload.phone || ''),
       role: payload.role,
@@ -179,9 +186,23 @@ export function getBearerToken(req) {
   const headers = req.headers || {}
   const raw = headers.authorization ?? headers.Authorization
   const value = Array.isArray(raw) ? raw[0] : raw
-  if (!value || typeof value !== 'string') return null
-  const m = value.match(/^Bearer\s+(.+)$/i)
-  return m ? m[1].trim() : null
+  if (typeof value === 'string') {
+    const m = value.match(/^Bearer\s+(.+)$/i)
+    if (m) return m[1].trim()
+  }
+  const cookieHeader = headers.cookie ?? headers.Cookie
+  const cookies = Array.isArray(cookieHeader) ? cookieHeader[0] : cookieHeader
+  if (typeof cookies !== 'string') return null
+  const cookie = cookies
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('getin_session='))
+  if (!cookie) return null
+  try {
+    return decodeURIComponent(cookie.slice('getin_session='.length))
+  } catch {
+    return null
+  }
 }
 
 /**
