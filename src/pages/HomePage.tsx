@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -10,7 +10,6 @@ import {
   Plus,
   RefreshCw,
   Users,
-  Table2,
   BarChart3,
   AlertTriangle,
   Lock,
@@ -19,10 +18,11 @@ import {
   Map as MapIcon,
   ChevronLeft,
   ChevronRight,
+  Maximize2,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   BoardKiosk,
-  BoardKioskEnterButton,
   type BoardKioskHandle,
 } from '../components/BoardKiosk'
 import { GateMapKiosk } from '../components/GateMapKiosk'
@@ -48,32 +48,30 @@ import {
 } from '../algorithm'
 import {
   formatShiftDate,
-  formatShiftDateShort,
   formatShiftWindow,
   pluralizeHe,
 } from '../lib/hebrew'
 import { notify } from '../lib/notify'
 import { formatShiftShare } from '../lib/trackingHeatmap'
+import { avatarColor } from '../lib/avatarColor'
 import {
   effectiveStaffingStandard,
   shiftHeadcountSnapshot,
-  totalHeadcountDeficit,
 } from '../lib/shiftStaffing'
 import {
   EmptyState,
-  IntensityBadge,
   Ltr,
   MetricIconBadge,
-  PersonChip,
   SectionCard,
   Skeleton,
 } from '../components/ui'
-import type { Intensity, ShiftHandoffNote, ShiftSchedule } from '../types'
+import type { Intensity, ShiftHandoffNote, ShiftSchedule, View } from '../types'
 import { SelectorRoundTable } from '../components/SelectorRoundTable'
 import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerWindowById } from '../lib/shiftCatalog'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
+import { pathForView } from '../routes'
 
 /** Optional health snapshot if/when persisted on ShiftSchedule. */
 export interface ShiftHealthSnapshot {
@@ -98,6 +96,506 @@ const warningPlural = {
   two: 'שתי אזהרות',
   many: 'אזהרות',
 } as const
+
+type ShiftTabOption = {
+  id: ShiftSchedule['shiftType']
+  label: string
+  saved: boolean
+  hasException: boolean
+}
+
+type ShiftExceptionSource = Pick<
+  ShiftSchedule,
+  'presentWorkerIds' | 'headcountStandard' | 'assignments' | 'rounds'
+>
+
+type HomeLanePerson = {
+  id: string
+  name: string
+  trainingRole?: 'trainee' | 'mentor'
+  windowLabel: string
+}
+
+type HomeLaneRow = {
+  laneId: string
+  laneName: string
+  intensity: Intensity
+  staffingStandard: number
+  assigned: number
+  workers: HomeLanePerson[]
+  endedWorkers: { id: string; name: string }[]
+  autoClosed: boolean
+  manuallyReopened: boolean
+}
+
+function hasShiftException(shift: ShiftExceptionSource | undefined): boolean {
+  if (!shift) return false
+  const headcount = shiftHeadcountSnapshot(shift)
+  const assignmentRows = shift.rounds?.length
+    ? shift.rounds.flatMap((round) => round.assignments)
+    : shift.assignments
+  const assigned = new Set(
+    assignmentRows.flatMap((row) => row.workerIds.filter(Boolean)),
+  )
+  const unassignedPresent = shift.presentWorkerIds.some(
+    (workerId) => !assigned.has(workerId),
+  )
+  return Boolean(headcount.tracked && headcount.deficit > 0) || unassignedPresent
+}
+
+function DayNavigator({
+  date,
+  isToday,
+  previousDate,
+  nextDate,
+  onPrevious,
+  onNext,
+  onToday,
+}: {
+  date: string
+  isToday: boolean
+  previousDate?: string
+  nextDate?: string
+  onPrevious: () => void
+  onNext: () => void
+  onToday: () => void
+}) {
+  return (
+    <div className="grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-2">
+      <button
+        type="button"
+        disabled={!previousDate}
+        aria-disabled={!previousDate}
+        onClick={onPrevious}
+        aria-label="מעבר ליום הקודם עם שיבוץ"
+        className="ui-btn ui-btn-secondary inline-flex min-w-0 justify-self-start gap-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <ChevronRight className="size-4 shrink-0" aria-hidden />
+        <span className="hidden sm:inline">יום קודם</span>
+        <span className="sm:hidden">קודם</span>
+      </button>
+
+      <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+        <Ltr className="text-sm font-semibold text-ink">{date}</Ltr>
+        {isToday ? (
+          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-semibold text-brand">
+            היום
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onToday}
+            className="text-xs font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          >
+            חזרה להיום
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        disabled={!nextDate}
+        aria-disabled={!nextDate}
+        onClick={onNext}
+        aria-label="מעבר ליום הבא עם שיבוץ"
+        className="ui-btn ui-btn-secondary inline-flex min-w-0 justify-self-end gap-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span className="hidden sm:inline">יום הבא</span>
+        <span className="sm:hidden">הבא</span>
+        <ChevronLeft className="size-4 shrink-0" aria-hidden />
+      </button>
+    </div>
+  )
+}
+
+function ShiftTabs({
+  options,
+  selectedId,
+  onSelect,
+}: {
+  options: ShiftTabOption[]
+  selectedId: ShiftSchedule['shiftType']
+  onSelect: (id: ShiftSchedule['shiftType']) => void
+}) {
+  return (
+    <div
+      className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-line bg-surface p-1"
+      role="group"
+      aria-label="בחירת משמרת ליום"
+    >
+      {options.map((option) => {
+        const selected = selectedId === option.id
+        const accessibleLabel = [
+          option.label,
+          option.saved ? '' : 'אין שיבוץ שמור',
+          option.hasException ? 'יש חוסר בכוח אדם או בודקים לא משובצים' : '',
+        ].filter(Boolean).join(' · ')
+        return (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={selected}
+            aria-label={accessibleLabel}
+            title={accessibleLabel}
+            onClick={() => onSelect(option.id)}
+            className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+              selected
+                ? 'bg-brand text-white shadow-sm'
+                : 'text-ink-soft hover:bg-card hover:text-ink'
+            }`}
+          >
+            {option.hasException ? (
+              <span
+                role="img"
+                aria-label="חריגה בשיבוץ"
+                className="size-2 shrink-0 rounded-full bg-warn ring-2 ring-warn-soft"
+              />
+            ) : null}
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function DifficultyBadge({ intensity }: { intensity: Intensity }) {
+  const difficulty = {
+    easy: { label: 'קל', dot: 'bg-ink-soft', text: 'text-ink-soft' },
+    medium: { label: 'בינוני', dot: 'bg-warn', text: 'text-ink' },
+    hard: { label: 'קשה', dot: 'bg-hard', text: 'text-hard font-semibold' },
+  }[intensity]
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs ${difficulty.text}`}
+      title={`עומס נתיב: ${difficulty.label}`}
+      aria-label={`עומס נתיב ${difficulty.label}`}
+    >
+      <span className={`size-2 shrink-0 rounded-full ${difficulty.dot}`} aria-hidden />
+      {difficulty.label}
+    </span>
+  )
+}
+
+function initialsForWorker(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0]!.slice(0, 2)
+  return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`
+}
+
+function uniqueWorkerInitials(workers: { id: string; name: string }[]) {
+  const byBase = new Map<string, number>()
+  for (const worker of workers) {
+    const base = initialsForWorker(worker.name)
+    byBase.set(base, (byBase.get(base) ?? 0) + 1)
+  }
+  const used = new Set<string>()
+  const result = new Map<string, string>()
+  for (const worker of workers) {
+    const base = initialsForWorker(worker.name)
+    const parts = worker.name.trim().split(/\s+/).filter(Boolean)
+    let candidate = base
+    if ((byBase.get(base) ?? 0) > 1) {
+      const givenName = parts[0] ?? base
+      candidate = givenName.length <= 3
+        ? givenName
+        : `${givenName.slice(0, 2)}${parts[1]?.[0] ?? ''}`
+    }
+    if (used.has(candidate)) {
+      const prefix = candidate.slice(0, 2) || base
+      let suffix = 2
+      candidate = `${prefix}${suffix}`
+      while (used.has(candidate)) {
+        suffix += 1
+        candidate = `${prefix}${suffix}`
+      }
+    }
+    used.add(candidate)
+    result.set(worker.id, candidate)
+  }
+  return result
+}
+
+function InspectorAvatar({
+  id,
+  name,
+  initials,
+  trainingRole,
+}: {
+  id: string
+  name: string
+  initials: string
+  trainingRole?: 'trainee' | 'mentor'
+}) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line/80 bg-surface/80 py-0.5 pe-2.5 ps-0.5 text-xs font-medium text-ink"
+      title={name}
+    >
+      <span
+        className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${avatarColor(id)}`}
+        aria-hidden
+      >
+        {initials}
+      </span>
+      <span className="truncate">{name}</span>
+      {trainingRole === 'trainee' ? (
+        <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-xs font-bold text-accent ring-1 ring-accent/25">
+          מתלמד
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function LaneTable({
+  rows,
+  workerInitials,
+  onAssign,
+}: {
+  rows: HomeLaneRow[]
+  workerInitials: Map<string, string>
+  onAssign: () => void
+}) {
+  return (
+    <div className="w-full overflow-x-auto rounded-lg">
+      <table
+        className="w-full table-fixed border-collapse text-center text-[13px]"
+        aria-label="שיבוץ המשמרת לפי נתיב"
+      >
+        <colgroup>
+          <col className="w-[26%] sm:w-[18%]" />
+          <col className="w-[18%] sm:w-[14%]" />
+          <col className="w-[56%] sm:w-[40%]" />
+          <col className="w-0 sm:w-[28%]" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-line bg-brand/[0.045]">
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold tracking-wide text-ink-soft uppercase">
+              נתיב
+            </th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold tracking-wide text-ink-soft uppercase">
+              עצימות
+            </th>
+            <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold tracking-wide text-ink-soft uppercase">
+              בודקים
+            </th>
+            <th
+              scope="col"
+              title="חלון השעות האישי שבו כל בודק משובץ."
+              className="hidden whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold tracking-wide text-ink-soft uppercase sm:table-cell"
+            >
+              משמרת
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => {
+            const missing = Math.max(0, row.staffingStandard - row.assigned)
+            const staffingOff = row.assigned !== row.staffingStandard
+            return (
+              <tr
+                key={row.laneId}
+                className={`h-12 border-b border-line/50 transition-colors last:border-b-0 hover:bg-brand/[0.04] ${
+                  index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
+                }`}
+              >
+                <td className="px-3 py-2 align-middle text-center">
+                  <span className="font-semibold text-ink">{row.laneName}</span>
+                  {row.autoClosed ? (
+                    <span className="mt-1 block text-xs font-bold text-hard">
+                      סגור אוטומטית · אין מספיק כוח אדם
+                    </span>
+                  ) : row.manuallyReopened ? (
+                    <span className="mt-1 block text-xs font-bold text-ok">נפתח ידנית</span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 align-middle text-center">
+                  <div className="flex justify-center">
+                    <DifficultyBadge intensity={row.intensity} />
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-middle text-center">
+                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                    {row.workers.length === 0 && row.endedWorkers.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={onAssign}
+                        className="inline-flex items-center rounded-full border border-dashed border-line bg-surface/80 px-2.5 py-1 text-xs font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/[0.06] hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        aria-label={`שיבוץ לנתיב ${row.laneName}`}
+                      >
+                        לא משובץ
+                      </button>
+                    ) : row.workers.length === 0 ? (
+                      <span className="text-xs font-medium text-ink-soft">אין עובדים פעילים</span>
+                    ) : (
+                      row.workers.map((person) => (
+                        <div key={person.id} className="flex max-w-full flex-col items-center gap-1">
+                          <InspectorAvatar
+                            id={person.id}
+                            name={person.name}
+                            initials={workerInitials.get(person.id) ?? initialsForWorker(person.name)}
+                            trainingRole={person.trainingRole}
+                          />
+                          <span
+                            className="text-xs text-ink-soft sm:hidden"
+                            title={`${person.name}: ${person.windowLabel}`}
+                          >
+                            <Ltr>{person.windowLabel}</Ltr>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                    {row.endedWorkers.length > 0 ? (
+                      <span className="w-full text-xs text-ink-soft">
+                        הסתיימו שעות: {row.endedWorkers.map((person) => person.name).join(' · ')}
+                      </span>
+                    ) : null}
+                    {staffingOff ? (
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ${
+                          missing > 0
+                            ? 'bg-hard-soft text-hard ring-hard/20'
+                            : 'bg-warn-soft text-warn ring-warn/20'
+                        }`}
+                        title={`תקן ${row.staffingStandard}`}
+                      >
+                        {missing > 0 ? `חסר ${missing}` : `${row.assigned}/${row.staffingStandard}`}
+                      </span>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="hidden px-3 py-2 align-middle text-center sm:table-cell">
+                  {row.workers.length === 0 ? (
+                    <span className="text-xs text-ink-soft">—</span>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      {row.workers.map((person) => (
+                        <span
+                          key={person.id}
+                          className="inline-flex max-w-full items-center text-xs font-medium tabular-nums text-ink-soft"
+                          title={`${person.name}: ${person.windowLabel}`}
+                        >
+                          <Ltr>{person.windowLabel}</Ltr>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function KpiCard({
+  icon: Icon,
+  tone,
+  label,
+  value,
+  subtitle,
+  view,
+  tooltip,
+  onNavigate,
+}: {
+  icon: LucideIcon
+  tone: 'brand' | 'ok' | 'accent' | 'mid' | 'warn' | 'hard'
+  label: string
+  value: ReactNode
+  subtitle?: ReactNode
+  view: View
+  tooltip?: string
+  onNavigate: (view: View) => void
+}) {
+  const descriptionId = `home-kpi-${view}-${label.replace(/\s+/g, '-')}`
+  return (
+    <a
+      href={pathForView(view)}
+      onClick={(event) => {
+        if (
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return
+        }
+        event.preventDefault()
+        onNavigate(view)
+      }}
+      title={tooltip}
+      aria-describedby={tooltip ? descriptionId : undefined}
+      className="group relative flex h-full min-w-0 flex-col rounded-2xl border border-line/80 bg-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
+    >
+      <span className="flex items-center justify-between">
+        <MetricIconBadge tone={tone}>
+          <Icon className="size-[18px]" aria-hidden />
+        </MetricIconBadge>
+        <ArrowUpRight className="size-4 text-ink-soft transition group-hover:text-brand" aria-hidden />
+      </span>
+      <span className="mt-3 text-sm font-semibold text-ink">{label}</span>
+      <span className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
+        {value}
+      </span>
+      <span className="mt-auto min-h-10 pt-1 text-[13px] text-ink-soft">
+        {subtitle ?? <span aria-hidden>&nbsp;</span>}
+      </span>
+      {tooltip ? <span id={descriptionId} className="sr-only">{tooltip}</span> : null}
+    </a>
+  )
+}
+
+function HeadcountBanner({
+  snapshot,
+  onReschedule,
+}: {
+  snapshot: ReturnType<typeof shiftHeadcountSnapshot>
+  onReschedule: () => void
+}) {
+  if (!snapshot.tracked) return null
+  const hasDeficit = snapshot.deficit > 0
+  return (
+    <div
+      className={`mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 rounded-xl border px-3 py-2.5 text-[13px] ${
+        hasDeficit
+          ? 'border-hard/25 bg-hard-soft/70'
+          : 'border-ok/25 bg-ok-soft/70'
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      {hasDeficit ? (
+        <AlertTriangle className="size-4 shrink-0 text-hard" aria-hidden />
+      ) : (
+        <CheckCircle2 className="size-4 shrink-0 text-ok" aria-hidden />
+      )}
+      {hasDeficit ? (
+        <span className="font-semibold text-hard">
+          חוסר בכוח אדם: חסרים <strong className="font-extrabold tabular-nums">{snapshot.deficit}</strong>
+        </span>
+      ) : (
+        <span className="font-semibold text-ok">כוח אדם מלא לפי תקן המשמרת</span>
+      )}
+      <span className="text-ink-soft tabular-nums">
+        נוכחים {snapshot.present} · תקן {snapshot.standard}
+      </span>
+      {hasDeficit ? (
+        <button
+          type="button"
+          onClick={onReschedule}
+          className="ms-auto text-xs font-semibold text-hard underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          שיבוץ מחדש
+        </button>
+      ) : null}
+    </div>
+  )
+}
 
 function countAssigned(shift: ShiftSchedule): number {
   const sources = shift.rounds?.length
@@ -535,6 +1033,17 @@ export function HomePage() {
       })
   }, [displayedShift, shownIsCurrent, currentUnassigned, data.workers, data.workerWindowPresets])
 
+  const workerInitials = useMemo(() => {
+    const workersById = new Map<string, { id: string; name: string }>()
+    for (const person of displayedTableRows.flatMap((row) => row.workers)) {
+      workersById.set(person.id, { id: person.id, name: person.name })
+    }
+    for (const person of displayedUnassigned) {
+      workersById.set(person.id, { id: person.id, name: person.name })
+    }
+    return uniqueWorkerInitials([...workersById.values()])
+  }, [displayedTableRows, displayedUnassigned])
+
   const resumeShift = () => {
     if (!draft) return
     if (draft.assignments.some((a) => a.workerIds.some(Boolean))) {
@@ -576,13 +1085,14 @@ export function HomePage() {
     [currentShift],
   )
 
-  /** Recent tracked shortages — same helper used on ביטולים וחוסרים. */
-  const recentHeadcountDeficit = useMemo(() => {
-    const recent = data.history.filter(
-      (h) => daysBetweenLocal(h.date, currentCtx.date) <= 7,
-    )
-    return totalHeadcountDeficit(recent)
-  }, [data.history, currentCtx.date])
+  const recentShiftCount = useMemo(
+    () =>
+      scopedHistory.filter((shift) => {
+        const daysAgo = daysBetweenLocal(shift.date, currentCtx.date)
+        return daysAgo >= 0 && daysAgo <= 7
+      }).length,
+    [scopedHistory, currentCtx.date],
+  )
 
   const shortReturns = useMemo(() => {
     const recent = data.history
@@ -642,8 +1152,8 @@ export function HomePage() {
     const minLabel = formatShiftShare(minVal)
     const why =
       gap === 0
-        ? 'כל הבודקים הפעילים קיבלו אותו זמן בעמדות קשות בהיסטוריה.'
-        : `הפער הוא ההפרש בין מי שבילה הכי הרבה בעמדות קשות (${maxLabel}) לבין מי שבילה הכי מעט (${minLabel}).`
+        ? 'היקף השיבוצים השקולים בעמדות קשות זהה לכל הבודקים הפעילים בהיסטוריה.'
+        : `הפער הוא בין היקף השיבוצים השקולים הגבוה ביותר בעמדות קשות (${maxLabel}) לבין הנמוך ביותר (${minLabel}).`
     return { gap, max, min, why, namesMax: names(max), namesMin: names(min) }
   }, [data.workers, data.lanes, data.history])
 
@@ -759,8 +1269,6 @@ export function HomePage() {
     }
   }
 
-  const statusTitle = `${shiftModelLabel(shiftModels, currentCtx.shiftType)} · ${formatShiftDateShort(currentCtx.date, new Date(nowTick))}`
-
   const primaryEdit = () => {
     if (draft) {
       // Keep existing draft (lanes + assignments) — don't open an empty wizard.
@@ -794,6 +1302,33 @@ export function HomePage() {
     startShift('selector')
   }
 
+  const activeDraftSummary = draft && draftDirty && shownIsCurrent ? draftSummary : null
+  const headerShift = activeDraftSummary ? draft : displayedShift
+  const headerStatus = activeDraftSummary
+    ? 'טיוטה פעילה'
+    : headerShift?.signOff?.signedAt
+      ? 'נסגרה'
+      : headerShift
+        ? 'משובץ'
+        : 'ממתין לשיבוץ'
+  const headerStatusClass = activeDraftSummary
+    ? 'bg-warn-soft text-warn ring-warn/20'
+    : headerStatus === 'משובץ'
+      ? 'bg-ok-soft text-ok ring-ok/20'
+      : 'bg-surface text-ink-soft ring-line'
+  const shiftTabOptions: ShiftTabOption[] = shiftsForShownDay.map(({ model, shift }) => {
+    const draftForTab =
+      draft && draft.date === shownSlot.date && draft.shiftType === model.id
+        ? draft
+        : undefined
+    return {
+      id: model.id as ShiftSchedule['shiftType'],
+      label: model.name,
+      saved: Boolean(shift),
+      hasException: hasShiftException(draftForTab ?? shift),
+    }
+  })
+
   return (
     <div className="space-y-6 sm:space-y-7">
       {systemMessages.length > 0 ? (
@@ -809,153 +1344,117 @@ export function HomePage() {
           </ul>
         </section>
       ) : null}
-      {/* 1. Compact status bar */}
-      <section
-        className="flex flex-col gap-3 rounded-2xl border border-brand/15 bg-gradient-to-l from-brand/[0.07] via-card to-card px-4 py-4 shadow-[var(--shadow-panel)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-5"
-        style={{ minHeight: '5rem' }}
-      >
-        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-          {draft && draftDirty && draftSummary ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2.5 py-1 text-[11px] font-semibold text-warn ring-1 ring-warn/20 sm:text-xs">
+      {/* Current shift and assignment table */}
+      <SectionCard
+        printRoot
+        className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>משמרת {shiftModelLabel(shiftModels, shownSlot.shiftType)}</span>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${headerStatusClass}`}
+            >
+              {headerStatus === 'טיוטה פעילה' ? (
                 <RefreshCw className="size-3.5" aria-hidden />
-                טיוטה פעילה
+              ) : headerStatus === 'נסגרה' ? (
+                <Lock className="size-3.5" aria-hidden />
+              ) : headerStatus === 'משובץ' ? (
+                <CheckCircle2 className="size-3.5" aria-hidden />
+              ) : null}
+              {headerStatus}
+            </span>
+          </span>
+        }
+        subtitle={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <ShiftWindowLabel shiftType={shownSlot.shiftType} inspectors={inspectorModule} />
+            {activeDraftSummary ? (
+              <span className="text-[13px] text-ink-soft">
+                {pluralizeHe(activeDraftSummary.lanes, lanePlural)} ·{' '}
+                {pluralizeHe(activeDraftSummary.present, workerPlural)} נוכחים
+                {activeDraftSummary.assigned > 0
+                  ? ` · ${pluralizeHe(activeDraftSummary.assigned, workerPlural)} משובצים`
+                  : ''}
               </span>
-              <div className="min-w-0">
-                <h2 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
-                  המשך שיבוץ · {draftSummary.shiftLabel} ·{' '}
-                  <Ltr>{draftSummary.dateLabel}</Ltr>
-                </h2>
-                <p className="mt-0.5 text-[13px] text-ink-soft">
-                  {pluralizeHe(draftSummary.lanes, lanePlural)} ·{' '}
-                  {pluralizeHe(draftSummary.present, workerPlural)} נוכחים
-                  {draftSummary.assigned > 0
-                    ? ` · ${pluralizeHe(draftSummary.assigned, workerPlural)} משובצים`
-                    : ''}
-                </p>
-              </div>
-            </>
-          ) : currentShift ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-2.5 py-1 text-[11px] font-semibold text-ok ring-1 ring-ok/20 sm:text-xs">
-                {currentShift.signOff?.signedAt ? (
-                  <Lock className="size-3.5" aria-hidden />
-                ) : (
-                  <CheckCircle2 className="size-3.5" aria-hidden />
-                )}
-                {currentShift.signOff?.signedAt ? 'נסגרה' : 'משובץ'}
-              </span>
-              <div className="min-w-0">
-                <h2 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
-                  משמרת {statusTitle}
-                </h2>
-                <p className="mt-0.5 text-[13px] text-ink-soft">
-                  <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink-soft ring-1 ring-line sm:text-xs">
-                ממתין לשיבוץ
-              </span>
-              <div className="min-w-0">
-                <h2 className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
-                  משמרת {statusTitle}
-                </h2>
-                <p className="mt-0.5 text-[13px] text-ink-soft">
-                  <ShiftWindowLabel shiftType={currentCtx.shiftType} inspectors={inspectorModule} />
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 no-print">
-          {draft && draftDirty ? (
-            <>
-              <button
-                type="button"
-                onClick={resumeShift}
-                className="ui-btn ui-btn-primary gap-2"
-              >
-                <RefreshCw className="size-4" aria-hidden />
-                המשך שיבוץ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('להתחיל משמרת חדשה? הטיוטה הנוכחית תוחלף.')) {
-                    startShift()
-                  }
-                }}
-                className="ui-btn ui-btn-secondary gap-2"
-                title="לא ניתן לשמור פעמיים לאותו תאריך וסוג משמרת אם כבר קיים שיבוץ"
-              >
-                <Plus className="size-4" aria-hidden />
-                משמרת חדשה
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('לבטל את טיוטת השיבוץ? הפעולה לא ניתנת לשחזור.')) {
-                    discardDraft()
-                  }
-                }}
-                className="ui-btn ui-btn-ghost"
-              >
-                בטל טיוטה
-              </button>
-              {showSelectorEntry && (
+            ) : null}
+          </span>
+        }
+        actions={
+          <>
+            {activeDraftSummary ? (
+              <>
                 <button
                   type="button"
-                  onClick={beginSelectorShift}
-                  className="ui-btn ui-btn-secondary"
+                  onClick={resumeShift}
+                  className="ui-btn ui-btn-primary gap-2"
                 >
-                  שיבוץ סלקטורים
+                  <RefreshCw className="size-4" aria-hidden />
+                  המשך שיבוץ
                 </button>
-              )}
-            </>
-          ) : currentShift ? (
-            <>
-              <button
-                type="button"
-                onClick={primaryEdit}
-                className="ui-btn ui-btn-primary gap-2"
-              >
-                <Pencil className="size-4" aria-hidden />
-                {currentShift.signOff?.signedAt ? 'צפייה בשיבוץ' : 'עריכת שיבוץ'}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('להתחיל משמרת חדשה? הטיוטה הנוכחית תוחלף.')) {
+                      startShift()
+                    }
+                  }}
+                  className="ui-btn ui-btn-secondary gap-2"
+                >
+                  <Plus className="size-4" aria-hidden />
+                  משמרת חדשה
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('לבטל את טיוטת השיבוץ? הפעולה לא ניתנת לשחזור.')) {
+                      discardDraft()
+                    }
+                  }}
+                  className="ui-btn ui-btn-ghost"
+                >
+                  בטל טיוטה
+                </button>
+              </>
+            ) : shownIsCurrent ? currentShift ? (
+              <>
+                <button
+                  type="button"
+                  onClick={editDisplayedShift}
+                  className="ui-btn ui-btn-primary gap-2"
+                >
+                  <Pencil className="size-4" aria-hidden />
+                  {currentShift.signOff?.signedAt ? 'צפייה בשיבוץ' : 'עריכת שיבוץ'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startShift()}
+                  className="ui-btn ui-btn-secondary gap-2"
+                  title="לא ניתן לשמור פעמיים לאותו תאריך וסוג משמרת אם כבר קיים שיבוץ"
+                >
+                  <Plus className="size-4" aria-hidden />
+                  משמרת חדשה
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
                 onClick={() => startShift()}
-                className="ui-btn ui-btn-secondary gap-2"
-                title="לא ניתן לשמור פעמיים לאותו תאריך וסוג משמרת אם כבר קיים שיבוץ"
+                className="ui-btn ui-btn-primary gap-2"
               >
                 <Plus className="size-4" aria-hidden />
-                משמרת חדשה
+                התחלת משמרת
               </button>
-              {showSelectorEntry && (
-                <button
-                  type="button"
-                  onClick={beginSelectorShift}
-                  className="ui-btn ui-btn-secondary"
-                >
-                  שיבוץ סלקטורים
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-            <button
-              type="button"
-              onClick={() => startShift()}
-              className="ui-btn ui-btn-primary gap-2"
-            >
-              <Plus className="size-4" aria-hidden />
-              התחלת משמרת
-            </button>
-            {showSelectorEntry && (
+            ) : displayedShift ? (
+              <button
+                type="button"
+                onClick={editDisplayedShift}
+                className="ui-btn ui-btn-primary gap-2"
+              >
+                <Pencil className="size-4" aria-hidden />
+                {displayedShift.signOff?.signedAt ? 'צפייה בשיבוץ' : 'עריכת שיבוץ'}
+              </button>
+            ) : null}
+            {shownIsCurrent && showSelectorEntry ? (
               <button
                 type="button"
                 onClick={beginSelectorShift}
@@ -963,96 +1462,42 @@ export function HomePage() {
               >
                 שיבוץ סלקטורים
               </button>
-            )}
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* Current shift card */}
-      <SectionCard
-        printRoot
-        className="border-brand/10 shadow-[var(--shadow-panel-hover)]"
-        title={`${shownIsCurrent ? 'משמרת נוכחית' : 'שיבוץ'} · ${shiftModelLabel(shiftModels, shownSlot.shiftType)}`}
-        subtitle={
-          <>
-            <Ltr>{formatShiftDate(shownSlot.date)}</Ltr>
-            {' · '}
-            <ShiftWindowLabel shiftType={shownSlot.shiftType} inspectors={inspectorModule} />
+            ) : null}
+            {shownIsCurrent && currentShift ? (
+              <button
+                type="button"
+                onClick={() => void boardKioskRef.current?.enter()}
+                className="ui-btn-ghost inline-flex size-10 items-center justify-center rounded-xl text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                title="מסך קיוסק"
+                aria-label="פתיחת מסך קיוסק"
+              >
+                <Maximize2 className="size-4" aria-hidden />
+              </button>
+            ) : null}
           </>
-        }
-        actions={
-          currentShift ? (
-            <BoardKioskEnterButton
-              onClick={() => void boardKioskRef.current?.enter()}
-            />
-          ) : null
         }
       >
         <div className="mb-4 space-y-3 no-print">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={!previousDate}
-                onClick={() => previousDate && selectDate(previousDate, true)}
-                className="ui-btn ui-btn-secondary gap-1.5 disabled:opacity-40"
-                aria-label="יום עם משמרת קודם"
-              >
-                <ChevronRight className="size-4" aria-hidden />
-                יום קודם
-              </button>
-              <button
-                type="button"
-                disabled={shownIsCurrent}
-                onClick={() => setSelectedSlot(null)}
-                className="ui-btn ui-btn-secondary gap-1.5 disabled:opacity-40"
-              >
-                המשמרת הנוכחית
-              </button>
-              <button
-                type="button"
-                disabled={!nextDate}
-                onClick={() => nextDate && selectDate(nextDate, false)}
-                className="ui-btn ui-btn-secondary gap-1.5 disabled:opacity-40"
-                aria-label="יום עם משמרת הבא"
-              >
-                יום הבא
-                <ChevronLeft className="size-4" aria-hidden />
-              </button>
-            </div>
-            <p className="text-sm font-semibold text-ink">
-              <Ltr>{formatShiftDate(shownSlot.date)}</Ltr>
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2" aria-label="בחירת משמרת ליום">
-            {shiftsForShownDay.map(({ model, shift }) => {
-              const selected = shownSlot.shiftType === model.id
-              return (
-                <button
-                  key={model.id}
-                  type="button"
-                  aria-pressed={selected}
-                  aria-label={`${model.name}${shift ? '' : ' · אין שיבוץ שמור'}`}
-                  onClick={() =>
-                    setSelectedSlot({
-                      date: shownSlot.date,
-                      shiftType: model.id as ShiftSchedule['shiftType'],
-                    })
-                  }
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
-                    selected
-                      ? 'border-brand/35 bg-brand/10 text-brand'
-                      : 'border-line/70 bg-card text-ink-soft hover:border-brand/30 hover:text-ink'
-                  }`}
-                >
-                  {shift ? <CheckCircle2 className="size-3.5 text-ok" aria-hidden /> : null}
-                  {model.name}
-                </button>
-              )
-            })}
-          </div>
+          <DayNavigator
+            date={formatShiftDate(shownSlot.date)}
+            isToday={shownSlot.date === currentCtx.date}
+            previousDate={previousDate}
+            nextDate={nextDate}
+            onPrevious={() => {
+              if (previousDate) selectDate(previousDate, true)
+            }}
+            onNext={() => {
+              if (nextDate) selectDate(nextDate, false)
+            }}
+            onToday={() => setSelectedSlot(null)}
+          />
+          <ShiftTabs
+            options={shiftTabOptions}
+            selectedId={shownSlot.shiftType}
+            onSelect={(shiftType) =>
+              setSelectedSlot({ date: shownSlot.date, shiftType })
+            }
+          />
         </div>
 
         {shiftHealth && (
@@ -1118,181 +1563,36 @@ export function HomePage() {
               <EmptyState
                 title={`אין שיבוץ שמור ל${shiftModelLabel(shiftModels, shownSlot.shiftType)}`}
                 text={`אין שיבוץ ל${shiftModelLabel(shiftModels, shownSlot.shiftType)} בתאריך ${formatShiftDate(shownSlot.date)}.`}
-                action={
-                  shownIsCurrent ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => startShift()}
-                        className="ui-btn ui-btn-primary no-print"
-                      >
-                        התחלת משמרת
-                      </button>
-                      {showSelectorEntry && (
-                        <button
-                          type="button"
-                          onClick={beginSelectorShift}
-                          className="ui-btn ui-btn-secondary no-print"
-                        >
-                          שיבוץ סלקטורים
-                        </button>
-                      )}
-                    </div>
-                  ) : null
-                }
               />
             ) : usesRounds(displayedShift) ? (
-              <SelectorRoundTable
-                layout={module === 'selectors' ? 'table' : 'cards'}
-                rounds={displayedShift.rounds ?? []}
-                lanes={selectorLanes(data.lanes, displayedShift.activeLaneIds)}
-                workers={data.workers.filter((worker) =>
-                  displayedShift.presentWorkerIds.includes(worker.id),
-                )}
-                overrides={displayedShift.staffingOverrides}
-                ramashName={
-                  displayedShift.gateManagerWorkerId
-                    ? data.workers.find(
-                        (worker) =>
-                          worker.id === displayedShift.gateManagerWorkerId,
-                      )?.fullName ?? ''
-                    : ''
-                }
-              />
+              <>
+                <SelectorRoundTable
+                  layout={module === 'selectors' ? 'table' : 'cards'}
+                  rounds={displayedShift.rounds ?? []}
+                  lanes={selectorLanes(data.lanes, displayedShift.activeLaneIds)}
+                  workers={data.workers.filter((worker) =>
+                    displayedShift.presentWorkerIds.includes(worker.id),
+                  )}
+                  overrides={displayedShift.staffingOverrides}
+                  ramashName={
+                    displayedShift.gateManagerWorkerId
+                      ? data.workers.find(
+                          (worker) =>
+                            worker.id === displayedShift.gateManagerWorkerId,
+                        )?.fullName ?? ''
+                      : ''
+                  }
+                />
+                {shownIsCurrent ? (
+                  <HeadcountBanner snapshot={currentHeadcount} onReschedule={editDisplayedShift} />
+                ) : null}
+              </>
             ) : (
               <>
-                <div className="max-w-4xl overflow-hidden rounded-2xl border border-line shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full table-fixed border-collapse text-center text-[13px]">
-                      <colgroup>
-                        <col className="w-[24%]" />
-                        <col className="w-[16%]" />
-                        <col className="w-[34%]" />
-                        <col className="w-[26%]" />
-                      </colgroup>
-                      <thead>
-                        <tr className="border-b border-line bg-brand/[0.045]">
-                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                            נתיב
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                            עצימות
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                            בודקים
-                          </th>
-                          <th className="px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                            משמרת
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayedTableRows.map((row, index) => {
-                          const missing = Math.max(
-                            0,
-                            row.staffingStandard - row.assigned,
-                          )
-                          const staffingOff =
-                            row.assigned !== row.staffingStandard
-                          return (
-                            <tr
-                              key={row.laneId}
-                              className={`h-12 border-b border-line/50 transition-colors last:border-b-0 hover:bg-brand/[0.04] ${
-                                index % 2 === 1 ? 'bg-surface/50' : 'bg-card'
-                              }`}
-                            >
-                              <td className="px-3 py-2 align-middle text-center">
-                                <span className="font-semibold text-ink">
-                                  {row.laneName}
-                                </span>
-                                {row.autoClosed ? (
-                                  <span className="mt-1 block text-[10px] font-bold text-hard">
-                                    סגור אוטומטית · אין מספיק כוח אדם
-                                  </span>
-                                ) : row.manuallyReopened ? (
-                                  <span className="mt-1 block text-[10px] font-bold text-ok">
-                                    נפתח ידנית
-                                  </span>
-                                ) : null}
-                              </td>
-                              <td className="px-3 py-2 align-middle text-center">
-                                <div className="flex justify-center">
-                                  <IntensityBadge intensity={row.intensity} />
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 align-middle text-center">
-                                <div className="flex flex-wrap items-center justify-center gap-1.5">
-                                  {row.workers.length === 0 &&
-                                  row.endedWorkers.length === 0 ? (
-                                    <button
-                                      type="button"
-                                      onClick={editDisplayedShift}
-                                      className="inline-flex items-center rounded-full border border-dashed border-line bg-surface/80 px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition hover:border-brand/40 hover:bg-brand/[0.06] hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:text-xs"
-                                      aria-label={`שיבוץ לנתיב ${row.laneName}`}
-                                    >
-                                      לא משובץ
-                                    </button>
-                                  ) : row.workers.length === 0 ? (
-                                    <span className="text-[11px] font-medium text-ink-soft">
-                                      אין עובדים פעילים
-                                    </span>
-                                  ) : (
-                                    row.workers.map((person) => (
-                                      <PersonChip
-                                        key={person.id}
-                                        name={person.name}
-                                        trainingRole={person.trainingRole}
-                                      />
-                                    ))
-                                  )}
-                                  {row.endedWorkers.length > 0 ? (
-                                    <span className="w-full text-[10px] text-ink-soft">
-                                      הסתיימו שעות:{' '}
-                                      {row.endedWorkers
-                                        .map((person) => person.name)
-                                        .join(' · ')}
-                                    </span>
-                                  ) : null}
-                                  {staffingOff ? (
-                                    <span
-                                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ring-1 sm:text-[11px] ${
-                                        missing > 0
-                                          ? 'bg-hard-soft text-hard ring-hard/20'
-                                          : 'bg-warn-soft text-warn ring-warn/20'
-                                      }`}
-                                      title={`תקן ${row.staffingStandard}`}
-                                    >
-                                      {missing > 0
-                                        ? `חסר ${missing}`
-                                        : `${row.assigned}/${row.staffingStandard}`}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 align-middle text-center">
-                                {row.workers.length === 0 ? (
-                                  <span className="text-[12px] text-ink-soft">—</span>
-                                ) : (
-                                  <div className="flex flex-col items-center justify-center gap-1">
-                                    {row.workers.map((person) => (
-                                      <span
-                                        key={person.id}
-                                        className="inline-flex max-w-full items-center rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft ring-1 ring-line"
-                                        title={`${person.name}: ${person.windowLabel}`}
-                                      >
-                                        <Ltr>{person.windowLabel}</Ltr>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <LaneTable rows={displayedTableRows} workerInitials={workerInitials} onAssign={editDisplayedShift} />
+                {shownIsCurrent ? (
+                  <HeadcountBanner snapshot={currentHeadcount} onReschedule={editDisplayedShift} />
+                ) : null}
                 {displayedUnassigned.length > 0 && (
                   <p className="mt-3 text-[13px] text-ink-soft">
                     לא שובצו:{' '}
@@ -1301,11 +1601,13 @@ export function HomePage() {
                         key={person.id}
                         className="me-1.5 inline-flex items-center gap-1"
                       >
-                        <PersonChip
+                        <InspectorAvatar
+                          id={person.id}
                           name={person.name}
+                          initials={workerInitials.get(person.id) ?? initialsForWorker(person.name)}
                           trainingRole={person.trainingRole}
                         />
-                        <span className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft ring-1 ring-line">
+                        <span className="text-xs font-medium tabular-nums text-ink-soft">
                           <Ltr>{person.windowLabel}</Ltr>
                         </span>
                       </span>
@@ -1314,170 +1616,60 @@ export function HomePage() {
                 )}
               </>
             )}
-            {shownIsCurrent && currentHeadcount.tracked ? (
-              <div
-                className={`mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 text-[13px] ${
-                  currentHeadcount.deficit > 0
-                    ? 'border-hard/25 bg-hard-soft/70 text-hard'
-                    : 'border-ok/25 bg-ok-soft/70 text-ok'
-                }`}
-                role="status"
-              >
-                {currentHeadcount.deficit > 0 ? (
-                  <AlertTriangle className="size-4 shrink-0" aria-hidden />
-                ) : (
-                  <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-                )}
-                <span className="font-semibold">
-                  {currentHeadcount.deficit > 0
-                    ? `חוסר בכוח אדם: חסרים ${currentHeadcount.deficit}`
-                    : 'כוח אדם מלא לפי תקן המשמרת'}
-                </span>
-                <span className="tabular-nums opacity-90">
-                  נוכחים {currentHeadcount.present} · תקן{' '}
-                  {currentHeadcount.standard}
-                </span>
-              </div>
-            ) : null}
           </BoardKiosk>
         )}
       </SectionCard>
 
-      {/* Metrics + quick links — RTL order: first card is rightmost */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 no-print">
-        <button
-          type="button"
-          onClick={() => setView('cancellations')}
-          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-hard/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="hard">
-            <Users className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-sm font-semibold text-ink">חוסר בכוח אדם</p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {currentHeadcount.tracked
-              ? currentHeadcount.deficit
-              : recentHeadcountDeficit}
-          </p>
-          <p className="mt-1 text-[13px] text-ink-soft">
-            {currentHeadcount.tracked
-              ? `נוכחים ${currentHeadcount.present} מתוך תקן ${currentHeadcount.standard}`
-              : 'סה״כ בשבוע האחרון'}
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setView('analytics')}
-          aria-describedby="hard-gap-tooltip"
-          className="group relative rounded-2xl border border-line/80 bg-gradient-to-bl from-accent/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] outline-none transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="accent">
-            <BarChart3 className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-sm font-semibold text-ink">פער עמדות קשות</p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {formatShiftShare(hardGapInfo.gap)}
-          </p>
-          <p className="mt-1 text-[13px] text-ink-soft">בין בודקים פעילים</p>
-
-          <div
-            id="hard-gap-tooltip"
-            role="tooltip"
-            className="pointer-events-none absolute inset-x-2 bottom-[calc(100%+0.5rem)] z-[80] hidden rounded-xl border border-line/80 bg-card px-3.5 py-3 text-start text-[12px] leading-relaxed text-ink shadow-[var(--shadow-panel-hover)] group-hover:block group-focus-within:block sm:inset-x-auto sm:start-0 sm:w-72"
-          >
-            <p className="font-semibold text-ink">
-              למה הפער {formatShiftShare(hardGapInfo.gap)}?
-            </p>
-            <p className="mt-1.5 text-ink-soft">{hardGapInfo.why}</p>
-            {hardGapInfo.gap > 0 && (
-              <ul className="mt-2 space-y-1.5 border-t border-line/60 pt-2">
-                <li>
-                  <span className="font-semibold text-hard">
-                    הכי הרבה ({formatShiftShare(hardGapInfo.max[0]?.hardCount ?? 0)}):{' '}
-                  </span>
-                  <span className="text-ink">{hardGapInfo.namesMax}</span>
-                </li>
-                <li>
-                  <span className="font-semibold text-ok">
-                    הכי מעט ({formatShiftShare(hardGapInfo.min[0]?.hardCount ?? 0)}):{' '}
-                  </span>
-                  <span className="text-ink">{hardGapInfo.namesMin}</span>
-                </li>
-              </ul>
-            )}
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setView('tracking')}
-          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-warn/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="warn">
-            <AlertTriangle className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-sm font-semibold text-ink">
-            חזרות קצרות לעמדה
-          </p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {shortReturns}
-          </p>
-          <p className="mt-1 text-[13px] text-ink-soft">ב־יומיים האחרונים</p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setView('workers')}
-          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-brand/[0.035] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="brand">
-            <Users className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-sm font-semibold text-ink">בודקים פעילים</p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {activeWorkers}
-          </p>
-          <p className="mt-1 text-[13px] text-ink-soft">
-            מתוך <Ltr>{String(data.workers.length)}</Ltr>
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setView('lanes')}
-          className="group rounded-2xl border border-line/80 bg-gradient-to-bl from-mid/[0.045] via-card to-card p-4 text-start shadow-[var(--shadow-panel)] transition hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[var(--shadow-panel-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-5"
-        >
-          <MetricIconBadge tone="mid">
-            <LayoutGrid className="size-[18px]" aria-hidden />
-          </MetricIconBadge>
-          <p className="mt-3 text-sm font-semibold text-ink">נתיבים מוגדרים</p>
-          <p className="mt-1 font-display text-3xl font-bold tracking-tight text-ink tabular-nums">
-            {data.lanes.length}
-          </p>
-        </button>
+      <section className="no-print">
+        <h2 className="mb-3 font-display text-base font-bold text-ink">סטטוס כללי</h2>
+        <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <KpiCard
+            icon={BarChart3}
+            tone="hard"
+            label="פער עמדות קשות"
+            value={formatShiftShare(hardGapInfo.gap)}
+            subtitle="בין בודקים פעילים"
+            view="tracking"
+            tooltip={`הפער מחושב לפי היקף השיבוצים השקולים בעמדות קשות בין הבודקים הפעילים. ${hardGapInfo.why}`}
+            onNavigate={setView}
+          />
+          <KpiCard
+            icon={RefreshCw}
+            tone="warn"
+            label="חזרות קצרות לעמדה"
+            value={shortReturns}
+            subtitle="ב־יומיים האחרונים"
+            view="tracking"
+            onNavigate={setView}
+          />
+          <KpiCard
+            icon={BarChart3}
+            tone="accent"
+            label="משמרות בשבוע האחרון"
+            value={recentShiftCount}
+            subtitle="במודול הנוכחי"
+            view="analytics"
+            onNavigate={setView}
+          />
+          <KpiCard
+            icon={Users}
+            tone="brand"
+            label="בודקים פעילים"
+            value={activeWorkers}
+            subtitle={<>מתוך <Ltr>{String(data.workers.length)}</Ltr> עובדים במערכת</>}
+            view="workers"
+            onNavigate={setView}
+          />
+          <KpiCard
+            icon={LayoutGrid}
+            tone="mid"
+            label="נתיבים מוגדרים"
+            value={data.lanes.length}
+            view="lanes"
+            onNavigate={setView}
+          />
+        </div>
       </section>
-
-      <div className="flex flex-wrap gap-2 no-print">
-        <button
-          type="button"
-          onClick={() => setView('tracking')}
-          className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-card px-3.5 py-2.5 text-[13px] font-semibold text-ink shadow-sm transition hover:border-brand/25"
-        >
-          <Table2 className="size-4 text-brand" aria-hidden />
-          מעקב עמדות
-          <ArrowUpRight className="size-3.5 text-ink-soft" aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('analytics')}
-          className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-card px-3.5 py-2.5 text-[13px] font-semibold text-ink shadow-sm transition hover:border-brand/25"
-        >
-          <BarChart3 className="size-4 text-brand" aria-hidden />
-          אנליזה
-          <ArrowUpRight className="size-3.5 text-ink-soft" aria-hidden />
-        </button>
-      </div>
 
       {/* Other saved shifts */}
       <section className="rounded-2xl border border-line/80 bg-card/95 p-4 shadow-[var(--shadow-panel)] sm:p-5 no-print">

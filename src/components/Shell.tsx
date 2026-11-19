@@ -141,7 +141,7 @@ function NavButton({
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`relative inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 ${
+      className={`relative inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[13px] transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
         active
           ? 'bg-brand/10 font-semibold text-brand'
           : 'text-ink-soft hover:bg-surface/70 hover:text-ink'

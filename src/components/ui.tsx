@@ -155,7 +155,7 @@ export function SectionCard({
   className = '',
   printRoot = false,
 }: {
-  title: string
+  title: React.ReactNode
   subtitle?: React.ReactNode
   actions?: React.ReactNode
   children: React.ReactNode

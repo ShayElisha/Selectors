@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -1646,6 +1646,10 @@ export function HistoryPage() {
   )
 }
 
+type DayGridItem =
+  | { kind: 'empty'; key: string; shiftType: ShiftType }
+  | { kind: 'shift'; key: string; shift: ShiftSchedule }
+
 function DayCard({
   day,
   label,
@@ -1663,13 +1667,19 @@ function DayCard({
   const [expandedShiftId, setExpandedShiftId] = useState<string | null>(null)
   const [panelShift, setPanelShift] = useState<ShiftSchedule | null>(null)
   const models = resolveShiftModels(data.shiftModels, module)
-  const dayShifts = day.slots.flatMap((slot) =>
-    [slot.shift, slot.selectorShift].filter(
+  const dayItems = day.slots.flatMap<DayGridItem>((slot) => {
+    const shifts = [slot.shift, slot.selectorShift].filter(
       (shift): shift is ShiftSchedule => Boolean(shift),
-    ),
+    )
+    return shifts.length === 0
+      ? [{ kind: 'empty' as const, key: slot.shiftType, shiftType: slot.shiftType }]
+      : shifts.map((shift) => ({ kind: 'shift' as const, key: shift.id, shift }))
+  })
+  const panelItemIndex = dayItems.findIndex(
+    (item) => item.kind === 'shift' && item.shift.id === panelShift?.id,
   )
-  const expandedIndex = dayShifts.findIndex((shift) => shift.id === expandedShiftId)
-  const visiblePanelShift = dayShifts.find((shift) => shift.id === panelShift?.id) ?? panelShift
+  const panelItem = panelItemIndex >= 0 ? dayItems[panelItemIndex] : undefined
+  const visiblePanelShift = panelItem?.kind === 'shift' ? panelItem.shift : null
 
   return (
     <section className="min-w-0 max-w-full">
@@ -1687,75 +1697,90 @@ function DayCard({
         ) : null}
       </header>
       <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3">
-        {day.slots.map((slot) => {
-          const shifts = [slot.shift, slot.selectorShift].filter(
-            (s): s is NonNullable<typeof slot.shift> => Boolean(s),
-          )
-          if (shifts.length === 0) {
+        {dayItems.map((item, index) => {
+          const desktopGridPosition = {
+            '--history-grid-column': String((index % 3) + 1),
+            '--history-grid-row': String(Math.floor(index / 3) + 1),
+          } as CSSProperties
+
+          if (item.kind === 'empty') {
             return (
-              <EmptySlot
-                key={slot.shiftType}
-                label={shiftModelLabel(models, slot.shiftType)}
-              />
+              <div
+                key={item.key}
+                className="min-w-0 md:[grid-column-start:var(--history-grid-column)] md:[grid-row-start:var(--history-grid-row)]"
+                style={desktopGridPosition}
+              >
+                <EmptySlot label={shiftModelLabel(models, item.shiftType)} />
+              </div>
             )
           }
-          return shifts.map((shift) => (
-            <ShiftCard
-              key={shift.id}
-              shift={shift}
-              onOpen={() => onOpen(shift.id)}
-              onRequestDelete={() => onRequestDelete(shift)}
-              open={expandedShiftId === shift.id}
-              onToggle={() => {
-                if (expandedShiftId === shift.id) {
-                  setExpandedShiftId(null)
-                } else {
-                  setPanelShift(shift)
-                  setExpandedShiftId(shift.id)
-                }
-              }}
-            />
-          ))
-        })}
-      </div>
-      <div className="relative mt-2">
-        {expandedShiftId && expandedIndex >= 0 ? (
-          <span
-            className="absolute -top-1 start-1/2 z-10 size-3 -translate-x-1/2 rotate-45 border-s border-t border-brand/35 bg-card md:[inset-inline-start:var(--connector-inline-start)]"
-            style={
-              {
-                '--connector-inline-start': `${((expandedIndex % 3) + 0.5) * (100 / 3)}%`,
-              } as React.CSSProperties
-            }
-            aria-hidden
-          />
-        ) : null}
-        <div
-          id={visiblePanelShift ? `history-shift-details-${visiblePanelShift.id}` : undefined}
-          aria-hidden={!expandedShiftId}
-          onTransitionEnd={(event) => {
-            if (event.target === event.currentTarget && !expandedShiftId) {
-              setPanelShift(null)
-            }
-          }}
-          className={`grid transition-[grid-template-rows] duration-300 ease-out ${
-            expandedShiftId ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-          }`}
-        >
-          <div className="min-h-0 overflow-hidden">
-            {visiblePanelShift ? (
-              <div className={expandedShiftId ? 'visible' : 'invisible'}>
-                <div className="rounded-xl border border-brand/30 bg-card p-3 shadow-[var(--shadow-panel)] sm:p-4">
-                  <ShiftDetails
-                    shift={visiblePanelShift}
-                    search={search}
-                    onOpen={() => onOpen(visiblePanelShift.id)}
-                  />
-                </div>
+
+          const shift = item.shift
+          const isPanelShift = visiblePanelShift?.id === shift.id
+          const panelIsOpen = expandedShiftId === shift.id
+
+          return (
+            <Fragment key={item.key}>
+              <div
+                className="min-w-0 md:[grid-column-start:var(--history-grid-column)] md:[grid-row-start:var(--history-grid-row)]"
+                style={desktopGridPosition}
+              >
+                <ShiftCard
+                  shift={shift}
+                  onOpen={() => onOpen(shift.id)}
+                  onRequestDelete={() => onRequestDelete(shift)}
+                  open={panelIsOpen}
+                  onToggle={() => {
+                    if (panelIsOpen) {
+                      setExpandedShiftId(null)
+                    } else {
+                      setPanelShift(shift)
+                      setExpandedShiftId(shift.id)
+                    }
+                  }}
+                />
               </div>
-            ) : null}
-          </div>
-        </div>
+              {isPanelShift ? (
+                <div
+                  className="relative min-w-0 md:col-span-3 md:col-start-1 md:[grid-row-start:var(--history-panel-row)]"
+                  style={{
+                    '--history-panel-row': String(Math.ceil(dayItems.length / 3) + 1),
+                    '--connector-inline-start': `${((index % 3) + 0.5) * (100 / 3)}%`,
+                  } as CSSProperties}
+                >
+                  <span
+                    className="absolute -top-1 start-1/2 z-10 size-3 -translate-x-1/2 rotate-45 border-s border-t border-brand/35 bg-card md:[inset-inline-start:var(--connector-inline-start)]"
+                    aria-hidden
+                  />
+                  <div
+                    id={`history-shift-details-${shift.id}`}
+                    aria-hidden={!panelIsOpen}
+                    onTransitionEnd={(event) => {
+                      if (event.target === event.currentTarget && !expandedShiftId) {
+                        setPanelShift(null)
+                      }
+                    }}
+                    className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+                      panelIsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                    }`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className={panelIsOpen ? 'visible' : 'invisible'}>
+                        <div className="rounded-xl border border-brand/30 bg-card p-3 shadow-[var(--shadow-panel)] sm:p-4">
+                          <ShiftDetails
+                            shift={shift}
+                            search={search}
+                            onOpen={() => onOpen(shift.id)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </Fragment>
+          )
+        })}
       </div>
     </section>
   )
