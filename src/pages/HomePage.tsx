@@ -71,6 +71,7 @@ import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerWindowById } from '../lib/shiftCatalog'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
+import { liveShiftHeadcountSnapshot } from '../lib/workerShiftStatus'
 import { pathForView } from '../routes'
 
 /** Optional health snapshot if/when persisted on ShiftSchedule. */
@@ -552,9 +553,11 @@ function KpiCard({
 
 function HeadcountBanner({
   snapshot,
+  live,
   onReschedule,
 }: {
   snapshot: ReturnType<typeof shiftHeadcountSnapshot>
+  live: boolean
   onReschedule: () => void
 }) {
   if (!snapshot.tracked) return null
@@ -582,7 +585,8 @@ function HeadcountBanner({
         <span className="font-semibold text-ok">כוח אדם מלא לפי תקן המשמרת</span>
       )}
       <span className="text-ink-soft tabular-nums">
-        נוכחים {snapshot.present} · תקן {snapshot.standard}
+        {live ? 'פעילים כעת' : 'נוכחים'} {snapshot.present} · תקן{' '}
+        {snapshot.standard}
       </span>
       {hasDeficit ? (
         <button
@@ -661,7 +665,7 @@ export function HomePage() {
   const boardKioskRef = useRef<BoardKioskHandle>(null)
 
   useEffect(() => {
-    const id = window.setInterval(() => setNowTick(Date.now()), 60_000)
+    const id = window.setInterval(() => setNowTick(Date.now()), 15_000)
     return () => window.clearInterval(id)
   }, [])
 
@@ -1072,17 +1076,28 @@ export function HomePage() {
 
   /** Short same-lane returns within 2 calendar days (from history). */
   const currentHeadcount = useMemo(
-    () =>
-      currentShift
-        ? shiftHeadcountSnapshot(currentShift)
+    () => {
+      const activeShift =
+        draft && currentShift && draft.id === currentShift.id
+          ? draft
+          : currentShift
+      return activeShift
+        ? liveShiftHeadcountSnapshot(
+            activeShift,
+            shiftModels,
+            data.workerWindowPresets ?? [],
+            nowTick,
+          )
         : {
             tracked: false,
             standard: undefined as number | undefined,
             present: 0,
             deficit: 0,
             surplus: 0,
+            live: false,
           },
-    [currentShift],
+    },
+    [currentShift, draft, shiftModels, data.workerWindowPresets, nowTick],
   )
 
   const recentShiftCount = useMemo(
@@ -1623,14 +1638,22 @@ export function HomePage() {
                   }
                 />
                 {shownIsCurrent ? (
-                  <HeadcountBanner snapshot={currentHeadcount} onReschedule={editDisplayedShift} />
+                  <HeadcountBanner
+                    snapshot={currentHeadcount}
+                    live={currentHeadcount.live}
+                    onReschedule={editDisplayedShift}
+                  />
                 ) : null}
               </>
             ) : (
               <>
                 <LaneTable rows={displayedTableRows} workerInitials={workerInitials} onAssign={editDisplayedShift} />
                 {shownIsCurrent ? (
-                  <HeadcountBanner snapshot={currentHeadcount} onReschedule={editDisplayedShift} />
+                  <HeadcountBanner
+                    snapshot={currentHeadcount}
+                    live={currentHeadcount.live}
+                    onReschedule={editDisplayedShift}
+                  />
                 ) : null}
                 {displayedUnassigned.length > 0 && (
                   <p className="mt-3 text-[13px] text-ink-soft">

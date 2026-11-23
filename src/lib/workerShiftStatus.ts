@@ -1,4 +1,9 @@
 import { MAIN_SHIFT_BOUNDS, workerWindowById } from './shiftCatalog'
+import {
+  headcountDeficit,
+  shiftHeadcountSnapshot,
+  type ShiftHeadcountSnapshot,
+} from './shiftStaffing'
 import type { ShiftModel, ShiftSchedule, WorkerWindowPreset } from '../types'
 
 export type WorkerShiftEnd = {
@@ -10,6 +15,10 @@ export type WorkerShiftEnd = {
 export type WorkerShiftInterval = {
   start: number
   end: number
+}
+
+export type LiveShiftHeadcountSnapshot = ShiftHeadcountSnapshot & {
+  live: boolean
 }
 
 function shiftInterval(
@@ -130,4 +139,41 @@ export function workerShiftHasEnded(
 ): boolean {
   const interval = shiftInterval(shift, workerId, models, presets)
   return interval != null && interval.end <= now
+}
+
+/**
+ * Current staffing against a shift's headcount target. Signed-off shifts retain
+ * their final attendance snapshot; an open shift counts only workers whose
+ * personal shift window includes the current time.
+ */
+export function liveShiftHeadcountSnapshot(
+  shift: Pick<
+    ShiftSchedule,
+    | 'date'
+    | 'shiftType'
+    | 'presentWorkerIds'
+    | 'headcountStandard'
+    | 'workerWindows'
+    | 'windowAdjustments'
+    | 'earlyLeaveAt'
+    | 'signOff'
+  >,
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
+  now = Date.now(),
+): LiveShiftHeadcountSnapshot {
+  const snapshot = shiftHeadcountSnapshot(shift)
+  if (shift.signOff?.signedAt) return { ...snapshot, live: false }
+
+  const present = shift.presentWorkerIds.filter((workerId) => {
+    const interval = shiftInterval(shift, workerId, models, presets)
+    return interval != null && interval.start <= now && now < interval.end
+  }).length
+  return {
+    ...snapshot,
+    present,
+    deficit: headcountDeficit(present, snapshot.standard),
+    surplus: Math.max(0, present - (snapshot.standard ?? 0)),
+    live: true,
+  }
 }

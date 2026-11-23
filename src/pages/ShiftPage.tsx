@@ -90,9 +90,9 @@ import { pluralizeHe } from '../lib/hebrew'
 import { sortIdsByCatalogOrder } from '../lib/lanesCertHelpers'
 import {
   effectiveStaffingStandard,
-  headcountDeficit,
   staffingChoicesForLane,
 } from '../lib/shiftStaffing'
+import { liveShiftHeadcountSnapshot } from '../lib/workerShiftStatus'
 import {
   attendanceStepSummary,
   canAdvanceFromAttendance,
@@ -284,7 +284,14 @@ export function ShiftPage() {
   const [otherEditors, setOtherEditors] = useState<string[]>([])
   const [feasibilityOpen, setFeasibilityOpen] = useState(false)
   const [attendanceQuery, setAttendanceQuery] = useState('')
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 15_000)
+    return () => window.clearInterval(id)
+  }, [])
+
   const shiftModels = useMemo(
     () => resolveShiftModels(data.shiftModels, module),
     [data.shiftModels, module],
@@ -499,14 +506,20 @@ export function ShiftPage() {
     )
   }, [draft, data.lanes, data.workers])
 
-  const missingHeadcount = useMemo(
+  const headcount = useMemo(
     () =>
-      headcountDeficit(
-        draft?.presentWorkerIds.length ?? 0,
-        draft?.headcountStandard,
-      ),
-    [draft?.presentWorkerIds.length, draft?.headcountStandard],
+      draft
+        ? liveShiftHeadcountSnapshot(
+            draft,
+            shiftModels,
+            data.workerWindowPresets ?? [],
+            nowTick,
+          )
+        : null,
+    [draft, shiftModels, data.workerWindowPresets, nowTick],
   )
+  const missingHeadcount = headcount?.deficit ?? 0
+  const headcountSummary = `${headcount?.live ? 'פעילים כעת' : 'נוכחים'} ${headcount?.present ?? draft?.presentWorkerIds.length ?? 0}`
 
   const lastSameType = useMemo(() => {
     if (!draft) return null
@@ -920,8 +933,8 @@ export function ShiftPage() {
           <p className="mt-1 text-[13px] text-ink-soft">
             {draft.headcountStandard != null
               ? missingHeadcount > 0
-                ? `נוכחים ${draft.presentWorkerIds.length} · חסרים ${missingHeadcount}`
-                : `נוכחים ${draft.presentWorkerIds.length} · מלא`
+                ? `${headcountSummary} · חסרים ${missingHeadcount}`
+                : `${headcountSummary} · מלא`
               : 'אופציונלי — מעקב חוסר'}
           </p>
         </label>
