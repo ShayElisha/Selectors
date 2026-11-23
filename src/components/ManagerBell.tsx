@@ -24,6 +24,7 @@ import {
   type ManagerNotice,
 } from '../lib/managerNotifications'
 import type { View } from '../types'
+import { notify } from '../lib/notify'
 
 function formatWhen(iso: string): string {
   try {
@@ -56,7 +57,7 @@ function openShiftCandidates(
 type PanelPos = { top: number; left: number; width: number }
 
 export function ManagerBell() {
-  const { draft, data, user, setView } = useApp()
+  const { draft, data, user, setView, loadShiftFromHistory } = useApp()
   const [open, setOpen] = useState(false)
   const [notices, setNotices] = useState<ManagerNotice[]>(() => listManagerNotices())
   const [panelPos, setPanelPos] = useState<PanelPos | null>(null)
@@ -283,6 +284,19 @@ export function ManagerBell() {
                   : null)) as View | null
     if (view) {
       setOpen(false)
+      if (view === 'shift' && notice.shiftId) {
+        if (draft?.id === notice.shiftId) {
+          setView('shift')
+          return
+        }
+        if (data.history.some((shift) => shift.id === notice.shiftId)) {
+          loadShiftFromHistory(notice.shiftId)
+          return
+        }
+        setView('home')
+        notify.info('המשמרת מההתראה כבר לא זמינה')
+        return
+      }
       setView(view)
     }
   }

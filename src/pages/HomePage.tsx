@@ -1289,7 +1289,6 @@ export function HomePage() {
     }
     if (!displayedShift) return
     loadShiftFromHistory(displayedShift.id)
-    setView('shift')
   }
 
   const beginSelectorShift = () => {
