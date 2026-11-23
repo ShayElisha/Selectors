@@ -1095,7 +1095,7 @@ export function HomePage() {
             deficit: 0,
             surplus: 0,
             live: false,
-          },
+          }
     },
     [currentShift, draft, shiftModels, data.workerWindowPresets, nowTick],
   )
