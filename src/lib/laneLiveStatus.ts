@@ -126,7 +126,6 @@ export function laneLiveStatus(args: {
   const endedIds = new Set<string>()
   const currentShiftEndedIds = new Set<string>()
   const activeSources = new Map<string, string>()
-  let latestEndedAt = 0
 
   for (const candidate of candidates) {
     const activeAssignments = assignmentsAt(candidate, lane.id, minute)
@@ -156,7 +155,6 @@ export function laneLiveStatus(args: {
       if (interval.end <= now) {
         endedIds.add(workerId)
         if (candidate.id === shift.id) currentShiftEndedIds.add(workerId)
-        latestEndedAt = Math.max(latestEndedAt, interval.end)
       } else if (activeAssignedIds.has(workerId)) {
         activeIds.add(workerId)
         if (!activeSources.has(workerId)) {
@@ -170,15 +168,26 @@ export function laneLiveStatus(args: {
     endedIds.delete(workerId)
     currentShiftEndedIds.delete(workerId)
   }
+  // Manual reopen only cares about ends on THIS shift — neighboring days
+  // must not keep tomorrow's lanes looking "auto-closed".
+  let latestCurrentEndedAt = 0
+  for (const workerId of currentShiftEndedIds) {
+    const interval = workerShiftInterval(shift, workerId, models, presets)
+    if (interval) latestCurrentEndedAt = Math.max(latestCurrentEndedAt, interval.end)
+  }
   const reopenedAt = shift.laneReopenedAt?.[lane.id]
   const reopenedTimestamp = reopenedAt ? new Date(reopenedAt).getTime() : NaN
   const manuallyReopened =
     Number.isFinite(reopenedTimestamp) &&
-    latestEndedAt > 0 &&
-    reopenedTimestamp >= latestEndedAt
+    latestCurrentEndedAt > 0 &&
+    reopenedTimestamp >= latestCurrentEndedAt
   const missing = Math.max(0, required - activeIds.size)
+  // Auto-close is a live status for the open shift only: someone on this
+  // shift finished their hours and staffing dropped. Ends from yesterday /
+  // overlapping neighbors still count toward coverage (activeIds), but must
+  // not mark a future/next shift as frozen.
   const autoClosed =
-    endedIds.size > 0 &&
+    currentShiftEndedIds.size > 0 &&
     missing > 0 &&
     !manuallyReopened
 
