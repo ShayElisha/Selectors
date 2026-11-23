@@ -177,6 +177,43 @@ describe('laneLiveStatus', () => {
     })
   })
 
+  it('does not auto-close a manned future morning before it starts', () => {
+    const tomorrow = shift('tomorrow', ['ella', 'leon'], {
+      date: '2026-11-24',
+      shiftType: 'morning',
+      staffingOverrides: { 'lane-a': 1 },
+    })
+    const today = shift('today', ['ella', 'leon'], {
+      date: '2026-11-23',
+      shiftType: 'morning',
+      staffingOverrides: { 'lane-a': 1 },
+    })
+
+    expect(
+      laneLiveStatus({
+        shift: tomorrow,
+        history: [tomorrow, today],
+        lane: { ...lane, staffingStandard: 1 },
+        models: [
+          {
+            id: 'morning',
+            name: 'בוקר',
+            startMinutes: 6 * 60,
+            endMinutes: 15 * 60,
+            order: 0,
+          },
+          ...models,
+        ],
+        presets: [],
+        now: new Date(2026, 10, 23, 21, 15).getTime(),
+      }),
+    ).toMatchObject({
+      autoClosed: false,
+      manuallyReopened: false,
+      currentShiftEndedWorkerIds: [],
+    })
+  })
+
   it('keeps the lane covered by an overlapping replacement shift', () => {
     const current = shift('current', ['worker-1', 'worker-2'], {
       workerWindows: {
