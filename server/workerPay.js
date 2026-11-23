@@ -70,6 +70,64 @@ function emptyDoc(orgId, workerId) {
   }
 }
 
+function normalizePhone(value) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+async function payOwnerIdsByWorkerId(orgId, workers) {
+  const ownerByWorkerId = new Map(
+    (workers ?? []).map((worker) => [String(worker.id), String(worker.id)]),
+  )
+  const workerByPhone = new Map()
+  for (const worker of workers ?? []) {
+    const phone = normalizePhone(worker.phone)
+    if (worker.id && phone) workerByPhone.set(phone, String(worker.id))
+  }
+  if (workerByPhone.size === 0) return ownerByWorkerId
+
+  const accountDb = await getDb('selectors')
+  const accounts = await accountDb
+    .collection('accounts')
+    .find(
+      {
+        orgId: String(orgId),
+        phone: { $in: [...workerByPhone.keys()] },
+      },
+      { projection: { _id: 1, phone: 1 } },
+    )
+    .toArray()
+
+  for (const account of accounts) {
+    const workerId = workerByPhone.get(normalizePhone(account.phone))
+    if (workerId && account._id != null) {
+      ownerByWorkerId.set(workerId, String(account._id))
+    }
+  }
+  return ownerByWorkerId
+}
+
+function isPayEligibleWorker(worker) {
+  if (!worker) return false
+  if (worker.isManager) return true
+  return (
+    worker.isInspector !== false &&
+    (!worker.staffKind || worker.staffKind === 'inspector')
+  )
+}
+
+function payrollWorkerIdsForShift(shift) {
+  return [
+    ...new Set(
+      [
+        ...(Array.isArray(shift?.presentWorkerIds) ? shift.presentWorkerIds : []),
+        shift?.gateManagerWorkerId,
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
 function normalizeStoredRate(item) {
   if (!item || typeof item !== 'object') return null
   const basis =
@@ -308,16 +366,23 @@ async function entriesWithValidPersonalShiftSources(orgId, workerId, entries) {
   const shiftsById = new Map(
     shifts.map((shift) => [String(shift.id), shift]),
   )
+  const sourceWorkerIds = new Set(
+    entries.map((entry) => String(entry.sourceWorkerId || workerId)),
+  )
   const windowIds = [
     ...new Set(
-      shifts
-        .filter((shift) =>
-          (shift.presentWorkerIds || []).some(
-            (id) => String(id) === String(workerId),
-          ),
-        )
-        .map((shift) => String(shift.workerWindows?.[workerId] || ''))
-        .filter(Boolean),
+      shifts.flatMap((shift) =>
+        [...sourceWorkerIds]
+          .filter((sourceWorkerId) =>
+            (shift.presentWorkerIds || []).some(
+              (id) => String(id) === sourceWorkerId,
+            ),
+          )
+          .map((sourceWorkerId) =>
+            String(shift.workerWindows?.[sourceWorkerId] || ''),
+          )
+          .filter(Boolean),
+      ),
     ),
   ]
   if (windowIds.length === 0) {
@@ -340,15 +405,16 @@ async function entriesWithValidPersonalShiftSources(orgId, workerId, entries) {
   return entries.filter((entry) => {
     if (!entry.sourceShiftId) return true
     const shift = shiftsById.get(String(entry.sourceShiftId))
+    const sourceWorkerId = String(entry.sourceWorkerId || workerId)
     if (
       !shift ||
       !(shift.presentWorkerIds || []).some(
-        (id) => String(id) === String(workerId),
+        (id) => String(id) === sourceWorkerId,
       )
     ) {
       return false
     }
-    const windowId = String(shift.workerWindows?.[workerId] || '')
+    const windowId = String(shift.workerWindows?.[sourceWorkerId] || '')
     return Boolean(windowId && presetIds.has(windowId))
   })
 }
@@ -502,14 +568,15 @@ export function deleteManagerPayEntry(req, entryId) {
 }
 
 /**
- * Create pay entries for workers in a signed-off shift.
- * Creates entries only for workers with a personal-hours preset stored in the database.
+ * Create pay entries for eligible staff in a signed-off inspector shift,
+ * including managers. Entries require a saved personal-hours preset.
  */
 export async function createPayEntriesForShift(
   shift,
   workerWindowPresets,
   scope,
   shiftModels = [],
+  payOwnerIds = new Map(),
 ) {
   if (!scope || scope.module !== 'inspectors') {
     // Pay entries are only for inspectors module
@@ -517,9 +584,7 @@ export async function createPayEntriesForShift(
   }
 
   const orgId = String(scope.orgId)
-  const presentWorkers = Array.isArray(shift.presentWorkerIds)
-    ? shift.presentWorkerIds
-    : []
+  const presentWorkers = payrollWorkerIdsForShift(shift)
   const workerWindows = shift.workerWindows || {}
   // Helper to format minutes as HH:MM
   const formatClock = (minutes) => {
@@ -568,6 +633,7 @@ export async function createPayEntriesForShift(
     const entry = {
       id: randomUUID(),
       sourceShiftId: String(shift.id || ''),
+      sourceWorkerId: String(workerId),
       date: shiftDate,
       start: startClock,
       end: endClock,
@@ -577,7 +643,8 @@ export async function createPayEntriesForShift(
 
     try {
       // Load or create worker's pay document
-      const doc = await loadDoc(orgId, workerId)
+      const payOwnerId = String(payOwnerIds.get(String(workerId)) || workerId)
+      const doc = await loadDoc(orgId, payOwnerId)
 
       // Check if entry already exists for this date/time
       const exists = doc.entries.some(
@@ -606,7 +673,7 @@ export async function createPayEntriesForShift(
       // Add entry to document
       const updatedEntries = [...doc.entries, entry]
       await collection.updateOne(
-        { orgId, workerId },
+        { orgId, workerId: payOwnerId },
         {
           $set: {
             entries: updatedEntries,
@@ -614,7 +681,7 @@ export async function createPayEntriesForShift(
           },
           $setOnInsert: {
             orgId,
-            workerId,
+            workerId: payOwnerId,
             basis: null,
             amount: 0,
             rates: [],
@@ -631,7 +698,7 @@ export async function createPayEntriesForShift(
 }
 
 /**
- * Defer an inspector's pay row while they continue into a later open shift.
+ * Defer an employee's pay row while they continue into a later open shift.
  * Rechecking all closed shifts means closing the final shift also releases
  * the earlier shift's pending payroll row.
  */
@@ -644,21 +711,26 @@ export async function createPayEntriesForCompletedShifts(
 ) {
   if (!scope || scope.module !== 'inspectors') return
   const workerById = new Map(
-    (workers ?? []).map((worker) => [worker.id, worker]),
+    (workers ?? []).map((worker) => [String(worker.id), worker]),
   )
+  const completedShifts = (history ?? []).filter(
+    (shift) => shift?.signOff?.signedAt,
+  )
+  const payrollWorkers = [
+    ...new Set(completedShifts.flatMap(payrollWorkerIdsForShift)),
+  ]
+    .map((workerId) => workerById.get(workerId))
+    .filter(isPayEligibleWorker)
+  if (payrollWorkers.length === 0) return
+
+  const payOwnerIds = await payOwnerIdsByWorkerId(scope.orgId, payrollWorkers)
 
   const collection = await payCollection()
-  for (const shift of history ?? []) {
-    if (!shift?.signOff?.signedAt) continue
-    for (const workerId of shift.presentWorkerIds ?? []) {
-      const worker = workerById.get(workerId)
-      const isInspector =
-        worker &&
-        worker.isInspector !== false &&
-        (!worker.staffKind || worker.staffKind === 'inspector')
+  for (const shift of completedShifts) {
+    for (const workerId of payrollWorkerIdsForShift(shift)) {
+      const worker = workerById.get(String(workerId))
       if (
-        !isInspector ||
-        workerId === shift.gateManagerWorkerId ||
+        !isPayEligibleWorker(worker) ||
         !hasOpenWorkerContinuation(
           shift,
           workerId,
@@ -670,31 +742,26 @@ export async function createPayEntriesForCompletedShifts(
         continue
       }
 
-      const doc = await loadDoc(String(scope.orgId), workerId)
+      const payOwnerId = String(payOwnerIds.get(String(workerId)) || workerId)
+      const doc = await loadDoc(String(scope.orgId), payOwnerId)
       const sourceShiftId = String(shift.id || '')
       const entries = doc.entries.filter(
         (entry) => entry.sourceShiftId !== sourceShiftId,
       )
       if (entries.length === doc.entries.length) continue
       await collection.updateOne(
-        { orgId: String(scope.orgId), workerId },
+        { orgId: String(scope.orgId), workerId: payOwnerId },
         { $set: { entries, updatedAt: new Date().toISOString() } },
       )
     }
   }
 
-  for (const shift of history ?? []) {
-    if (!shift?.signOff?.signedAt) continue
-    const readyWorkerIds = (shift.presentWorkerIds ?? []).filter(
+  for (const shift of completedShifts) {
+    const readyWorkerIds = payrollWorkerIdsForShift(shift).filter(
       (workerId) => {
-        const worker = workerById.get(workerId)
-        const isInspector =
-          worker &&
-          worker.isInspector !== false &&
-          (!worker.staffKind || worker.staffKind === 'inspector')
+        const worker = workerById.get(String(workerId))
         return (
-          workerId !== shift.gateManagerWorkerId &&
-          isInspector &&
+          isPayEligibleWorker(worker) &&
           !hasOpenWorkerContinuation(
             shift,
             workerId,
@@ -711,6 +778,7 @@ export async function createPayEntriesForCompletedShifts(
       workerWindowPresets,
       scope,
       shiftModels,
+      payOwnerIds,
     )
   }
 }

@@ -277,6 +277,7 @@ export function loginRemote(
   opts?: {
     newPassword?: string
     newPasswordConfirm?: string
+    rememberMe?: boolean
   },
 ): Promise<LoginResponse> {
   return request<LoginResponse>('/api/login', {
@@ -284,6 +285,7 @@ export function loginRemote(
     body: JSON.stringify({
       phone,
       password,
+      rememberMe: opts?.rememberMe === true,
       ...(opts?.newPassword !== undefined
         ? {
             newPassword: opts.newPassword,
@@ -651,6 +653,16 @@ export function fetchSystemErrorsRemote(
 ): Promise<SystemErrorPage> {
   return request<SystemErrorPage>(
     `/api/admin/errors?limit=${limit}&offset=${offset}`,
+  )
+}
+
+export function fetchActiveUsersRemote(): Promise<{
+  count: number
+  activeWithinSeconds: number
+  asOf: string
+}> {
+  return request<{ count: number; activeWithinSeconds: number; asOf: string }>(
+    '/api/admin/active-users',
   )
 }
 

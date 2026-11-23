@@ -85,7 +85,7 @@ function challengeDocument(result) {
 
 export async function createLoginChallenge(
   user,
-  { email, passwordChanged = false } = {},
+  { email, passwordChanged = false, rememberMe = false } = {},
 ) {
   const destination = String(email || '').trim().toLowerCase()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination)) {
@@ -102,6 +102,7 @@ export async function createLoginChallenge(
     codeHash: hashCode(challengeId, code).toString('hex'),
     attempts: 0,
     passwordChanged: Boolean(passwordChanged),
+    rememberMe: Boolean(rememberMe),
     createdAt: new Date(now),
     expiresAt: new Date(now + CHALLENGE_TTL_MS),
   }
@@ -166,5 +167,6 @@ export async function verifyLoginChallenge(challengeId, code) {
   return {
     identity: challenge.identity,
     passwordChanged: Boolean(challenge.passwordChanged),
+    ...(challenge.rememberMe ? { rememberMe: true } : {}),
   }
 }

@@ -140,6 +140,7 @@ export interface SessionUser {
   module: AppModule | null
   isOrgManager: boolean
   staffKind?: StaffKind | null
+  rememberMe?: boolean
   /** Own profile photo as a data URL; absent/null → show initials. */
   avatarUrl?: string | null
 }
@@ -151,7 +152,19 @@ function cacheKey(user: Pick<SessionUser, 'orgId' | 'module'> | null): string | 
 
 export function loadSession(): SessionUser | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY)
+    let raw: string | null = null
+    try {
+      raw = sessionStorage.getItem(SESSION_KEY)
+    } catch {
+      /* session storage may be unavailable in restricted browser contexts */
+    }
+    if (!raw) {
+      try {
+        raw = localStorage.getItem(SESSION_KEY)
+      } catch {
+        /* local storage may be unavailable in restricted browser contexts */
+      }
+    }
     if (!raw) return null
     const parsed = JSON.parse(raw) as SessionUser
     if (!parsed?.id || !parsed?.phone) return null
@@ -189,6 +202,7 @@ export function loadSession(): SessionUser | null {
       module,
       isOrgManager,
       staffKind: isStaffKind(parsed.staffKind) ? parsed.staffKind : null,
+      rememberMe: parsed.rememberMe !== false,
       avatarUrl,
     }
   } catch {
@@ -200,14 +214,39 @@ export function saveSession(user: SessionUser): void {
   const session = Object.fromEntries(
     Object.entries(user).filter(([key]) => key !== 'token'),
   )
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  const serialized = JSON.stringify(session)
+  if (user.rememberMe === true) {
+    try {
+      localStorage.setItem(SESSION_KEY, serialized)
+    } catch {
+      /* storage unavailable */
+    }
+    try {
+      sessionStorage.removeItem(SESSION_KEY)
+    } catch {
+      /* storage unavailable */
+    }
+  } else {
+    try {
+      sessionStorage.setItem(SESSION_KEY, serialized)
+    } catch {
+      /* when session storage is blocked, do not persist an unchecked session */
+    }
+    try {
+      localStorage.removeItem(SESSION_KEY)
+    } catch {
+      /* storage unavailable */
+    }
+  }
 }
 
 export function clearSession(): void {
-  try {
-    localStorage.removeItem(SESSION_KEY)
-  } catch {
-    /* private mode */
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      storage.removeItem(SESSION_KEY)
+    } catch {
+      /* private mode */
+    }
   }
 }
 

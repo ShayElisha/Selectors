@@ -78,13 +78,14 @@ import {
 } from './workerNotices.js'
 import { assertRateLimit, clearRateLimit, clientKey } from './rateLimit.js'
 import { scopeForRequest } from './scope.js'
-import { assertSessionSecretConfigured, createSessionToken, getBearerToken, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
+import { assertSessionSecretConfigured, createSessionToken, getBearerToken, REMEMBERED_SESSION_TTL_MS, requireSuperAdmin, requireUser, verifySessionToken } from './session.js'
 import {
   assertPiiEncryptionConfigured,
   isPiiEncryptionEnabled,
 } from './piiCrypto.js'
 import { assertCookieMutationOrigin } from './csrf.js'
 import { revokeSessionId } from './sessionRevocation.js'
+import { countActiveUsers, removeActiveSession, touchActiveSession } from './activeSessions.js'
 
 assertSessionSecretConfigured()
 assertPiiEncryptionConfigured()
@@ -207,13 +208,16 @@ function sendError(res, err) {
 
 app.use('/api', createActiveUserMiddleware(sendError))
 
-function setSessionCookie(res, token) {
+function setSessionCookie(res, token, maxAgeSeconds = null) {
   const secure = process.env.NODE_ENV === 'production' || process.env.VERCEL
     ? '; Secure'
     : ''
+  const maxAge = Number.isFinite(Number(maxAgeSeconds)) && Number(maxAgeSeconds) > 0
+    ? `; Max-Age=${Math.floor(Number(maxAgeSeconds))}`
+    : ''
   res.setHeader(
     'Set-Cookie',
-    `getin_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${secure}`,
+    `getin_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${maxAge}${secure}`,
   )
 }
 
@@ -340,6 +344,7 @@ app.post('/api/login', async (req, res) => {
       passwordConfirm: req.body?.passwordConfirm,
       newPassword: req.body?.newPassword,
       newPasswordConfirm: req.body?.newPasswordConfirm,
+      rememberMe: req.body?.rememberMe === true,
       deferLoginAudit: true,
     })
     // Successful password step → clear IP+phone counters so a typo streak
@@ -354,6 +359,7 @@ app.post('/api/login', async (req, res) => {
       await createLoginChallenge(result, {
         email,
         passwordChanged: Boolean(req.body?.newPassword),
+        rememberMe: req.body?.rememberMe === true,
       }),
     )
   } catch (err) {
@@ -373,12 +379,25 @@ app.post('/api/login/verify', async (req, res) => {
       req.body?.code,
     )
     const user = await refreshLoginIdentity(challenge.identity)
+    const rememberMe = challenge.rememberMe === true
+    const sessionUser = { ...user, rememberMe }
     await recordSuccessfulLogin(user, {
       passwordChanged: challenge.passwordChanged,
     })
-    const token = createSessionToken(user)
-    setSessionCookie(res, token)
-    res.json(user)
+    const token = createSessionToken(sessionUser)
+    setSessionCookie(
+      res,
+      token,
+      rememberMe
+        ? Math.ceil(REMEMBERED_SESSION_TTL_MS / 1000)
+        : null,
+    )
+    try {
+      await touchActiveSession(verifySessionToken(token))
+    } catch (error) {
+      console.error('[active-sessions] login heartbeat failed', error?.message || error)
+    }
+    res.json(sessionUser)
   } catch (err) {
     sendError(res, err)
   }
@@ -719,6 +738,15 @@ app.get('/api/admin/errors', async (req, res) => {
   }
 })
 
+app.get('/api/admin/active-users', async (req, res) => {
+  try {
+    requireSuperAdmin(req)
+    res.json(await countActiveUsers())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
 app.get('/api/bug-reports', async (req, res) => {
   try {
     requireSuperAdmin(req)
@@ -792,10 +820,20 @@ app.get('/api/session', async (req, res) => {
   try {
     const tokenUser = verifySessionToken(getBearerToken(req))
     const user = req.activeUser || requireUser(req)
+    const rememberMe = tokenUser?.rememberMe !== false
+    const maxAgeSeconds = rememberMe && tokenUser?.exp
+      ? Math.max(1, Math.ceil((Number(tokenUser.exp) - Date.now()) / 1000))
+      : null
     if (user.role === 'super_admin') {
-      const token = createSessionToken({ ...user, exp: user.exp })
-      setSessionCookie(res, token)
-      res.json(user)
+      const fresh = { ...user, rememberMe }
+      const token = createSessionToken({ ...fresh, exp: tokenUser?.exp, jti: tokenUser?.jti })
+      setSessionCookie(res, token, maxAgeSeconds)
+      try {
+        await touchActiveSession(verifySessionToken(token))
+      } catch (error) {
+        console.error('[active-sessions] heartbeat failed', error?.message || error)
+      }
+      res.json(fresh)
       return
     }
     const fresh = req.activeUser || await refreshManagerSession(user)
@@ -812,9 +850,15 @@ app.get('/api/session', async (req, res) => {
       ...fresh,
       jti: tokenUser?.jti,
       exp: tokenUser?.exp,
+      rememberMe,
     })
-    setSessionCookie(res, token)
-    res.json(fresh)
+    setSessionCookie(res, token, maxAgeSeconds)
+    try {
+      await touchActiveSession(verifySessionToken(token))
+    } catch (error) {
+      console.error('[active-sessions] heartbeat failed', error?.message || error)
+    }
+    res.json({ ...fresh, rememberMe })
   } catch (err) {
     sendError(res, err)
   }
@@ -824,6 +868,11 @@ app.post('/api/logout', async (req, res) => {
   try {
     const user = requireUser(req)
     await revokeSessionId(user.jti, user.exp)
+    try {
+      await removeActiveSession(user.jti)
+    } catch (error) {
+      console.error('[active-sessions] logout cleanup failed', error?.message || error)
+    }
     clearSessionCookie(res)
     res.json({ ok: true })
   } catch (err) {

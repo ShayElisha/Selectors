@@ -4,6 +4,7 @@ import {
   createSystemMessageRemote,
   deleteOrganizationRemote,
   extendOrganizationRestoreRemote,
+  fetchActiveUsersRemote,
   fetchBugReportsRemote,
   fetchOrganizationsRemote,
   fetchSystemMessagesRemote,
@@ -315,6 +316,7 @@ function BarChart({
 export function SuperAdminPage() {
   const { user, logout } = useApp()
   const [rows, setRows] = useState<OrganizationSummary[]>([])
+  const [activeUsers, setActiveUsers] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -373,6 +375,25 @@ export function SuperAdminPage() {
       })
     return () => {
       stop = true
+    }
+  }, [user?.role])
+
+  useEffect(() => {
+    if (user?.role !== 'super_admin') return
+    let stop = false
+    const refresh = async () => {
+      try {
+        const result = await fetchActiveUsersRemote()
+        if (!stop) setActiveUsers(result.count)
+      } catch {
+        /* keep the last known count while the connection recovers */
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 30_000)
+    return () => {
+      stop = true
+      window.clearInterval(timer)
     }
   }, [user?.role])
 
@@ -638,6 +659,7 @@ export function SuperAdminPage() {
 
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
+          ['מחוברים כעת', activeUsers ?? '—'],
           ['מאושרים', counts.approved],
           ['ממתינים', counts.pending],
           ['נדחו החודש', counts.rejectedThisMonth],

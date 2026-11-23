@@ -491,7 +491,11 @@ interface AppContextValue {
   login: (
     phone: string,
     password: string,
-    opts?: { newPassword?: string; newPasswordConfirm?: string },
+    opts?: {
+      newPassword?: string
+      newPasswordConfirm?: string
+      rememberMe?: boolean
+    },
   ) => Promise<
     | void
     | 'change_password'
@@ -1392,7 +1396,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (
       phone: string,
       password: string,
-      opts?: { newPassword?: string; newPasswordConfirm?: string },
+      opts?: {
+        newPassword?: string
+        newPasswordConfirm?: string
+        rememberMe?: boolean
+      },
     ) => {
       const session = await loginRemote(phone, password, opts)
       if ('next' in session && session.next) {
@@ -1645,7 +1653,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (
       !user?.token ||
-      (user.role !== 'org_manager' && user.role !== 'worker')
+      (user.role !== 'org_manager' &&
+        user.role !== 'worker' &&
+        user.role !== 'super_admin')
     ) {
       return
     }
@@ -1658,7 +1668,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const prev = loadSession()
         const module =
           prev?.module && fresh.modules?.[prev.module] ? prev.module : fresh.module
-        const next = { ...fresh, token: fresh.token, module }
+        const next = {
+          ...fresh,
+          token: fresh.token,
+          module,
+          rememberMe: prev?.rememberMe !== false,
+        }
         const changed =
           prev?.role !== next.role ||
           Boolean(prev?.isOrgManager) !== Boolean(next.isOrgManager) ||

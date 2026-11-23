@@ -93,6 +93,7 @@ export function LoginPage() {
   const [challengeId, setChallengeId] = useState('')
   const [emailHint, setEmailHint] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -187,7 +188,7 @@ export function LoginPage() {
     setBusy(true)
     setError(null)
     try {
-      const next = await login(phoneTrimmed, password)
+      const next = await login(phoneTrimmed, password, { rememberMe })
       if (next === 'change_password') {
         setNewPassword('')
         setNewPasswordConfirm('')
@@ -225,6 +226,7 @@ export function LoginPage() {
       const result = await login(phoneTrimmed, password, {
         newPassword,
         newPasswordConfirm,
+        rememberMe,
       })
       if (result && typeof result === 'object' && result.next === 'verify_email') {
         beginEmailVerification(result)
@@ -441,6 +443,24 @@ export function LoginPage() {
                 ))}
               </ul>
             </>
+          )}
+
+          {(step === 'phone' || step === 'login') && (
+            <label className="flex items-start gap-2.5 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-[var(--color-brand)]"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                disabled={busy}
+              />
+              <span>
+                השאר אותי מחובר
+                <span className="mt-0.5 block text-xs text-ink-soft">
+                  ההתחברות תישמר במכשיר הזה עד 30 יום
+                </span>
+              </span>
+            </label>
           )}
 
           {step === 'verify_email' && (

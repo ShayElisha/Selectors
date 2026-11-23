@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
+export const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MIN_SECRET_LENGTH = 32
 
 const PLACEHOLDER_SECRETS = new Set([
@@ -86,6 +87,7 @@ function fromB64url(str) {
  * @returns {string}
  */
 export function createSessionToken(user) {
+  const rememberMe = user.rememberMe === true
   const payload = {
     jti: user.jti || randomUUID(),
     id: user.id,
@@ -104,10 +106,11 @@ export function createSessionToken(user) {
     staffKind: user.staffKind || null,
     tokenVersion: Number(user.tokenVersion || 0),
     mfa: true,
+    rememberMe,
     exp:
       Number.isFinite(Number(user.exp)) && Number(user.exp) > Date.now()
         ? Number(user.exp)
-        : Date.now() + SESSION_TTL_MS,
+        : Date.now() + (rememberMe ? REMEMBERED_SESSION_TTL_MS : SESSION_TTL_MS),
   }
   const body = b64url(JSON.stringify(payload))
   const sig = b64url(createHmac('sha256', getSecret()).update(body).digest())
@@ -175,6 +178,7 @@ export function verifySessionToken(token) {
           ? payload.staffKind
           : null,
       tokenVersion: Number(payload.tokenVersion || 0),
+      rememberMe: payload.rememberMe !== false,
     }
   } catch {
     return null
