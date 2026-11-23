@@ -4267,7 +4267,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
     
     const lane = data.lanes.find((l) => l.id === laneId)
-    toast.success(`🔓 נתיב ${lane?.name || '?'} סומן לפתיחה ידנית`)
+    toast.success(`הנתיב ${lane?.name || '?'} נפתח מחדש`)
   }, [draft, data.lanes, setDraft])
 
   const remindUnfreezeLater = useCallback(() => {

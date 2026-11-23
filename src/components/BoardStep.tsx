@@ -48,6 +48,8 @@ import {
   timingBadgesForWorker,
 } from '../lib/shiftTimingBadges'
 import { windowFitsShift, resolveWorkerWindows } from '../lib/shiftCatalog'
+import { workerShiftEnd } from '../lib/workerShiftStatus'
+import { formatMinutes, resolveShiftModels } from '../lib/shiftModels'
 import { explainWhyNotSelected } from '../lib/whyNotSelected'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { PeopleLabels } from '../auth'
@@ -86,7 +88,6 @@ import {
 } from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
-import { resolveShiftModels } from '../lib/shiftModels'
 import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
@@ -246,6 +247,11 @@ export function BoardStep({
       laneStatusModels,
       laneStatusNow,
     ],
+  )
+  const endedNowWorkerIds = new Set(
+    [...liveLaneStatuses.values()].flatMap(
+      (status) => status.currentShiftEndedWorkerIds,
+    ),
   )
 
   const draftRef = useRef(draft)
@@ -829,6 +835,7 @@ export function BoardStep({
     const present = rosterWorkers.filter(
       (w) =>
         draft.presentWorkerIds.includes(w.id) &&
+        !endedNowWorkerIds.has(w.id) &&
         w.isInspector &&
         (w.id === workerId ||
           windowFitsShift(
@@ -1025,6 +1032,81 @@ export function BoardStep({
               ? ` · חסר: ${missingCertsForLane(selectedWorker!, lane).join(' · ')}`
               : null}
           </span>
+        ) : null}
+      </div>
+    )
+  }
+
+  const renderEndedWorkerDetails = (workerIds: string[]) => {
+    const uniqueWorkerIds = [...new Set(workerIds)]
+    if (uniqueWorkerIds.length === 0) return null
+
+    return (
+      <div className="mt-3 rounded-xl border border-warn/20 bg-warn-soft/35 p-2.5">
+        <p className="mb-2 text-[11px] font-bold text-ink-soft">
+          עובדים ששעות המשמרת שלהם הסתיימו
+        </p>
+        <ul className="space-y-2">
+          {uniqueWorkerIds.map((workerId) => {
+            const worker = data.workers.find((item) => item.id === workerId)
+            const end = workerShiftEnd(
+              draft,
+              workerId,
+              laneStatusModels,
+              data.workerWindowPresets ?? [],
+            )
+            const recordedLeave = draft.shiftDrops?.find(
+              (drop) => drop.workerId === workerId && drop.kind === 'leave',
+            )
+            const hasRecordedEnd =
+              Boolean(recordedLeave) || draft.earlyLeaveAt?.[workerId] != null
+            const endLabel = end
+              ? `${formatMinutes(end.minutes)}${end.dayOffset > 0 ? ' · למחרת' : ''}`
+              : 'לא זמין'
+
+            return (
+              <li
+                key={workerId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-card/80 px-2.5 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-ink">
+                    {worker?.fullName ?? workerId}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-ink-soft">
+                    {hasRecordedEnd
+                      ? 'שעת יציאה מתועדת'
+                      : 'חלון שעות המשמרת הסתיים'}{' '}
+                    ב־
+                    <Ltr>{endLabel}</Ltr>
+                  </p>
+                </div>
+                {!locked ? (
+                  hasRecordedEnd ? (
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn-secondary !min-h-8 !px-2.5 !py-1 text-[11px]"
+                      onClick={() => setDropWorkerId(workerId)}
+                    >
+                      עדכון שעת יציאה
+                    </button>
+                  ) : (
+                    <WorkerHoursChip
+                      value={draft.workerWindows?.[workerId]}
+                      presets={workerWindowPresets}
+                      onChange={(windowId) => setWorkerWindow(workerId, windowId)}
+                      label="עדכון שעות המשמרת"
+                    />
+                  )
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
+        {!locked ? (
+          <p className="mt-2 text-[10px] leading-relaxed text-ink-soft">
+            אפשר לעדכן את השעות או לפתוח מחדש את הנתיב לאחר בדיקת האיוש.
+          </p>
         ) : null}
       </div>
     )
@@ -1391,12 +1473,23 @@ export function BoardStep({
                     const assignment = draft.assignments.find(
                       (a) => a.laneId === laneId,
                     )
-                    const slots = [...(assignment?.workerIds ?? [])]
+                    const assignmentSlots = [...(assignment?.workerIds ?? [])]
+                    const liveStatus = liveLaneStatuses.get(laneId)
+                    const endedIds = new Set(
+                      liveStatus?.currentShiftEndedWorkerIds ?? [],
+                    )
+                    const endedWorkers = assignmentSlots.filter((id) =>
+                      endedIds.has(id),
+                    )
+                    const slots = assignmentSlots.map((id) =>
+                      endedIds.has(id) ? '' : id,
+                    )
                     while (slots.length < Math.max(std, tableSeatCount)) {
                       slots.push('')
                     }
                     const filled = slots.filter(Boolean).length
                     const chipKind = staffingChipKind(filled, std)
+                    const autoClosed = liveStatus?.autoClosed ?? false
                     return (
                       <tr key={laneId} className="bg-card align-top">
                         <th className="sticky right-0 z-10 min-w-[8.5rem] bg-card px-3 py-2.5 text-start font-semibold text-ink">
@@ -1410,6 +1503,11 @@ export function BoardStep({
                               ) : null}
                               {lane.name}
                             </span>
+                            {autoClosed ? (
+                              <span className="rounded-md bg-hard-soft px-1.5 py-0.5 text-[10px] font-bold text-hard ring-1 ring-hard/30">
+                                הנתיב הוקפא אוטומטית
+                              </span>
+                            ) : null}
                             {isGateLane ? null : (
                               <IntensityBadge intensity={lane.intensity} />
                             )}
@@ -1434,6 +1532,29 @@ export function BoardStep({
                               }
                             />
                           )}
+                          {autoClosed && (liveStatus?.missing ?? 0) > 0 ? (
+                            <p className="mt-1 text-[10px] font-semibold text-ink-soft">
+                              {liveStatus?.activeWorkerIds.length === 0
+                                ? 'פנוי לשיבוץ'
+                                : (liveStatus?.missing ?? 0) === 1
+                                  ? 'נותרה משבצת פנויה'
+                                  : `${liveStatus?.missing} משבצות פנויות`}
+                            </p>
+                          ) : null}
+                          {autoClosed && !locked ? (
+                            <button
+                              type="button"
+                              className="mt-1 rounded-md border border-hard/30 px-2 py-1 text-[10px] font-bold text-hard transition hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              onClick={() =>
+                                runWithUndo('הנתיב נפתח מחדש', () => {
+                                  void manuallyUnfreezeLane(laneId)
+                                })
+                              }
+                            >
+                              פתיחת הנתיב מחדש
+                            </button>
+                          ) : null}
+                          {renderEndedWorkerDetails(endedWorkers)}
                         </td>
                         {Array.from({ length: tableSeatCount }, (_, slotIndex) => {
                           const workerId = slots[slotIndex] ?? ''
@@ -1529,16 +1650,23 @@ export function BoardStep({
             const isGateLane = isGateManagerLane(lane)
             const std = effectiveStaffingStandard(lane, draft.staffingOverrides)
             const assignment = draft.assignments.find((a) => a.laneId === laneId)
-            const slots = [...(assignment?.workerIds ?? [])]
+            const assignmentSlots = [...(assignment?.workerIds ?? [])]
+            const liveStatus = liveLaneStatuses.get(laneId)
+            const endedIds = new Set(
+              liveStatus?.currentShiftEndedWorkerIds ?? [],
+            )
+            const endedWorkers = assignmentSlots.filter((id) => endedIds.has(id))
+            const slots = assignmentSlots.map((id) =>
+              endedIds.has(id) ? '' : id,
+            )
             while (slots.length < std) slots.push('')
             const filled = slots.filter(Boolean).length
             const chipKind = staffingChipKind(filled, std)
             const notesOpen = expandedNotes.has(laneId)
             const noteText = assignment?.notes?.trim() ?? ''
 
-            const emptyLane = !(assignment?.workerIds.some(Boolean))
+            const emptyLane = !slots.some(Boolean)
             const healedTone = draft.healHighlights?.find((item) => item.laneId === laneId)?.tone
-            const liveStatus = liveLaneStatuses.get(laneId)
             const autoClosed = liveStatus?.autoClosed ?? false
             const frozen =
               autoClosed ||
@@ -1571,15 +1699,24 @@ export function BoardStep({
                       </h4>
                       {autoClosed ? (
                         <span className="rounded-md bg-hard-soft px-1.5 py-0.5 text-[10px] font-bold text-hard ring-1 ring-hard/30">
-                          קפוא אוטומטית · אין מספיק כוח אדם
+                          הנתיב הוקפא אוטומטית
                         </span>
                       ) : frozen ? (
                         <span className="rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-bold text-warn ring-1 ring-warn/30">
-                          בחור תקן / מוקפא
+                          נתיב מוקפא
                         </span>
                       ) : liveStatus?.manuallyReopened ? (
                         <span className="rounded-md bg-ok-soft px-1.5 py-0.5 text-[10px] font-bold text-ok ring-1 ring-ok/30">
-                          נפתח ידנית
+                          נפתח מחדש
+                        </span>
+                      ) : null}
+                      {autoClosed && (liveStatus?.missing ?? 0) > 0 ? (
+                        <span className="rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-soft ring-1 ring-line/70">
+                          {liveStatus?.activeWorkerIds.length === 0
+                            ? 'פנוי לשיבוץ'
+                            : (liveStatus?.missing ?? 0) === 1
+                              ? 'נותרה משבצת פנויה'
+                              : `${liveStatus?.missing} משבצות פנויות`}
                         </span>
                       ) : null}
                       {autoClosed && !locked ? (
@@ -1587,12 +1724,12 @@ export function BoardStep({
                           type="button"
                           className="rounded-md border border-hard/30 px-2 py-1 text-[10px] font-bold text-hard transition hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                           onClick={() =>
-                            runWithUndo('הנתיב שוחרר ידנית', () => {
+                            runWithUndo('הנתיב נפתח מחדש', () => {
                               void manuallyUnfreezeLane(laneId)
                             })
                           }
                         >
-                          שחרור ידני
+                          פתיחת הנתיב מחדש
                         </button>
                       ) : null}
                       {isGateLane ? (
@@ -1672,7 +1809,7 @@ export function BoardStep({
                           <button
                             type="button"
                             onClick={() => {
-                              const parked = slots.filter(Boolean).map(
+                              const parked = assignmentSlots.filter(Boolean).map(
                                 (id) =>
                                   data.workers.find((worker) => worker.id === id)?.fullName ?? id,
                               )
@@ -1876,6 +2013,8 @@ export function BoardStep({
                     )
                   })}
                 </div>
+
+                {renderEndedWorkerDetails(endedWorkers)}
 
                 {!notesOpen && noteText ? (
                   <button
@@ -2487,7 +2626,17 @@ export function BoardStep({
               <ShiftDropDialog
                 worker={worker}
                 shiftType={draft.shiftType}
-                initial={(draft.shiftDrops ?? []).find((item) => item.workerId === worker.id)}
+                initial={
+                  (draft.shiftDrops ?? []).find((item) => item.workerId === worker.id) ??
+                  (draft.earlyLeaveAt?.[worker.id] != null
+                    ? {
+                        workerId: worker.id,
+                        kind: 'leave' as const,
+                        minutes: draft.earlyLeaveAt[worker.id]!,
+                        reason: 'עדכון שעת יציאה',
+                      }
+                    : null)
+                }
                 onClose={() => setDropWorkerId(null)}
                 onConfirm={(drop) => {
                   runWithUndo('נרשמה יציאה מהמשמרת', () => recordShiftDrop(drop))

@@ -33,6 +33,15 @@ export function ShiftDropDialog({
     String(initial?.minutes ?? options[0]?.minutes ?? ''),
   )
   const [reason, setReason] = useState(initial?.reason ?? '')
+  const timeOptions =
+    initial &&
+    dropNeedsTime(initial.kind) &&
+    !options.some((option) => option.minutes === initial.minutes)
+      ? [
+          { minutes: initial.minutes, label: formatMinutes(initial.minutes) },
+          ...options,
+        ]
+      : options
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -85,7 +94,7 @@ export function ShiftDropDialog({
               value={minutes}
               onChange={(event) => setMinutes(event.target.value)}
             >
-              {options.map((option) => (
+              {timeOptions.map((option) => (
                 <option key={option.minutes} value={option.minutes}>
                   {option.label}
                 </option>
