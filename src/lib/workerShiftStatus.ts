@@ -21,6 +21,33 @@ export type LiveShiftHeadcountSnapshot = ShiftHeadcountSnapshot & {
   live: boolean
 }
 
+function dateAtShiftMinutes(
+  date: string,
+  minutes: number,
+): number | null {
+  const [year, month, day] = date.split('-').map(Number)
+  if (![year, month, day].every(Number.isFinite)) return null
+  const timestamp = new Date(year!, month! - 1, day!, 0, minutes).getTime()
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+/** Official clock window of a shift on its calendar date (local). */
+export function officialShiftInterval(
+  shift: Pick<ShiftSchedule, 'date' | 'shiftType'>,
+  models: ShiftModel[],
+): WorkerShiftInterval | null {
+  const model = models.find((item) => item.id === shift.shiftType)
+  const fallback = MAIN_SHIFT_BOUNDS[shift.shiftType]
+  if (!model && !fallback) return null
+  const shiftStart = model?.startMinutes ?? fallback!.start
+  let shiftEnd = model?.endMinutes ?? fallback!.end
+  if (shiftEnd <= shiftStart) shiftEnd += 24 * 60
+  const start = dateAtShiftMinutes(shift.date, shiftStart)
+  const end = dateAtShiftMinutes(shift.date, shiftEnd)
+  if (start == null || end == null || end <= start) return null
+  return { start, end }
+}
+
 function shiftInterval(
   shift: Pick<
     ShiftSchedule,
@@ -91,14 +118,10 @@ function shiftInterval(
   }
 
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
-  const [year, month, day] = shift.date.split('-').map(Number)
-  if (![year, month, day].every(Number.isFinite)) return null
-  const dateAtMinutes = (minutes: number) =>
-    new Date(year!, month! - 1, day!, 0, minutes).getTime()
-  const interval = { start: dateAtMinutes(start), end: dateAtMinutes(end) }
-  return Number.isFinite(interval.start) && Number.isFinite(interval.end)
-    ? interval
-    : null
+  const startAt = dateAtShiftMinutes(shift.date, start)
+  const endAt = dateAtShiftMinutes(shift.date, end)
+  if (startAt == null || endAt == null) return null
+  return { start: startAt, end: endAt }
 }
 
 export function workerShiftInterval(

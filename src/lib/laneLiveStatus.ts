@@ -1,4 +1,4 @@
-import { workerShiftInterval } from './workerShiftStatus'
+import { officialShiftInterval, workerShiftInterval } from './workerShiftStatus'
 import { effectiveStaffingStandard } from './shiftStaffing'
 import { isGateManagerLane } from './gateManager'
 import type {
@@ -182,11 +182,17 @@ export function laneLiveStatus(args: {
     latestCurrentEndedAt > 0 &&
     reopenedTimestamp >= latestCurrentEndedAt
   const missing = Math.max(0, required - activeIds.size)
+  const official = officialShiftInterval(shift, models)
+  // Future shifts (tomorrow morning opened tonight, etc.) are not "live" yet —
+  // assigned people are scheduled, not ended. Never show auto-freeze before
+  // the official shift window starts.
+  const shiftHasStarted = official != null && now >= official.start
   // Auto-close is a live status for the open shift only: someone on this
   // shift finished their hours and staffing dropped. Ends from yesterday /
   // overlapping neighbors still count toward coverage (activeIds), but must
   // not mark a future/next shift as frozen.
   const autoClosed =
+    shiftHasStarted &&
     currentShiftEndedIds.size > 0 &&
     missing > 0 &&
     !manuallyReopened
