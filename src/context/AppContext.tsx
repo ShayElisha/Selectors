@@ -1064,6 +1064,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
   /** Restored drafts were already persisted → treat as dirty until discarded/saved clean. */
   const [draftDirty, setDraftDirty] = useState(() => restoreDraft() != null)
+  const draftDirtyRef = useRef(draftDirty)
+  draftDirtyRef.current = draftDirty
+  const draftLiveRef = useRef(draft)
+  draftLiveRef.current = draft
   const draftBaselineRef = useRef<string | null>(null)
   const beginRemovalRef = useRef<(workerId: string) => void>(() => {})
   const [healing, setHealing] = useState(false)
@@ -1401,6 +1405,100 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRefreshing(false)
     }
   }, [handleAuthFailure, applyRemoteData])
+
+  const draftFromHistoryItem = useCallback(
+    (item: ShiftSchedule, lanes: AppData['lanes']): ShiftDraft => {
+      const gateManagerWorkerId = normalizeGateManagerId(
+        item.gateManagerWorkerId,
+        item.presentWorkerIds,
+        dataRef.current.workers,
+      )
+      return withGateManagerSync(
+        {
+          id: item.id,
+          date: item.date,
+          shiftType: item.shiftType,
+          audience: parseShiftAudience(item.audience),
+          assignmentMode: assignmentModeOf(item),
+          activeLaneIds: item.activeLaneIds,
+          presentWorkerIds: item.presentWorkerIds,
+          guestWorkerIds: item.guestWorkerIds,
+          gateManagerWorkerId,
+          trainingPairs: normalizeTrainingPairs(item.trainingPairs),
+          assignments: padAssignments(
+            item.assignments,
+            lanes,
+            item.activeLaneIds,
+            item.staffingOverrides,
+          ),
+          rounds:
+            usesRounds(item) && Array.isArray(item.rounds) ? item.rounds : [],
+          workerWindows: item.workerWindows ?? {},
+          workerWindowPresets: item.workerWindowPresets ?? [],
+          windowAdjustments: item.windowAdjustments ?? {},
+          defaultLateMinutes: item.defaultLateMinutes || undefined,
+          staggerRounds: Boolean(item.staggerRounds),
+          earlyLeaveAt: item.earlyLeaveAt,
+          shiftDrops: item.shiftDrops,
+          signOff: normalizeSignOff(item.signOff),
+          frozenLaneIds: item.frozenLaneIds,
+          laneReopenedAt: item.laneReopenedAt,
+          seatSegments: item.seatSegments,
+          seatSpan: item.seatSpan,
+          isSelfHealed: item.isSelfHealed,
+          shiftEvents: item.shiftEvents,
+          shiftOperationEvents: item.shiftOperationEvents,
+          warnings: [],
+          unassignedWorkerIds: [],
+          explanations: Array.isArray(item.explanations) ? item.explanations : [],
+          staffingOverrides: normalizeStaffingOverrides(item.staffingOverrides),
+          headcountStandard: normalizeHeadcountStandard(item.headcountStandard),
+        },
+        lanes,
+      )
+    },
+    [],
+  )
+
+  /**
+   * Quiet live sync: pull AppData when the org revision advances.
+   * Covers shifts, incidents, customs brokers, workers, lanes, and catalogs
+   * without flashing the loading/refreshing chrome.
+   */
+  const syncLiveFromServer = useCallback(async () => {
+    if (!userRef.current?.token) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    if (persistInFlightRef.current || pendingSaveRef.current) return
+    const hasLocal =
+      dataRef.current.workers.length > 0 || dataRef.current.lanes.length > 0
+    if (!hasLocal) return
+    try {
+      const remote = await fetchAppData(
+        userRef.current?.module ?? undefined,
+        dataRef.current.revision,
+      )
+      if (remote && 'unchanged' in remote && remote.unchanged) return
+      if (persistInFlightRef.current || pendingSaveRef.current) return
+      applyRemoteData(remote as AppData)
+      // If another manager saved the open shift and this tab has no local edits,
+      // refresh the board in place so viewers see the change without a reload.
+      const open = draftLiveRef.current
+      if (open && !draftDirtyRef.current) {
+        const item = dataRef.current.history.find((row) => row.id === open.id)
+        if (item) {
+          const next = draftFromHistoryItem(item, dataRef.current.lanes)
+          if (snapshotDraft(next) !== snapshotDraft(open)) {
+            adoptCleanDraft(next)
+          }
+        }
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        handleAuthFailure()
+      }
+      /* Keep the last good snapshot on transient network errors. */
+    }
+  }, [adoptCleanDraft, applyRemoteData, draftFromHistoryItem, handleAuthFailure])
 
   const checkLogin = useCallback(async (phone: string) => {
     const result = await checkLoginRemote(phone)
@@ -1747,6 +1845,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [user?.token, user?.role, user?.module, refreshFromServer])
+
+  // Live collaboration: poll org revision while the tab is visible.
+  // Cheap when unchanged (304-style { unchanged, revision }); full pull only on edits.
+  useEffect(() => {
+    if (!user?.token || user.role !== 'org_manager') return
+    const LIVE_SYNC_MS = 3_000
+    let stop = false
+    let inFlight = false
+    const tick = async () => {
+      if (stop || inFlight) return
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return
+      }
+      inFlight = true
+      try {
+        await syncLiveFromServer()
+      } finally {
+        inFlight = false
+      }
+    }
+    void tick()
+    const timer = window.setInterval(() => void tick(), LIVE_SYNC_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void tick()
+    }
+    const onOnline = () => void tick()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onOnline)
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [user?.token, user?.role, user?.module, syncLiveFromServer])
 
   // Redirect unauthenticated users away from app routes. Unknown paths stay on the 404 page.
   useEffect(() => {
