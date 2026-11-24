@@ -7,6 +7,7 @@ import {
 } from '../api'
 import { useApp } from '../context/AppContext'
 import {
+  clearSaveConflictNotices,
   ensureCriticalFaultNotices,
   ensureCrossModuleConflictNotices,
   ensureHardLaneStreakNotices,
@@ -86,6 +87,9 @@ export function ManagerBell() {
   }, [])
 
   const syncNotices = useCallback(async () => {
+    // Conflicts are handled by silent rebase/retry — never keep them in the bell.
+    clearSaveConflictNotices()
+
     const shifts = openShiftCandidates(draft, data.history)
     for (const shift of shifts) {
       const viewerIsGateManager = isActingGateManager({

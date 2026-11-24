@@ -15,6 +15,7 @@ import {
   ensureShiftEndNotice,
   ensureShiftOverdueNotice,
   ensureWorkerNoticeSendFailedNotice,
+  clearSaveConflictNotices,
   findHardLaneStreaks,
   isActingGateManager,
   listManagerNotices,
@@ -201,11 +202,15 @@ describe('managerNotifications', () => {
     ).toBe('cross_module')
   })
 
-  it('stores save-conflict, missing-windows, and quality-drop notices', () => {
-    expect(
-      ensureSaveConflictNotice({ message: 'קונפליקט גרסה', shiftId: 's1' })
-        ?.kind,
-    ).toBe('save_conflict')
+  it('stores missing-windows and quality-drop notices; clears save-conflict', () => {
+    ensureSaveConflictNotice({ message: 'קונפליקט גרסה', shiftId: 's1' })
+    expect(listManagerNotices().some((n) => n.kind === 'save_conflict')).toBe(
+      true,
+    )
+    clearSaveConflictNotices()
+    expect(listManagerNotices().some((n) => n.kind === 'save_conflict')).toBe(
+      false,
+    )
     expect(
       ensureMissingWindowsNotice({
         shiftId: 's1',
