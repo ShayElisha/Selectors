@@ -916,7 +916,7 @@ export function HomePage() {
         row,
       ]),
     )
-    const clockMinutes = nowMinutesLocal(nowTick)
+    const clockMinutes = nowMinutesLocal(new Date(nowTick))
     const rows = activeShift.activeLaneIds
       .map((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)

@@ -28,6 +28,19 @@ export type LaneOccupancyRow = {
   peakConcurrent: number
 }
 
+/** Saved schedule or in-progress draft — occupancy only needs placement fields. */
+export type LaneOccupancyShift = Pick<
+  ShiftSchedule,
+  | 'date'
+  | 'shiftType'
+  | 'activeLaneIds'
+  | 'assignments'
+  | 'staffingOverrides'
+  | 'seatSegments'
+  | 'seatSpan'
+  | 'shiftOperationEvents'
+>
+
 function shiftSpanMinutes(
   shift: Pick<ShiftSchedule, 'shiftType' | 'seatSpan'>,
   models: ShiftModel[],
@@ -87,7 +100,7 @@ function peakConcurrent(segments: LaneOccupantSegment[]): number {
 }
 
 function segmentsFromSeatData(
-  shift: ShiftSchedule,
+  shift: LaneOccupancyShift,
   laneId: string,
   span: { startMinutes: number; endMinutes: number },
 ): LaneOccupantSegment[] {
@@ -113,7 +126,7 @@ function segmentsFromSeatData(
 
 /** Rebuild lane timeline from assignment changes when seatSegments are missing. */
 function segmentsFromOperations(
-  shift: ShiftSchedule,
+  shift: LaneOccupancyShift,
   laneId: string,
   span: { startMinutes: number; endMinutes: number },
 ): LaneOccupantSegment[] {
@@ -200,7 +213,7 @@ function segmentsFromOperations(
 }
 
 function wholeShiftOccupants(
-  shift: ShiftSchedule,
+  shift: LaneOccupancyShift,
   laneId: string,
   span: { startMinutes: number; endMinutes: number },
 ): LaneOccupantSegment[] {
@@ -216,7 +229,7 @@ function wholeShiftOccupants(
 }
 
 export function laneOccupancyRowsForShift(
-  shift: ShiftSchedule,
+  shift: LaneOccupancyShift,
   lanesById: Map<string, Lane>,
   models: ShiftModel[] = [],
 ): LaneOccupancyRow[] {
