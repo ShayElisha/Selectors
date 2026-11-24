@@ -86,6 +86,12 @@ import {
 import { assertCookieMutationOrigin } from './csrf.js'
 import { revokeSessionId } from './sessionRevocation.js'
 import { countActiveUsers, removeActiveSession, touchActiveSession } from './activeSessions.js'
+import {
+  acquireShiftEditLock,
+  heartbeatShiftEditLock,
+  readShiftEditLock,
+  releaseShiftEditLock,
+} from './shiftEditLocks.js'
 
 assertSessionSecretConfigured()
 assertPiiEncryptionConfigured()
@@ -914,6 +920,58 @@ app.post('/api/shift-presence', async (req, res) => {
       })
       .toArray()
     res.json({ others: rows.map((row) => row.name).filter(Boolean) })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/shift-edit-locks', async (req, res) => {
+  try {
+    const { scope, actor } = await scopeForRequest(req)
+    const action = String(req.body?.action || 'acquire')
+    const date = String(req.body?.date || '').trim()
+    const shiftType = String(req.body?.shiftType || '').trim()
+    const audience =
+      String(req.body?.audience || '') === 'selector' ? 'selector' : 'inspector'
+    const shiftId = String(req.body?.shiftId || '').trim() || undefined
+    if (!date || !shiftType) {
+      const err = new Error('חסרים פרטי המשמרת לנעילה')
+      err.status = 400
+      throw err
+    }
+    const base = {
+      orgId: scope.orgId,
+      module: scope.module,
+      date,
+      shiftType,
+      audience,
+      userId: actor.id,
+      name: actor.fullName || 'מנהל',
+      shiftId,
+    }
+    if (action === 'release') {
+      res.json(await releaseShiftEditLock(base))
+      return
+    }
+    if (action === 'heartbeat') {
+      const result = await heartbeatShiftEditLock(base)
+      if (!result.ok) {
+        res.status(result.status || 409).json(result)
+        return
+      }
+      res.json(result)
+      return
+    }
+    if (action === 'status') {
+      res.json(await readShiftEditLock(base))
+      return
+    }
+    const result = await acquireShiftEditLock(base)
+    if (!result.ok) {
+      res.status(result.status || 409).json(result)
+      return
+    }
+    res.json(result)
   } catch (err) {
     sendError(res, err)
   }

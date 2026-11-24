@@ -24,14 +24,17 @@ import {
 } from '../algorithm'
 import {
   ApiError,
+  acquireShiftEditLockRemote,
   checkLoginRemote,
   deleteShiftRemote,
   fetchAppData,
+  heartbeatShiftEditLockRemote,
   restoreShiftVersionRemote,
   loginRemote,
   logoutRemote,
   postAuditEvent,
   refreshSessionRemote,
+  releaseShiftEditLockRemote,
   requestPasswordResetRemote,
   resendManagerTempPasswordRemote,
   fetchOrgSettings,
@@ -48,6 +51,7 @@ import {
   updateOwnAvatarRemote,
   verifyLoginCodeRemote,
   type LoginNextStep,
+  type ShiftEditLockRequest,
 } from '../api'
 import { notify } from '../lib/notify'
 import { allowLeaveUnsaved } from '../lib/unsavedLeaveRegistry'
@@ -1068,6 +1072,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   draftDirtyRef.current = draftDirty
   const draftLiveRef = useRef(draft)
   draftLiveRef.current = draft
+  const editLockRef = useRef<ShiftEditLockRequest | null>(null)
   const draftBaselineRef = useRef<string | null>(null)
   const beginRemovalRef = useRef<(workerId: string) => void>(() => {})
   const [healing, setHealing] = useState(false)
@@ -1126,6 +1131,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const restoreDraftSnapshot = useCallback((snapshot: ShiftDraft) => {
     setDraft(JSON.parse(JSON.stringify(snapshot)) as ShiftDraft)
   }, [])
+
+  const releaseHeldEditLock = useCallback(async () => {
+    const held = editLockRef.current
+    if (!held) return
+    editLockRef.current = null
+    try {
+      await releaseShiftEditLockRemote(held)
+    } catch {
+      /* best-effort */
+    }
+  }, [])
+
+  const claimShiftEditLock = useCallback(
+    async (args: ShiftEditLockRequest): Promise<boolean> => {
+      try {
+        await acquireShiftEditLockRemote(args)
+        editLockRef.current = {
+          date: args.date,
+          shiftType: args.shiftType,
+          audience: args.audience ?? 'inspector',
+          ...(args.shiftId ? { shiftId: args.shiftId } : {}),
+        }
+        return true
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          notify.error('המשמרת נעולה לעריכה', e.message)
+          return false
+        }
+        notify.error('לא ניתן לנעול את המשמרת לעריכה')
+        return false
+      }
+    },
+    [],
+  )
 
   const applyRemoteData = useCallback((remote: AppData) => {
     const next = normalizeAppData(
@@ -1596,6 +1635,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    void releaseHeldEditLock()
     void logoutRemote().catch((err) => {
       console.error('Server logout failed', err)
     })
@@ -1609,7 +1649,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dataRef.current = emptyData
     persistedDataRef.current = emptyData
     navigate('/login', { replace: true })
-  }, [navigate])
+  }, [navigate, releaseHeldEditLock])
 
   const setModule = useCallback(
     (next: AppModule) => {
@@ -1621,6 +1661,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) {
         return
       }
+      void releaseHeldEditLock()
       const updated = { ...user, module: next }
       clearAppDataCache()
       saveSession(updated)
@@ -1634,7 +1675,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setUser(updated)
       navigate('/', { replace: true })
     },
-    [draftDirty, navigate, user],
+    [draftDirty, navigate, releaseHeldEditLock, user],
   )
 
   useEffect(() => {
@@ -1884,6 +1925,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.token, user?.role, user?.module, syncLiveFromServer])
 
+  // Exclusive edit lock: hold while editing on /shift; heartbeat; kick out if lost.
+  useEffect(() => {
+    if (!user?.token || user.role !== 'org_manager' || !draft) return
+    const onShift =
+      location.pathname === '/shift' || location.pathname.startsWith('/shift/')
+    if (!onShift) return
+
+    let stop = false
+    const body: ShiftEditLockRequest = {
+      date: draft.date,
+      shiftType: draft.shiftType,
+      audience: draft.audience ?? 'inspector',
+      shiftId: draft.id,
+    }
+
+    const kickOut = () => {
+      editLockRef.current = null
+      draftBaselineRef.current = null
+      setDraftDirty(false)
+      setDraft(null)
+      clearDraftStorage()
+      notify.error(
+        'העריכה נחסמה',
+        'מנהל אחר עורך את המשמרת הזו כעת',
+      )
+      navigate('/', { replace: true })
+    }
+
+    const ensure = async () => {
+      const ok = await claimShiftEditLock(body)
+      if (stop) return
+      if (!ok) kickOut()
+    }
+
+    void ensure()
+    const timer = window.setInterval(() => {
+      const held = editLockRef.current
+      if (!held || stop) return
+      void heartbeatShiftEditLockRemote(held).catch((e) => {
+        if (e instanceof ApiError && e.status === 409 && !stop) kickOut()
+      })
+    }, 15_000)
+
+    const releaseOnUnload = () => {
+      const held = editLockRef.current
+      if (!held) return
+      const module = loadSession()?.module
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (module) headers['X-App-Module'] = module
+      try {
+        void fetch('/api/shift-edit-locks', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ action: 'release', ...held }),
+          credentials: 'same-origin',
+          keepalive: true,
+        })
+      } catch {
+        /* ignore */
+      }
+      editLockRef.current = null
+    }
+    window.addEventListener('pagehide', releaseOnUnload)
+
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+      window.removeEventListener('pagehide', releaseOnUnload)
+    }
+  }, [
+    claimShiftEditLock,
+    draft?.audience,
+    draft?.date,
+    draft?.id,
+    draft?.shiftType,
+    location.pathname,
+    navigate,
+    user?.role,
+    user?.token,
+  ])
+
   // Redirect unauthenticated users away from app routes. Unknown paths stay on the 404 page.
   useEffect(() => {
     const path = location.pathname.replace(/\/+$/, '') || '/'
@@ -1933,65 +2057,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user, location.pathname, navigate])
 
-  // Deep-link: /history/:id → load shift
+  // Deep-link: /history/:id → load shift (blocked if another manager holds the edit lock)
   useEffect(() => {
     const m = location.pathname.match(/^\/history\/([^/]+)\/?$/)
     if (!m || !user || loading) return
     const id = decodeURIComponent(m[1])
     const item = data.history.find((h) => h.id === id)
     if (!item) return
-    const gateManagerWorkerId = normalizeGateManagerId(
-      item.gateManagerWorkerId,
-      item.presentWorkerIds,
-      data.workers,
-    )
-    adoptCleanDraft(
-      withGateManagerSync(
-        {
-          id: item.id,
-          date: item.date,
-          shiftType: item.shiftType,
-          audience: parseShiftAudience(item.audience),
-          assignmentMode: assignmentModeOf(item),
-          activeLaneIds: item.activeLaneIds,
-          presentWorkerIds: item.presentWorkerIds,
-          guestWorkerIds: item.guestWorkerIds,
-          gateManagerWorkerId,
-          trainingPairs: normalizeTrainingPairs(item.trainingPairs),
-          assignments: padAssignments(
-            item.assignments,
-            data.lanes,
-            item.activeLaneIds,
-            item.staffingOverrides,
-          ),
-          rounds:
-            usesRounds(item) && Array.isArray(item.rounds) ? item.rounds : [],
-          workerWindows: item.workerWindows ?? {},
-          workerWindowPresets: item.workerWindowPresets ?? [],
-          windowAdjustments: item.windowAdjustments ?? {},
-          defaultLateMinutes: item.defaultLateMinutes || undefined,
-          staggerRounds: Boolean(item.staggerRounds),
-          earlyLeaveAt: item.earlyLeaveAt,
-          shiftDrops: item.shiftDrops,
-          signOff: normalizeSignOff(item.signOff),
-          frozenLaneIds: item.frozenLaneIds,
-          laneReopenedAt: item.laneReopenedAt,
-          seatSegments: item.seatSegments,
-          seatSpan: item.seatSpan,
-          isSelfHealed: item.isSelfHealed,
-          shiftEvents: item.shiftEvents,
-          shiftOperationEvents: item.shiftOperationEvents,
-          warnings: [],
-          unassignedWorkerIds: [],
-          explanations: Array.isArray(item.explanations) ? item.explanations : [],
-          staffingOverrides: normalizeStaffingOverrides(item.staffingOverrides),
-          headcountStandard: normalizeHeadcountStandard(item.headcountStandard),
-        },
-        data.lanes,
-      ),
-    )
-    setShiftStep('board')
-    navigate('/shift', { replace: true })
+    let cancelled = false
+    void (async () => {
+      const locked = await claimShiftEditLock({
+        date: item.date,
+        shiftType: item.shiftType,
+        audience: parseShiftAudience(item.audience),
+        shiftId: item.id,
+      })
+      if (cancelled) return
+      if (!locked) {
+        navigate('/', { replace: true })
+        return
+      }
+      adoptCleanDraft(draftFromHistoryItem(item, data.lanes))
+      setShiftStep('board')
+      navigate('/shift', { replace: true })
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [
     location.pathname,
     user,
@@ -2001,6 +2093,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     navigate,
     setShiftStep,
     adoptCleanDraft,
+    claimShiftEditLock,
+    draftFromHistoryItem,
   ])
 
   const toSchedule = useCallback((d: ShiftDraft): ShiftSchedule => {
@@ -2093,75 +2187,90 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const startShift = useCallback((_audience: ShiftAudience = 'inspector') => {
-    void _audience
-    const module = activeModule(user)
-    const lockedAudience: ShiftAudience = audienceForModule(module)
-    const assignmentMode = assignmentModes[module]
-    const models = resolveShiftModels(data.shiftModels, module)
-    const catalog = models.map((model) => model.id as ShiftType)
-    const clock = currentShiftModel(models)
-    const shiftType = catalog.includes(clock.model.id as ShiftType)
-      ? (clock.model.id as ShiftType)
-      : (catalog[0] ?? 'morning')
-    const continuing = collectContinuingAttendance({
-      history: data.history,
-      date: clock.date,
-      shiftType,
-      audience: lockedAudience,
-      catalog: data.workerWindowPresets,
-      models,
-    })
-
-    adoptCleanDraft(
-      withGateManagerSync(
-        {
-          id: uuid(),
+  const startShift = useCallback(
+    (_audience: ShiftAudience = 'inspector') => {
+      void _audience
+      const module = activeModule(user)
+      const lockedAudience: ShiftAudience = audienceForModule(module)
+      const assignmentMode = assignmentModes[module]
+      const models = resolveShiftModels(data.shiftModels, module)
+      const catalog = models.map((model) => model.id as ShiftType)
+      const clock = currentShiftModel(models)
+      const shiftType = catalog.includes(clock.model.id as ShiftType)
+        ? (clock.model.id as ShiftType)
+        : (catalog[0] ?? 'morning')
+      void (async () => {
+        const shiftId = uuid()
+        const locked = await claimShiftEditLock({
           date: clock.date,
           shiftType,
           audience: lockedAudience,
-          assignmentMode,
-          activeLaneIds: [],
-          presentWorkerIds: continuing.workerIds,
-          gateManagerWorkerId: continuing.gateManagerWorkerId,
-          assignments: [],
-          rounds: [],
-          workerWindows: continuing.workerWindows,
-          windowAdjustments: continuing.windowAdjustments,
-          defaultLateMinutes: undefined,
-          staggerRounds: staggerRef.current[module],
-          warnings: [],
-          unassignedWorkerIds: [],
-          explanations: [],
-          quality: undefined,
-          staffingOverrides: {},
-          headcountStandard: undefined,
-        },
-        data.lanes,
-      ),
-    )
-    setShiftStep('lanes')
-    setView('shift')
-  }, [
-    adoptCleanDraft,
-    assignmentModes,
-    data.history,
-    data.lanes,
-    data.shiftModels,
-    data.workerWindowPresets,
-    setShiftStep,
-    setView,
-    user?.module,
-  ])
+          shiftId,
+        })
+        if (!locked) return
+        const continuing = collectContinuingAttendance({
+          history: data.history,
+          date: clock.date,
+          shiftType,
+          audience: lockedAudience,
+          catalog: data.workerWindowPresets,
+          models,
+        })
+
+        adoptCleanDraft(
+          withGateManagerSync(
+            {
+              id: shiftId,
+              date: clock.date,
+              shiftType,
+              audience: lockedAudience,
+              assignmentMode,
+              activeLaneIds: [],
+              presentWorkerIds: continuing.workerIds,
+              gateManagerWorkerId: continuing.gateManagerWorkerId,
+              assignments: [],
+              rounds: [],
+              workerWindows: continuing.workerWindows,
+              windowAdjustments: continuing.windowAdjustments,
+              defaultLateMinutes: undefined,
+              staggerRounds: staggerRef.current[module],
+              warnings: [],
+              unassignedWorkerIds: [],
+              explanations: [],
+              quality: undefined,
+              staffingOverrides: {},
+              headcountStandard: undefined,
+            },
+            data.lanes,
+          ),
+        )
+        setShiftStep('lanes')
+        setView('shift')
+      })()
+    },
+    [
+      adoptCleanDraft,
+      assignmentModes,
+      claimShiftEditLock,
+      data.history,
+      data.lanes,
+      data.shiftModels,
+      data.workerWindowPresets,
+      setShiftStep,
+      setView,
+      user?.module,
+    ],
+  )
 
   const discardDraft = useCallback(() => {
+    void releaseHeldEditLock()
     draftBaselineRef.current = null
     setDraftDirty(false)
     setDraft(null)
     clearDraftStorage()
     setShiftStep('lanes')
     setView('home')
-  }, [setShiftStep, setView])
+  }, [releaseHeldEditLock, setShiftStep, setView])
 
   const updateDraftMeta = useCallback(
     (

@@ -542,6 +542,63 @@ export function reportShiftPresence(shiftId: string): Promise<{ others: string[]
   })
 }
 
+export type ShiftEditLockHolder = {
+  userId: string
+  name: string
+  shiftId?: string
+  at?: string
+}
+
+export type ShiftEditLockRequest = {
+  date: string
+  shiftType: string
+  audience?: string
+  shiftId?: string
+}
+
+export type ShiftEditLockResult = {
+  ok: boolean
+  holder?: ShiftEditLockHolder | null
+  error?: string
+  locked?: boolean
+}
+
+export function acquireShiftEditLockRemote(
+  body: ShiftEditLockRequest,
+): Promise<ShiftEditLockResult> {
+  return request<ShiftEditLockResult>('/api/shift-edit-locks', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'acquire', ...body }),
+  })
+}
+
+export function heartbeatShiftEditLockRemote(
+  body: ShiftEditLockRequest,
+): Promise<ShiftEditLockResult> {
+  return request<ShiftEditLockResult>('/api/shift-edit-locks', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'heartbeat', ...body }),
+  })
+}
+
+export function releaseShiftEditLockRemote(
+  body: ShiftEditLockRequest,
+): Promise<ShiftEditLockResult> {
+  return request<ShiftEditLockResult>('/api/shift-edit-locks', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'release', ...body }),
+  })
+}
+
+export function readShiftEditLockRemote(
+  body: ShiftEditLockRequest,
+): Promise<ShiftEditLockResult> {
+  return request<ShiftEditLockResult>('/api/shift-edit-locks', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'status', ...body }),
+  })
+}
+
 export function fetchOrgSettings(): Promise<OrgAssignmentSettings> {
   return request<OrgAssignmentSettings>('/api/org-settings')
 }
