@@ -212,6 +212,7 @@ export function BoardStep({
     setWindowAdjustment,
     setWorkerWindow,
     setLaneStaffingStandard,
+    manuallyFreezeLane,
     manuallyUnfreezeLane,
     user,
     module,
@@ -534,6 +535,7 @@ export function BoardStep({
         date: draft.date,
         shiftType: draft.shiftType,
         overrides: draft.staffingOverrides,
+        frozenLaneIds: draft.frozenLaneIds,
       }),
     [draft, data],
   )
@@ -1597,6 +1599,10 @@ export function BoardStep({
                     const filled = slots.filter(Boolean).length
                     const chipKind = staffingChipKind(filled, std)
                     const autoClosed = liveStatus?.autoClosed ?? false
+                    const emptyLane = filled === 0
+                    const manuallyFrozen =
+                      emptyLane && Boolean(draft.frozenLaneIds?.includes(laneId))
+                    const frozen = autoClosed || manuallyFrozen
                     return (
                       <tr key={laneId} className="bg-card align-top">
                         <th className="sticky right-0 z-10 min-w-[8.5rem] bg-card px-3 py-2.5 text-start font-semibold text-ink">
@@ -1613,6 +1619,10 @@ export function BoardStep({
                             {autoClosed ? (
                               <span className="rounded-md bg-hard-soft px-1.5 py-0.5 text-[10px] font-bold text-hard ring-1 ring-hard/30">
                                 הנתיב הוקפא אוטומטית
+                              </span>
+                            ) : manuallyFrozen ? (
+                              <span className="rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-bold text-warn ring-1 ring-warn/30">
+                                נתיב מוקפא
                               </span>
                             ) : null}
                             {isGateLane ? null : (
@@ -1648,7 +1658,7 @@ export function BoardStep({
                                   : `${liveStatus?.missing} משבצות פנויות`}
                             </p>
                           ) : null}
-                          {autoClosed && !locked ? (
+                          {frozen && !locked ? (
                             <button
                               type="button"
                               className="mt-1 rounded-md border border-hard/30 px-2 py-1 text-[10px] font-bold text-hard transition hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -1659,6 +1669,23 @@ export function BoardStep({
                               }
                             >
                               פתיחת הנתיב מחדש
+                            </button>
+                          ) : null}
+                          {!isGateLane &&
+                          emptyLane &&
+                          !frozen &&
+                          !locked ? (
+                            <button
+                              type="button"
+                              className="mt-1 inline-flex items-center gap-1 rounded-md border border-warn/40 px-2 py-1 text-[10px] font-bold text-warn transition hover:bg-warn-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              onClick={() =>
+                                runWithUndo('הנתיב הוקפא', () => {
+                                  manuallyFreezeLane(laneId)
+                                })
+                              }
+                            >
+                              <Lock className="size-3" aria-hidden />
+                              הקפאת נתיב
                             </button>
                           ) : null}
                           {renderEndedWorkerDetails(endedWorkers)}
@@ -1826,7 +1853,7 @@ export function BoardStep({
                               : `${liveStatus?.missing} משבצות פנויות`}
                         </span>
                       ) : null}
-                      {autoClosed && !locked ? (
+                      {frozen && !locked ? (
                         <button
                           type="button"
                           className="rounded-md border border-hard/30 px-2 py-1 text-[10px] font-bold text-hard transition hover:bg-hard-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
@@ -1837,6 +1864,20 @@ export function BoardStep({
                           }
                         >
                           פתיחת הנתיב מחדש
+                        </button>
+                      ) : null}
+                      {!isGateLane && emptyLane && !frozen && !locked ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md border border-warn/40 px-2 py-1 text-[10px] font-bold text-warn transition hover:bg-warn-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                          onClick={() =>
+                            runWithUndo('הנתיב הוקפא', () => {
+                              manuallyFreezeLane(laneId)
+                            })
+                          }
+                        >
+                          <Lock className="size-3" aria-hidden />
+                          הקפאת נתיב
                         </button>
                       ) : null}
                       {isGateLane ? (

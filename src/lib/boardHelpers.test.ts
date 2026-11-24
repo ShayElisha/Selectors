@@ -124,6 +124,30 @@ describe('validateBoard', () => {
     expect(staffingChipKind(2, 1)).toBe('over')
     expect(staffingChipKind(0, 1)).toBe('under')
   })
+
+  it('skips understaffed error for manually frozen empty lanes', () => {
+    const lanes = [lane({ id: 'l1', name: 'ריק', staffingStandard: 2 })]
+    const understaffed = validateBoard({
+      assignments: [{ laneId: 'l1', workerIds: ['', ''] }],
+      lanes,
+      workers: [],
+      history: [],
+      date: '2026-11-24',
+      shiftType: 'morning',
+    })
+    expect(understaffed.some((i) => i.code === 'understaffed')).toBe(true)
+
+    const frozen = validateBoard({
+      assignments: [{ laneId: 'l1', workerIds: ['', ''] }],
+      lanes,
+      workers: [],
+      history: [],
+      date: '2026-11-24',
+      shiftType: 'morning',
+      frozenLaneIds: ['l1'],
+    })
+    expect(frozen.some((i) => i.code === 'understaffed')).toBe(false)
+  })
 })
 
 describe('replaceLeavingWorkerSeat', () => {

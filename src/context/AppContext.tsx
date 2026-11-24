@@ -192,6 +192,7 @@ import {
   type SelectorRoundHoursSettings,
 } from '../lib/selectorRoundHours'
 import {
+  createFrozenLanes,
   recordUnfreezeDecision,
   shouldPromptUnfreeze,
 } from '../lib/frozenLanes'
@@ -679,6 +680,8 @@ interface AppContextValue {
   keepLanesFrozen: () => void
   /** User chose to unfreeze and reassign from current time. */
   unfreezeAndReassign: () => Promise<void>
+  /** Manually freeze an empty lane so the shift can be saved understaffed. */
+  manuallyFreezeLane: (laneId: string) => void
   /** Manually unfreeze a specific lane (from UI button). */
   manuallyUnfreezeLane: (laneId: string) => Promise<void>
   /** Remind later (10 minutes). */
@@ -4965,6 +4968,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [unfreezePrompt, draft, data.shiftModels, user])
 
+  const manuallyFreezeLane = useCallback(
+    (laneId: string) => {
+      if (!draft || draft.signOff?.signedAt) return
+      const lane = data.lanes.find((item) => item.id === laneId)
+      if (!lane || isGateManagerLane(lane)) return
+      if (!draft.activeLaneIds.includes(laneId)) return
+      if (draft.frozenLaneIds?.includes(laneId)) return
+      const seated =
+        draft.assignments
+          .find((row) => row.laneId === laneId)
+          ?.workerIds.filter(Boolean).length ?? 0
+      if (seated > 0) {
+        toast.error('אפשר להקפיא רק נתיב ריק')
+        return
+      }
+      const now = new Date()
+      const atMinutes = now.getHours() * 60 + now.getMinutes()
+      setDraft((d) => {
+        if (!d || d.signOff?.signedAt) return d
+        if (d.frozenLaneIds?.includes(laneId)) return d
+        const stillEmpty =
+          (d.assignments
+            .find((row) => row.laneId === laneId)
+            ?.workerIds.filter(Boolean).length ?? 0) === 0
+        if (!stillEmpty || !d.activeLaneIds.includes(laneId)) return d
+        const nextFrozenIds = [...(d.frozenLaneIds ?? []), laneId]
+        const nextFrozenLanes = [
+          ...(d.frozenLanes ?? []).filter((fl) => fl.laneId !== laneId),
+          ...createFrozenLanes([laneId], 'הקפאה ידנית', atMinutes),
+        ]
+        const laneReopenedAt = { ...(d.laneReopenedAt ?? {}) }
+        delete laneReopenedAt[laneId]
+        return {
+          ...d,
+          frozenLaneIds: nextFrozenIds,
+          frozenLanes: nextFrozenLanes,
+          laneReopenedAt:
+            Object.keys(laneReopenedAt).length > 0 ? laneReopenedAt : undefined,
+        }
+      })
+      toast.success(`הנתיב ${lane.name} הוקפא — ניתן לשמור את המשמרת`)
+    },
+    [draft, data.lanes, setDraft],
+  )
+
   const manuallyUnfreezeLane = useCallback(async (laneId: string) => {
     if (!draft || draft.signOff?.signedAt) return
     const reopenedAt = new Date().toISOString()
@@ -6112,6 +6160,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dismissUnfreezePrompt,
       keepLanesFrozen,
       unfreezeAndReassign,
+      manuallyFreezeLane,
       manuallyUnfreezeLane,
       remindUnfreezeLater,
       replaceLeavingWorker,
@@ -6231,6 +6280,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dismissUnfreezePrompt,
       keepLanesFrozen,
       unfreezeAndReassign,
+      manuallyFreezeLane,
       manuallyUnfreezeLane,
       remindUnfreezeLater,
       replaceLeavingWorker,

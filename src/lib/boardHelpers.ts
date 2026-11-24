@@ -155,6 +155,8 @@ export function validateBoard(opts: {
   date: string
   shiftType: ShiftType
   overrides?: StaffingOverrides | null
+  /** Empty/understaffed lanes the manager froze on purpose — do not block save. */
+  frozenLaneIds?: string[]
 }): BoardIssue[] {
   const {
     assignments,
@@ -164,10 +166,12 @@ export function validateBoard(opts: {
     date,
     shiftType,
     overrides,
+    frozenLaneIds,
   } = opts
   const issues: BoardIssue[] = []
   const workerById = new Map(workers.map((w) => [w.id, w]))
   const laneById = new Map(lanes.map((l) => [l.id, l]))
+  const frozen = new Set(frozenLaneIds ?? [])
   const seen = new Map<string, string>()
 
   for (const a of assignments) {
@@ -175,7 +179,7 @@ export function validateBoard(opts: {
     if (!lane) continue
     const std = effectiveStaffingStandard(lane, overrides)
     const filled = a.workerIds.filter(Boolean).length
-    if (filled < std) {
+    if (filled < std && !frozen.has(lane.id)) {
       issues.push({
         severity: 'error',
         code: 'understaffed',
