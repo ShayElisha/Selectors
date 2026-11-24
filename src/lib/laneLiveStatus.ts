@@ -32,6 +32,7 @@ type LiveShift = Pick<
   | 'rounds'
   | 'gateManagerWorkerId'
   | 'staffingOverrides'
+  | 'workerWindowPresets'
   | 'workerWindows'
   | 'windowAdjustments'
   | 'earlyLeaveAt'

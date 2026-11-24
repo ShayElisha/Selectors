@@ -25,6 +25,7 @@ import {
   StickyNote,
   Trash2,
   UserMinus,
+  UserPlus,
   UserX,
   X,
   Lock,
@@ -88,6 +89,8 @@ import {
 } from '../lib/shiftOperationTime'
 import { effectiveStaffingStandard } from '../lib/shiftStaffing'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
+import { earlyShiftRecommendations } from '../lib/earlyShiftRecommendations'
+import { usesRounds } from '../lib/assignmentMode'
 import { postAuditEvent } from '../api'
 import { formatSetupDateLine, shiftWindowDisplay } from '../lib/shiftWizard'
 import { useApp } from '../context/AppContext'
@@ -185,6 +188,9 @@ export function BoardStep({
     [data.workerWindowPresets],
   )
   const [laneStatusNow, setLaneStatusNow] = useState(() => Date.now())
+  const [dismissedEarlyIds, setDismissedEarlyIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   useEffect(() => {
     const timer = window.setInterval(() => setLaneStatusNow(Date.now()), 15_000)
     return () => window.clearInterval(timer)
@@ -197,6 +203,7 @@ export function BoardStep({
     undoShiftDrop,
     addBoardLane,
     toggleWorker,
+    addEarlyShiftWorker,
     replaceLeavingWorker,
     removeLaneFromShift,
     addSlotToLane,
@@ -217,6 +224,27 @@ export function BoardStep({
     () => resolveShiftModels(data.shiftModels, module),
     [data.shiftModels, module],
   )
+  const earlyRecommendations = useMemo(() => {
+    if (draft.signOff?.signedAt || usesRounds(draft)) return []
+    return earlyShiftRecommendations({
+      current: draft,
+      history: data.history,
+      workers: data.workers,
+      lanes: data.lanes,
+      models: laneStatusModels,
+      presets: data.workerWindowPresets ?? [],
+      now: laneStatusNow,
+    }).filter((item) => !dismissedEarlyIds.has(item.workerId))
+  }, [
+    data.history,
+    data.lanes,
+    data.workerWindowPresets,
+    data.workers,
+    dismissedEarlyIds,
+    draft,
+    laneStatusModels,
+    laneStatusNow,
+  ])
   const liveLaneStatuses = useMemo(
     () =>
       new Map(
@@ -1401,6 +1429,83 @@ export function BoardStep({
           </p>
         ) : null}
       </div>
+
+      {earlyRecommendations.length > 0 ? (
+        <div
+          className="rounded-2xl border border-brand/20 bg-brand/[0.04] px-3.5 py-3 shadow-[var(--shadow-panel)] sm:px-4"
+          role="region"
+          aria-label="המלצות הוספה ממשמרת מאוחרת"
+        >
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-card text-brand shadow-sm">
+              <UserPlus className="size-4" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold tracking-tight text-ink">
+                הצעה להוספה למשמרת
+              </p>
+              <p className="mt-0.5 text-[12px] text-ink-soft">
+                עובדים ממשמרת מאוחרת שמתחילים בשעות האלה — רק אם תבחרו להוסיף.
+              </p>
+              <ul className="mt-2.5 space-y-2">
+                {earlyRecommendations.map((item) => (
+                  <li
+                    key={item.workerId}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line/70 bg-card px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-ink">
+                        {item.workerName}
+                      </p>
+                      <p className="text-[11px] text-ink-soft">
+                        מגיע ב־
+                        <Ltr>{item.startsAt}</Ltr>
+                        {' · '}
+                        {item.sourceShiftName}
+                        {item.laneName ? ` · מוצע ל${item.laneName}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-ink-soft transition hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        onClick={() =>
+                          setDismissedEarlyIds((prev) => {
+                            const next = new Set(prev)
+                            next.add(item.workerId)
+                            return next
+                          })
+                        }
+                      >
+                        לא עכשיו
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-btn ui-btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]"
+                        onClick={() => {
+                          runWithUndo(
+                            `נוסף ${item.workerName} עם שעת התחלה ${item.startsAt}`,
+                            () =>
+                              addEarlyShiftWorker({
+                                workerId: item.workerId,
+                                laneId: item.laneId,
+                                windowPreset: item.windowPreset,
+                                windowPresets: item.windowPresets,
+                              }),
+                          )
+                        }}
+                      >
+                        <UserPlus className="size-3.5" aria-hidden />
+                        הוסף לשיבוץ
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-[1.5rem] border border-brand/15 bg-card shadow-[var(--shadow-panel-hover)]">
         <div className="rounded-t-[1.5rem] border-b border-brand/10 bg-gradient-to-l from-brand/[0.095] via-brand/[0.025] to-card px-4 py-5 sm:px-6 sm:py-6">

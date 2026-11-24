@@ -53,6 +53,7 @@ function shiftInterval(
     ShiftSchedule,
     | 'date'
     | 'shiftType'
+    | 'workerWindowPresets'
     | 'workerWindows'
     | 'windowAdjustments'
     | 'earlyLeaveAt'
@@ -70,7 +71,14 @@ function shiftInterval(
   if (shiftEnd <= shiftStart) shiftEnd += 24 * 60
   const crossesMidnight = shiftEnd > 24 * 60
 
-  const preset = workerWindowById(shift.workerWindows?.[workerId], presets)
+  const catalog = [
+    ...presets.filter(
+      (preset) =>
+        !shift.workerWindowPresets?.some((local) => local.id === preset.id),
+    ),
+    ...(shift.workerWindowPresets ?? []),
+  ]
+  const preset = workerWindowById(shift.workerWindows?.[workerId], catalog)
   let start = shiftStart
   let end = shiftEnd
   if (preset) {
@@ -176,6 +184,7 @@ export function liveShiftHeadcountSnapshot(
     | 'shiftType'
     | 'presentWorkerIds'
     | 'headcountStandard'
+    | 'workerWindowPresets'
     | 'workerWindows'
     | 'windowAdjustments'
     | 'earlyLeaveAt'

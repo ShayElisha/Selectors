@@ -15,6 +15,7 @@ import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import {
   buildLaneLastSeatings,
+  isQualified,
   isLastLaneOccupant,
   runAssignmentAlgorithm,
   runAssignmentAlgorithmWithProgress,
@@ -432,6 +433,8 @@ export interface ShiftDraft {
   lastAutoQualityScore?: number
   /** Personal hours keyed by worker id. */
   workerWindows: Record<string, string>
+  /** Per-shift snapshot, including custom overlap windows added by managers. */
+  workerWindowPresets?: WorkerWindowPreset[]
   windowAdjustments: Record<string, WindowAdjustment>
   /** Shift-wide default late minutes; per-worker late overrides when set. */
   defaultLateMinutes?: number
@@ -668,6 +671,12 @@ interface AppContextValue {
   remindUnfreezeLater: () => void
   updateLaneNotes: (laneId: string, notes: string) => void
   addExtraWorkerToLane: (laneId: string, workerId: string) => void
+  addEarlyShiftWorker: (args: {
+    workerId: string
+    laneId?: string
+    windowPreset: WorkerWindowPreset
+    windowPresets: WorkerWindowPreset[]
+  }) => void
   addSlotToLane: (laneId: string) => void
   saveCurrentShift: () => Promise<void>
   /** Close the open shift with the manager's typed name and lock the board. */
@@ -864,6 +873,9 @@ function restoreDraft(): ShiftDraft | null {
         parsed.workerWindows && typeof parsed.workerWindows === 'object'
           ? parsed.workerWindows
           : {},
+      workerWindowPresets: Array.isArray(parsed.workerWindowPresets)
+        ? parsed.workerWindowPresets
+        : [],
       windowAdjustments:
         parsed.windowAdjustments && typeof parsed.windowAdjustments === 'object'
           ? parsed.windowAdjustments
@@ -955,6 +967,7 @@ function snapshotDraft(d: ShiftDraft): string {
     assignmentMode: assignmentModeOf(d),
     rounds: d.rounds ?? [],
     workerWindows: d.workerWindows ?? {},
+    workerWindowPresets: d.workerWindowPresets ?? [],
     windowAdjustments: d.windowAdjustments ?? {},
     defaultLateMinutes: d.defaultLateMinutes ?? 0,
     staggerRounds: Boolean(d.staggerRounds),
@@ -1788,6 +1801,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           rounds:
             usesRounds(item) && Array.isArray(item.rounds) ? item.rounds : [],
           workerWindows: item.workerWindows ?? {},
+          workerWindowPresets: item.workerWindowPresets ?? [],
           windowAdjustments: item.windowAdjustments ?? {},
           defaultLateMinutes: item.defaultLateMinutes || undefined,
           staggerRounds: Boolean(item.staggerRounds),
@@ -1853,6 +1867,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Personal hours apply to inspectors too (board weight, afternoon continue).
       ...(Object.keys(d.workerWindows ?? {}).length > 0
         ? { workerWindows: d.workerWindows }
+        : {}),
+      ...(d.workerWindowPresets?.length
+        ? { workerWindowPresets: d.workerWindowPresets }
         : {}),
       ...(Object.keys(d.windowAdjustments ?? {}).length > 0
         ? { windowAdjustments: d.windowAdjustments }
@@ -3966,6 +3983,94 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [data.lanes],
   )
 
+  const addEarlyShiftWorker = useCallback(
+    (args: {
+      workerId: string
+      laneId?: string
+      windowPreset: WorkerWindowPreset
+      windowPresets: WorkerWindowPreset[]
+    }) => {
+      setDraft((d) => {
+        if (
+          !d ||
+          d.signOff?.signedAt ||
+          usesRounds(d) ||
+          d.presentWorkerIds.includes(args.workerId)
+        ) {
+          return d
+        }
+        const worker = data.workers.find(
+          (item) =>
+            item.id === args.workerId &&
+            item.status === 'active' &&
+            item.isInspector,
+        )
+        if (!worker) return d
+
+        let assignments = d.assignments
+        if (args.laneId) {
+          const lane = data.lanes.find((item) => item.id === args.laneId)
+          if (
+            !lane ||
+            !d.activeLaneIds.includes(lane.id) ||
+            isGateManagerLane(lane) ||
+            !isQualified(worker, lane) ||
+            d.frozenLaneIds?.includes(lane.id)
+          ) {
+            return d
+          }
+          const padded = padAssignments(
+            d.assignments,
+            data.lanes,
+            d.activeLaneIds,
+            d.staffingOverrides,
+          ).map((row) => ({ ...row, workerIds: [...row.workerIds] }))
+          const target = padded.find((row) => row.laneId === lane.id)
+          const emptySeat = target?.workerIds.findIndex((id) => !id) ?? -1
+          if (!target || emptySeat < 0) return d
+          target.workerIds[emptySeat] = args.workerId
+          assignments = padded
+        }
+
+        const windowPresets = [
+          ...(d.workerWindowPresets ?? []),
+          ...args.windowPresets.filter(
+            (preset) =>
+              !d.workerWindowPresets?.some((local) => local.id === preset.id),
+          ),
+          ...(!d.workerWindowPresets?.some(
+            (local) => local.id === args.windowPreset.id,
+          ) && !args.windowPresets.some(
+            (preset) => preset.id === args.windowPreset.id,
+          )
+            ? [args.windowPreset]
+            : []),
+        ]
+        const windowAdjustments = { ...(d.windowAdjustments ?? {}) }
+        delete windowAdjustments[args.workerId]
+        const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
+        delete earlyLeaveAt[args.workerId]
+        return withGateManagerSync(
+          {
+            ...d,
+            presentWorkerIds: [...d.presentWorkerIds, args.workerId],
+            assignments,
+            workerWindows: {
+              ...(d.workerWindows ?? {}),
+              [args.workerId]: args.windowPreset.id,
+            },
+            workerWindowPresets,
+            windowAdjustments,
+            earlyLeaveAt,
+            quality: undefined,
+          },
+          data.lanes,
+        )
+      })
+    },
+    [data.lanes, data.workers],
+  )
+
   const addSlotToLane = useCallback(
     (laneId: string) => {
       setDraft((d) => {
@@ -5408,6 +5513,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       removeLaneFromShift,
       updateLaneNotes,
       addExtraWorkerToLane,
+      addEarlyShiftWorker,
       addSlotToLane,
       saveCurrentShift,
       signCurrentShift,
@@ -5526,6 +5632,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       removeLaneFromShift,
       updateLaneNotes,
       addExtraWorkerToLane,
+      addEarlyShiftWorker,
       addSlotToLane,
       saveCurrentShift,
       signCurrentShift,
