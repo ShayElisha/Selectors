@@ -11,10 +11,7 @@ import {
   formatMinutes,
   shiftModelAbsoluteEnd,
 } from './shiftModels'
-import {
-  workerWindowById,
-  workerWindowIdFromTimes,
-} from './shiftCatalog'
+import { workerWindowById } from './shiftCatalog'
 
 type EarlyShiftSource = Pick<
   ShiftSchedule,
@@ -56,6 +53,7 @@ export type EarlyShiftRecommendation = {
   sourceShiftType: string
   sourceShiftName: string
   startsAt: string
+  /** Personal hours from the later shift (kept as-is; clipped when shown on current). */
   windowPreset: WorkerWindowPreset
   windowPresets: WorkerWindowPreset[]
   laneId?: string
@@ -218,25 +216,7 @@ export function earlyShiftRecommendations(args: {
       // the later shift's official start (e.g. night at 18:30 during afternoon).
       if (start < currentStartMinutes || start >= handoffMinutes) continue
 
-      const end = handoffMinutes % (24 * 60)
       const startClock = start % (24 * 60)
-      if (startClock === end) continue
-
-      const overlapId = workerWindowIdFromTimes(startClock, end)
-      const matchingPreset = allPresets.find(
-        (preset) =>
-          preset.id === overlapId ||
-          (preset.start === startClock && preset.end === end),
-      )
-      const windowPreset: WorkerWindowPreset =
-        matchingPreset ?? {
-          id: overlapId,
-          label: `${formatMinutes(startClock)}–${formatMinutes(end)} · חפיפה`,
-          name: 'השלמה למשמרת הבאה',
-          start: startClock,
-          end,
-          order: allPresets.length,
-        }
 
       const lane = availableLaneForWorker({
         current: args.current,
@@ -250,7 +230,8 @@ export function earlyShiftRecommendations(args: {
         sourceShiftType: source.shiftType,
         sourceShiftName: sourceModel.name,
         startsAt: formatMinutes(startClock),
-        windowPreset,
+        // Keep the later shift's personal hours; display/seat logic clips to current.
+        windowPreset: sourcePreset,
         windowPresets: allPresets,
         ...(lane ? { laneId: lane.id, laneName: lane.name } : {}),
       })

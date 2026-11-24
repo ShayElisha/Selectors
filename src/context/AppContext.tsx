@@ -184,6 +184,7 @@ import {
 } from '../lib/assignmentMode'
 import { currentShiftModel, resolveShiftModels, shiftModelAbsoluteEnd, shiftModelById } from '../lib/shiftModels'
 import { workerShiftWindowMinutes } from '../lib/workerShiftStatus'
+import { earlyShiftRecommendations } from '../lib/earlyShiftRecommendations'
 import {
   customBoundariesForShift,
   EMPTY_SELECTOR_ROUND_HOURS,
@@ -2668,9 +2669,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const has = d.presentWorkerIds.includes(workerId)
       if (!has) {
         const presentWorkerIds = [...d.presentWorkerIds, workerId]
+        // If this person belongs to a later same-day shift with mid-shift hours,
+        // carry those personal hours into the current draft.
+        const early = !usesRounds(d)
+          ? earlyShiftRecommendations({
+              current: d,
+              history: dataRef.current.history,
+              workers: data.workers,
+              lanes: data.lanes,
+              models: resolveShiftModels(
+                data.shiftModels,
+                activeModule(userRef.current),
+              ),
+              presets: data.workerWindowPresets ?? [],
+            }).find((item) => item.workerId === workerId)
+          : undefined
+        const workerWindows = { ...(d.workerWindows ?? {}) }
+        let workerWindowPresets = d.workerWindowPresets ?? []
+        if (early) {
+          workerWindows[workerId] = early.windowPreset.id
+          workerWindowPresets = [
+            ...workerWindowPresets,
+            ...early.windowPresets.filter(
+              (preset) =>
+                !workerWindowPresets.some((local) => local.id === preset.id),
+            ),
+            ...(!workerWindowPresets.some(
+              (local) => local.id === early.windowPreset.id,
+            ) &&
+            !early.windowPresets.some(
+              (preset) => preset.id === early.windowPreset.id,
+            )
+              ? [early.windowPreset]
+              : []),
+          ]
+        }
         const next = {
           ...d,
           presentWorkerIds,
+          ...(early
+            ? {
+                workerWindows,
+                workerWindowPresets,
+              }
+            : {}),
           trainingPairs: pruneTrainingPairs(
             d.trainingPairs,
             presentWorkerIds,

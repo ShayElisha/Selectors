@@ -106,6 +106,11 @@ describe('earlyShiftRecommendations', () => {
       sourceShiftName: 'לילה',
       startsAt: '18:30',
       laneId: 'lane-1',
+      windowPreset: expect.objectContaining({
+        id: '1830-0630',
+        start: 18 * 60 + 30,
+        end: 6 * 60 + 30,
+      }),
     })
   })
 

@@ -92,6 +92,7 @@ import {
   effectiveStaffingStandard,
   staffingChoicesForLane,
 } from '../lib/shiftStaffing'
+import { earlyShiftRecommendations } from '../lib/earlyShiftRecommendations'
 import { liveShiftHeadcountSnapshot } from '../lib/workerShiftStatus'
 import {
   attendanceStepSummary,
@@ -153,6 +154,7 @@ export function ShiftPage() {
     recordShiftDrop,
     undoShiftDrop,
     addBoardLane,
+    addEarlyShiftWorker,
     addExtraWorkerToLane,
     saveCurrentShift,
     signCurrentShift,
@@ -448,6 +450,25 @@ export function ShiftPage() {
     () => activeAttendanceWorkers(data.workers),
     [data.workers],
   )
+
+  const earlyRecommendations = useMemo(() => {
+    if (!draft || usesRounds(draft)) return []
+    return earlyShiftRecommendations({
+      current: draft,
+      history: data.history,
+      workers: data.workers,
+      lanes: data.lanes,
+      models: shiftModels,
+      presets: data.workerWindowPresets ?? [],
+    })
+  }, [
+    draft,
+    data.history,
+    data.workers,
+    data.lanes,
+    shiftModels,
+    data.workerWindowPresets,
+  ])
 
   const [guestCatalog, setGuestCatalog] = useState<GuestWorker[]>([])
   const [guestPickerOpen, setGuestPickerOpen] = useState(false)
@@ -3137,10 +3158,26 @@ export function ShiftPage() {
                 ? managedLanes(data.lanes).filter(
                     (lane) => !draft.activeLaneIds.includes(lane.id),
                   )
-                : activeAttendanceWorkers(data.workers).filter(
-                    (worker) => !draft.presentWorkerIds.includes(worker.id),
-                  )
-              ).map((item) => (
+                : (() => {
+                    const earlyById = new Map(
+                      earlyRecommendations.map((item) => [item.workerId, item]),
+                    )
+                    const pool = activeAttendanceWorkers(data.workers).filter(
+                      (worker) => !draft.presentWorkerIds.includes(worker.id),
+                    )
+                    return [...pool].sort((left, right) => {
+                      const leftEarly = earlyById.has(left.id) ? 0 : 1
+                      const rightEarly = earlyById.has(right.id) ? 0 : 1
+                      if (leftEarly !== rightEarly) return leftEarly - rightEarly
+                      return left.fullName.localeCompare(right.fullName, 'he')
+                    })
+                  })()
+              ).map((item) => {
+                const early =
+                  addPicker === 'worker' && 'fullName' in item
+                    ? earlyRecommendations.find((row) => row.workerId === item.id)
+                    : undefined
+                return (
                 <li key={item.id}>
                   <button
                     type="button"
@@ -3148,6 +3185,16 @@ export function ShiftPage() {
                     onClick={() => {
                       if (addPicker === 'lane') {
                         runWithUndo('נוסף נתיב למשמרת', () => addBoardLane(item.id))
+                      } else if (early) {
+                        runWithUndo(
+                          `נוסף ${early.workerName} עם שעות ${early.windowPreset.label} ממשמרת ${early.sourceShiftName}`,
+                          () =>
+                            addEarlyShiftWorker({
+                              workerId: early.workerId,
+                              windowPreset: early.windowPreset,
+                              windowPresets: early.windowPresets,
+                            }),
+                        )
                       } else {
                         runWithUndo(
                           `נוסף ${people.singular} לנוכחות`,
@@ -3158,9 +3205,18 @@ export function ShiftPage() {
                     }}
                   >
                     {'fullName' in item ? item.fullName : item.name}
+                    {early ? (
+                      <span className="mt-0.5 block text-[11px] font-medium text-brand">
+                        ממשמרת {early.sourceShiftName} · מ־
+                        <Ltr>{early.startsAt}</Ltr>
+                        {' · '}
+                        {early.windowPreset.label}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
-              ))}
+                )
+              })}
             </ul>
             <button type="button" className="ui-btn ui-btn-secondary mt-3" onClick={() => setAddPicker(null)}>
               סגירה

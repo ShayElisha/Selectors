@@ -1461,6 +1461,8 @@ export function BoardStep({
                         מגיע ב־
                         <Ltr>{item.startsAt}</Ltr>
                         {' · '}
+                        שעות {item.windowPreset.label}
+                        {' · '}
                         {item.sourceShiftName}
                         {item.laneName ? ` · מוצע ל${item.laneName}` : ''}
                       </p>
@@ -1484,7 +1486,7 @@ export function BoardStep({
                         className="ui-btn ui-btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]"
                         onClick={() => {
                           runWithUndo(
-                            `נוסף ${item.workerName} עם שעת התחלה ${item.startsAt}`,
+                            `נוסף ${item.workerName} עם שעות ${item.windowPreset.label}`,
                             () =>
                               addEarlyShiftWorker({
                                 workerId: item.workerId,
@@ -2760,10 +2762,26 @@ export function BoardStep({
             <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
               {(addPicker === 'lane'
                 ? managedLanes(data.lanes).filter((lane) => !draft.activeLaneIds.includes(lane.id))
-                : activeAttendanceWorkers(data.workers).filter(
-                    (worker) => !draft.presentWorkerIds.includes(worker.id),
-                  )
-              ).map((item) => (
+                : (() => {
+                    const earlyById = new Map(
+                      earlyRecommendations.map((item) => [item.workerId, item]),
+                    )
+                    const pool = activeAttendanceWorkers(data.workers).filter(
+                      (worker) => !draft.presentWorkerIds.includes(worker.id),
+                    )
+                    return [...pool].sort((left, right) => {
+                      const leftEarly = earlyById.has(left.id) ? 0 : 1
+                      const rightEarly = earlyById.has(right.id) ? 0 : 1
+                      if (leftEarly !== rightEarly) return leftEarly - rightEarly
+                      return left.fullName.localeCompare(right.fullName, 'he')
+                    })
+                  })()
+              ).map((item) => {
+                const early =
+                  addPicker === 'worker' && 'fullName' in item
+                    ? earlyRecommendations.find((row) => row.workerId === item.id)
+                    : undefined
+                return (
                 <li key={item.id}>
                   <button
                     type="button"
@@ -2771,6 +2789,16 @@ export function BoardStep({
                     onClick={() => {
                       if (addPicker === 'lane') {
                         runWithUndo('נוסף נתיב למשמרת', () => addBoardLane(item.id))
+                      } else if (early) {
+                        runWithUndo(
+                          `נוסף ${early.workerName} עם שעות ${early.windowPreset.label} ממשמרת ${early.sourceShiftName}`,
+                          () =>
+                            addEarlyShiftWorker({
+                              workerId: early.workerId,
+                              windowPreset: early.windowPreset,
+                              windowPresets: early.windowPresets,
+                            }),
+                        )
                       } else {
                         runWithUndo(
                           `נוסף ${people.singular} לנוכחות`,
@@ -2781,9 +2809,18 @@ export function BoardStep({
                     }}
                   >
                     {'fullName' in item ? item.fullName : item.name}
+                    {early ? (
+                      <span className="mt-0.5 block text-[11px] font-medium text-brand">
+                        ממשמרת {early.sourceShiftName} · מ־
+                        <Ltr>{early.startsAt}</Ltr>
+                        {' · '}
+                        {early.windowPreset.label}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
-              ))}
+                )
+              })}
             </ul>
             <button type="button" className="ui-btn ui-btn-secondary mt-3" onClick={() => setAddPicker(null)}>
               סגירה
