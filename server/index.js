@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import cors from 'cors'
 import express from 'express'
@@ -92,6 +93,7 @@ import {
   readShiftEditLock,
   releaseShiftEditLock,
 } from './shiftEditLocks.js'
+import { attachRealtime } from './realtime.js'
 
 assertSessionSecretConfigured()
 assertPiiEncryptionConfigured()
@@ -125,7 +127,13 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
-        connectSrc: ["'self'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
+        connectSrc: [
+          "'self'",
+          'https://fonts.googleapis.com',
+          'https://fonts.gstatic.com',
+          'ws:',
+          'wss:',
+        ],
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
@@ -1483,7 +1491,9 @@ async function start() {
   scheduleLocalLoadRestCron()
   scheduleLocalShiftReminderCron()
   scheduleLocalBackgroundJobProcessor()
-  app.listen(PORT, () => {
+  const httpServer = createServer(app)
+  attachRealtime(httpServer)
+  httpServer.listen(PORT, () => {
     console.log(`API listening on http://127.0.0.1:${PORT}`)
   })
 }

@@ -30,6 +30,8 @@ import {
   enqueueBackgroundJob,
   kickBackgroundJobProcessor,
 } from "./backgroundJobs.js";
+import { assertNoForeignEditLock } from "./shiftEditLocks.js";
+import { publishScopeRevision } from "./realtime.js";
 
 function publicModules(modules) {
   return {
@@ -1486,11 +1488,13 @@ function stateCacheKey(scope) {
 
 function rememberState(scope, state) {
   if (!scope?.orgId) return;
+  const revision = Number(state.revision ?? 0);
   stateCache.set(stateCacheKey(scope), {
     at: Date.now(),
-    revision: Number(state.revision ?? 0),
+    revision,
     state,
   });
+  publishScopeRevision(scope, revision);
 }
 
 function conflictError(state) {
@@ -1919,6 +1923,7 @@ export async function writeState(data, options = {}) {
   }
 
   invalidateStateCache(scope);
+  publishScopeRevision(scope, nextRevision);
   return publicData(result);
 }
 
@@ -2499,6 +2504,17 @@ export async function upsertShift(id, body, actor, options = {}) {
   }
 
   await assertNoCrossModuleDoubleBooking(schedule, scope, state);
+
+  if (scope?.orgId && scope?.module && actor?.id) {
+    await assertNoForeignEditLock({
+      orgId: scope.orgId,
+      module: scope.module,
+      date: schedule.date,
+      shiftType: schedule.shiftType,
+      audience: audienceOf(schedule),
+      userId: actor.id,
+    });
+  }
 
   const idx = state.history.findIndex((h) => h.id === schedule.id);
   const isNew = idx === -1;

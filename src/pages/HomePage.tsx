@@ -71,6 +71,8 @@ import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerWindowById } from '../lib/shiftCatalog'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
+import { laneOccupancyRowsForShift } from '../lib/laneOccupancy'
+import { nowMinutesLocal } from '../lib/managerNotifications'
 import { liveShiftHeadcountSnapshot } from '../lib/workerShiftStatus'
 import { pathForView } from '../routes'
 
@@ -115,6 +117,8 @@ type HomeLanePerson = {
   name: string
   trainingRole?: 'trainee' | 'mentor'
   windowLabel: string
+  /** Clear station window, e.g. 14:30–18:30 */
+  timeLabel?: string
 }
 
 type HomeLaneRow = {
@@ -124,7 +128,7 @@ type HomeLaneRow = {
   staffingStandard: number
   assigned: number
   workers: HomeLanePerson[]
-  endedWorkers: { id: string; name: string }[]
+  endedWorkers: { id: string; name: string; timeLabel?: string }[]
   autoClosed: boolean
   manuallyReopened: boolean
 }
@@ -431,27 +435,47 @@ function LaneTable({
                     ) : row.workers.length === 0 ? (
                       <span className="text-xs font-medium text-ink-soft">אין עובדים פעילים</span>
                     ) : (
-                      row.workers.map((person) => (
-                        <div key={person.id} className="flex max-w-full flex-col items-center gap-1">
-                          <InspectorAvatar
-                            id={person.id}
-                            name={person.name}
-                            initials={workerInitials.get(person.id) ?? initialsForWorker(person.name)}
-                            trainingRole={person.trainingRole}
-                          />
-                          <span
-                            className="text-xs text-ink-soft sm:hidden"
-                            title={`${person.name}: ${person.windowLabel}`}
+                      row.workers.map((person) => {
+                        const when = person.timeLabel || person.windowLabel
+                        return (
+                          <div
+                            key={`${person.id}-${person.timeLabel ?? person.windowLabel}`}
+                            className="flex max-w-full flex-col items-center gap-1"
                           >
-                            <Ltr>{person.windowLabel}</Ltr>
-                          </span>
-                        </div>
-                      ))
+                            <InspectorAvatar
+                              id={person.id}
+                              name={person.name}
+                              initials={workerInitials.get(person.id) ?? initialsForWorker(person.name)}
+                              trainingRole={person.trainingRole}
+                            />
+                            <span
+                              className="text-xs font-semibold tabular-nums text-ink-soft sm:hidden"
+                              title={`${person.name}: ${when}`}
+                            >
+                              <Ltr>{when}</Ltr>
+                            </span>
+                          </div>
+                        )
+                      })
                     )}
                     {row.endedWorkers.length > 0 ? (
-                      <span className="w-full text-xs text-ink-soft">
-                        הסתיימו שעות: {row.endedWorkers.map((person) => person.name).join(' · ')}
-                      </span>
+                      <ul className="w-full space-y-0.5 text-xs text-ink-soft">
+                        {row.endedWorkers.map((person) => (
+                          <li
+                            key={`${person.id}-${person.timeLabel ?? 'ended'}`}
+                            className="flex flex-wrap items-center justify-center gap-1"
+                          >
+                            <span className="font-medium text-ink">{person.name}</span>
+                            {person.timeLabel ? (
+                              <span className="rounded bg-surface px-1 py-0.5 font-semibold tabular-nums">
+                                <Ltr>{person.timeLabel}</Ltr>
+                              </span>
+                            ) : (
+                              <span>הסתיימו שעות</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     ) : null}
                     {staffingOff ? (
                       <span
@@ -468,19 +492,35 @@ function LaneTable({
                   </div>
                 </td>
                 <td className="hidden px-3 py-2 align-middle text-center sm:table-cell">
-                  {row.workers.length === 0 ? (
+                  {row.workers.length === 0 && row.endedWorkers.length === 0 ? (
                     <span className="text-xs text-ink-soft">—</span>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-1">
-                      {row.workers.map((person) => (
-                        <span
-                          key={person.id}
-                          className="inline-flex max-w-full items-center text-xs font-medium tabular-nums text-ink-soft"
-                          title={`${person.name}: ${person.windowLabel}`}
-                        >
-                          <Ltr>{person.windowLabel}</Ltr>
-                        </span>
-                      ))}
+                      {row.workers.map((person) => {
+                        const when = person.timeLabel || person.windowLabel
+                        return (
+                          <span
+                            key={`${person.id}-${when}`}
+                            className="inline-flex max-w-full items-center gap-1 text-xs font-medium tabular-nums text-ink-soft"
+                            title={`${person.name}: ${when}`}
+                          >
+                            <span className="truncate font-semibold text-ink">{person.name.split(' ')[0]}</span>
+                            <Ltr>{when}</Ltr>
+                          </span>
+                        )
+                      })}
+                      {row.endedWorkers.map((person) =>
+                        person.timeLabel ? (
+                          <span
+                            key={`${person.id}-${person.timeLabel}-ended`}
+                            className="inline-flex max-w-full items-center gap-1 text-xs tabular-nums text-ink-soft/80"
+                            title={`${person.name}: ${person.timeLabel}`}
+                          >
+                            <span className="truncate">{person.name.split(' ')[0]}</span>
+                            <Ltr>{person.timeLabel}</Ltr>
+                          </span>
+                        ) : null,
+                      )}
                     </div>
                   )}
                 </td>
@@ -865,15 +905,22 @@ export function HomePage() {
     [currentShift, draft, data.workerWindowPresets],
   )
 
-  const currentTableRows = useMemo(() => {
+  const currentTableRows = useMemo((): HomeLaneRow[] => {
     // Use draft if editing, otherwise show saved shift
     const activeShift = draft && currentShift && draft.id === currentShift.id ? draft : currentShift
     if (!activeShift) return []
+    const lanesById = new Map(data.lanes.map((lane) => [lane.id, lane]))
+    const occupancyByLane = new Map(
+      laneOccupancyRowsForShift(activeShift, lanesById, shiftModels).map((row) => [
+        row.laneId,
+        row,
+      ]),
+    )
+    const clockMinutes = nowMinutesLocal(nowTick)
     const rows = activeShift.activeLaneIds
       .map((laneId) => {
         const lane = data.lanes.find((l) => l.id === laneId)
         if (!lane) return null
-        // The home board shows only the shift selected for the current clock time.
         const status = laneLiveStatus({
           shift: activeShift,
           history: [],
@@ -882,26 +929,76 @@ export function HomePage() {
           presets: data.workerWindowPresets ?? [],
           now: nowTick,
         })
-        const schedulesById = new Map([[activeShift.id, activeShift]])
-        const workers = status.activeWorkerSources.map(({ workerId, shiftId }) => {
-          const worker = data.workers.find((w) => w.id === workerId)
-          const sourceShift = schedulesById.get(shiftId)
+        const occupancy = occupancyByLane.get(laneId)
+        const occupants = occupancy?.occupants ?? []
+        const activeIds = new Set(
+          status.activeWorkerSources.map((source) => source.workerId),
+        )
+        const workers: HomeLanePerson[] = []
+        const endedWorkers: HomeLaneRow['endedWorkers'] = []
+        const seenActive = new Set<string>()
+        const seenEnded = new Set<string>()
+
+        for (const segment of occupants) {
+          const worker = data.workers.find((item) => item.id === segment.workerId)
+          const name = worker?.fullName ?? segment.workerId
           const preset = workerWindowById(
-            sourceShift?.workerWindows?.[workerId],
+            activeShift.workerWindows?.[segment.workerId],
             data.workerWindowPresets,
           )
-          return {
-            id: workerId,
-            name: worker?.fullName ?? workerId,
+          const personBase = {
+            id: segment.workerId,
+            name,
             trainingRole: worker?.trainingRole,
-            windowLabel: preset?.label ?? personalWindowLabel(workerId),
+            windowLabel: preset?.label ?? personalWindowLabel(segment.workerId),
+            timeLabel: segment.label,
           }
-        })
-        const endedWorkers = status.currentShiftEndedWorkerIds
-          .map((id) => ({
-            id,
-            name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,
-          }))
+          const activeNow =
+            activeIds.has(segment.workerId) &&
+            segment.fromMinutes <= clockMinutes &&
+            clockMinutes < segment.toMinutes
+          if (activeNow) {
+            const key = `${segment.workerId}-${segment.fromMinutes}`
+            if (seenActive.has(key)) continue
+            seenActive.add(key)
+            workers.push(personBase)
+            continue
+          }
+          if (segment.toMinutes <= clockMinutes || !activeIds.has(segment.workerId)) {
+            const key = `${segment.workerId}-${segment.fromMinutes}-${segment.toMinutes}`
+            if (seenEnded.has(key)) continue
+            seenEnded.add(key)
+            endedWorkers.push({
+              id: segment.workerId,
+              name,
+              timeLabel: segment.label,
+            })
+          }
+        }
+
+        // Fallback when occupancy timeline is empty: live status only.
+        if (workers.length === 0 && endedWorkers.length === 0) {
+          for (const { workerId } of status.activeWorkerSources) {
+            const worker = data.workers.find((item) => item.id === workerId)
+            const preset = workerWindowById(
+              activeShift.workerWindows?.[workerId],
+              data.workerWindowPresets,
+            )
+            workers.push({
+              id: workerId,
+              name: worker?.fullName ?? workerId,
+              trainingRole: worker?.trainingRole,
+              windowLabel: preset?.label ?? personalWindowLabel(workerId),
+            })
+          }
+          for (const id of status.currentShiftEndedWorkerIds) {
+            endedWorkers.push({
+              id,
+              name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,
+            })
+          }
+        }
+
         return {
           laneId,
           laneName: lane.name,
@@ -912,29 +1009,14 @@ export function HomePage() {
           endedWorkers,
           autoClosed: status.autoClosed,
           manuallyReopened: status.manuallyReopened,
-        }
+        } satisfies HomeLaneRow
       })
-      .filter(Boolean) as {
-      laneId: string
-      laneName: string
-      intensity: Intensity
-      staffingStandard: number
-      assigned: number
-      workers: {
-        id: string
-        name: string
-        trainingRole?: 'trainee' | 'mentor'
-        windowLabel: string
-      }[]
-      endedWorkers: { id: string; name: string }[]
-      autoClosed: boolean
-      manuallyReopened: boolean
-    }[]
+      .filter(Boolean) as HomeLaneRow[]
     const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
     return rows.sort(
       (a, b) =>
-      (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
-      a.laneName.localeCompare(b.laneName, 'he'),
+        (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
+        a.laneName.localeCompare(b.laneName, 'he'),
     )
   }, [
     currentShift,
@@ -965,46 +1047,55 @@ export function HomePage() {
       })
   }, [currentShift, data.workers, personalWindowLabel])
 
-  const displayedTableRows = useMemo(() => {
+  const displayedTableRows = useMemo((): HomeLaneRow[] => {
     if (!displayedShift) return []
     if (shownIsCurrent) return currentTableRows
 
-    return displayedShift.activeLaneIds.flatMap((laneId) => {
-      const lane = data.lanes.find((item) => item.id === laneId)
-      if (!lane) return []
-      const assignment = displayedShift.assignments.find(
-        (item) => item.laneId === laneId,
-      )
-      const workers = (assignment?.workerIds ?? [])
-        .filter(Boolean)
-        .map((workerId) => {
-          const worker = data.workers.find((item) => item.id === workerId)
+    const lanesById = new Map(data.lanes.map((lane) => [lane.id, lane]))
+    const occupancyRows = laneOccupancyRowsForShift(
+      displayedShift,
+      lanesById,
+      shiftModels,
+    )
+    const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
+    return occupancyRows
+      .map((row) => {
+        const lane = lanesById.get(row.laneId)
+        const workers: HomeLanePerson[] = row.occupants.map((occupant) => {
+          const worker = data.workers.find((item) => item.id === occupant.workerId)
           const preset = workerWindowById(
-            displayedShift.workerWindows?.[workerId],
+            displayedShift.workerWindows?.[occupant.workerId],
             data.workerWindowPresets,
           )
           return {
-            id: workerId,
-            name: worker?.fullName ?? workerId,
+            id: occupant.workerId,
+            name: worker?.fullName ?? occupant.workerId,
             trainingRole: worker?.trainingRole,
             windowLabel: preset?.label ?? 'כל המשמרת',
+            timeLabel: occupant.label,
           }
         })
-      return [{
-        laneId,
-        laneName: lane.name,
-        intensity: lane.intensity as Intensity,
-        staffingStandard: effectiveStaffingStandard(
-          lane,
-          displayedShift.staffingOverrides,
-        ),
-        assigned: workers.length,
-        workers,
-        endedWorkers: [],
-        autoClosed: false,
-        manuallyReopened: false,
-      }]
-    })
+        return {
+          laneId: row.laneId,
+          laneName: row.name || lane?.name || row.laneId,
+          intensity: (row.intensity ?? lane?.intensity ?? 'medium') as Intensity,
+          staffingStandard:
+            row.staffingStandard ??
+            (lane
+              ? effectiveStaffingStandard(lane, displayedShift.staffingOverrides)
+              : 0),
+          assigned: row.peakConcurrent,
+          workers,
+          endedWorkers: [],
+          autoClosed: false,
+          manuallyReopened: false,
+        } satisfies HomeLaneRow
+      })
+      .sort(
+        (a, b) =>
+          (order.get(a.laneId) ?? 0) - (order.get(b.laneId) ?? 0) ||
+          a.laneName.localeCompare(b.laneName, 'he'),
+      )
   }, [
     displayedShift,
     shownIsCurrent,
@@ -1012,6 +1103,7 @@ export function HomePage() {
     data.lanes,
     data.workers,
     data.workerWindowPresets,
+    shiftModels,
   ])
 
   const displayedUnassigned = useMemo(() => {

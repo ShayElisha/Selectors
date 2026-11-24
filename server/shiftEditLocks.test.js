@@ -71,6 +71,44 @@ describe('shiftEditLocks', () => {
     expect(updateOne).toHaveBeenCalled()
   })
 
+  it('allows save when no foreign manager holds the lock', async () => {
+    findOne.mockResolvedValueOnce({
+      userId: 'u1',
+      name: 'שחר',
+      at: new Date(),
+    })
+    const { assertNoForeignEditLock } = await import('./shiftEditLocks.js')
+    await expect(
+      assertNoForeignEditLock({
+        orgId: 'org',
+        module: 'inspectors',
+        date: '2026-11-24',
+        shiftType: 'afternoon',
+        audience: 'inspector',
+        userId: 'u1',
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('blocks save when another manager holds the lock', async () => {
+    findOne.mockResolvedValueOnce({
+      userId: 'u1',
+      name: 'שחר',
+      at: new Date(),
+    })
+    const { assertNoForeignEditLock } = await import('./shiftEditLocks.js')
+    await expect(
+      assertNoForeignEditLock({
+        orgId: 'org',
+        module: 'inspectors',
+        date: '2026-11-24',
+        shiftType: 'afternoon',
+        audience: 'inspector',
+        userId: 'u2',
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+  })
+
   it('frees an expired lock for another manager', async () => {
     findOne
       .mockResolvedValueOnce({

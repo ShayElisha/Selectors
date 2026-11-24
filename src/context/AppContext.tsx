@@ -60,6 +60,7 @@ import {
   shiftStartTimestamp,
 } from '../lib/shiftOperationTime'
 import { applySeatOccupancyChange } from '../lib/laneOccupancy'
+import { startLiveSync, stopLiveSync } from '../lib/liveSyncSocket'
 import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
@@ -1222,10 +1223,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return true
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          notify.error('המשמרת נעולה לעריכה', e.message)
+          notify.error(
+            'מנהל אחר עורך עכשיו',
+            e.message || 'לא ניתן לערוך את אותה משמרת במקביל',
+          )
           return false
         }
-        notify.error('לא ניתן לנעול את המשמרת לעריכה')
+        notify.error('לא ניתן להתחיל עריכה', 'נסו שוב בעוד רגע')
         return false
       }
     },
@@ -1953,15 +1957,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.token, user?.role, user?.module, refreshFromServer])
 
-  // Live collaboration: poll org revision while the tab is visible.
-  // Cheap when unchanged (304-style { unchanged, revision }); full pull only on edits.
+  // Live collaboration via Socket.IO — pull only when a revision push arrives
+  // (or on tab focus / reconnect). No timed polling.
   useEffect(() => {
-    if (!user?.token || user.role !== 'org_manager') return
-    const LIVE_SYNC_MS = 3_000
+    if (!user?.token || user.role !== 'org_manager' || !user.module) return
     let stop = false
     let inFlight = false
-    const tick = async () => {
-      if (stop || inFlight) return
+    let pending = false
+
+    const pull = async () => {
+      if (stop) return
+      if (inFlight) {
+        pending = true
+        return
+      }
       if (
         typeof document !== 'undefined' &&
         document.visibilityState === 'hidden'
@@ -1973,27 +1982,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await syncLiveFromServer()
       } finally {
         inFlight = false
+        if (pending && !stop) {
+          pending = false
+          void pull()
+        }
       }
     }
-    void tick()
-    const timer = window.setInterval(() => void tick(), LIVE_SYNC_MS)
+
+    const stopSocket = startLiveSync(user.module, {
+      onRevision: (event) => {
+        const known = dataRef.current.revision ?? 0
+        if (event.revision > known) void pull()
+      },
+      onConnectionChange: (connected) => {
+        if (connected) void pull()
+      },
+    })
+
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void tick()
+      if (document.visibilityState === 'visible') void pull()
     }
-    const onOnline = () => void tick()
+    const onOnline = () => void pull()
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('online', onOnline)
+
     return () => {
       stop = true
-      window.clearInterval(timer)
+      stopSocket()
+      stopLiveSync()
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('online', onOnline)
     }
   }, [user?.token, user?.role, user?.module, syncLiveFromServer])
 
-  // Exclusive edit lock: hold while editing on /shift; heartbeat; kick out if lost.
+  // Exclusive edit lock while a manager actively edits on /shift.
+  // Any manager may start when free; a second manager is blocked from parallel edits.
+  // Signed-off shifts are view-only and do not take a lock.
   useEffect(() => {
     if (!user?.token || user.role !== 'org_manager' || !draft) return
+    if (draft.signOff?.signedAt) return
     const onShift =
       location.pathname === '/shift' || location.pathname.startsWith('/shift/')
     if (!onShift) return
@@ -2014,7 +2041,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearDraftStorage()
       notify.error(
         'העריכה נחסמה',
-        'מנהל אחר עורך את המשמרת הזו כעת',
+        'מנהל אחר עורך את המשמרת הזו כעת — לא ניתן לשנות במקביל',
       )
       navigate('/', { replace: true })
     }
@@ -2061,6 +2088,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stop = true
       window.clearInterval(timer)
       window.removeEventListener('pagehide', releaseOnUnload)
+      void releaseHeldEditLock()
     }
   }, [
     claimShiftEditLock,
@@ -2068,8 +2096,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     draft?.date,
     draft?.id,
     draft?.shiftType,
+    draft?.signOff?.signedAt,
     location.pathname,
     navigate,
+    releaseHeldEditLock,
     user?.role,
     user?.token,
   ])
@@ -2123,7 +2153,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user, location.pathname, navigate])
 
-  // Deep-link: /history/:id → load shift (blocked if another manager holds the edit lock)
+  // Deep-link: /history/:id → load shift.
+  // Edit requires a free slot (or this manager already editing). View of signed-off skips the lock.
   useEffect(() => {
     const m = location.pathname.match(/^\/history\/([^/]+)\/?$/)
     if (!m || !user || loading) return
@@ -2132,17 +2163,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!item) return
     let cancelled = false
     void (async () => {
-      const locked = await claimShiftEditLock({
-        date: item.date,
-        shiftType: item.shiftType,
-        audience: parseShiftAudience(item.audience),
-        shiftId: item.id,
-      })
-      if (cancelled) return
-      if (!locked) {
-        navigate('/', { replace: true })
-        return
+      const signedOff = Boolean(item.signOff?.signedAt)
+      if (!signedOff) {
+        const locked = await claimShiftEditLock({
+          date: item.date,
+          shiftType: item.shiftType,
+          audience: parseShiftAudience(item.audience),
+          shiftId: item.id,
+        })
+        if (cancelled) return
+        if (!locked) {
+          navigate('/', { replace: true })
+          return
+        }
       }
+      if (cancelled) return
       adoptCleanDraft(draftFromHistoryItem(item, data.lanes))
       setShiftStep('board')
       navigate('/shift', { replace: true })

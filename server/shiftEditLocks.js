@@ -142,3 +142,33 @@ export async function readShiftEditLock({
   }
   return { locked: true, holder: publicHolder(existing) }
 }
+
+/**
+ * Block saves/mutations when a *different* manager currently holds the edit lock.
+ * Any manager may edit when the slot is free; only parallel edits are refused.
+ */
+export async function assertNoForeignEditLock({
+  orgId,
+  module,
+  date,
+  shiftType,
+  audience,
+  userId,
+}) {
+  if (!orgId || !module || !date || !shiftType || !userId) return
+  const status = await readShiftEditLock({
+    orgId,
+    module,
+    date,
+    shiftType,
+    audience,
+  })
+  if (!status.locked || !status.holder) return
+  if (String(status.holder.userId) === String(userId)) return
+  const err = new Error(
+    `${status.holder.name || 'מנהל אחר'} עורך כרגע את המשמרת הזו — לא ניתן לשנות במקביל`,
+  )
+  err.status = 409
+  err.holder = status.holder
+  throw err
+}
