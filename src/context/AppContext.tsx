@@ -41,7 +41,6 @@ import {
   saveAppDataRemote,
   saveWorkerWindowPresetsRemote,
   saveOrgSettings,
-  selfHealShiftRemote,
   saveShiftRemote,
   signOffShiftsRemote,
   upsertWorkerRemote,
@@ -4779,44 +4778,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setDraft(next)
       setHealPlan(null)
-      if (!dataRef.current.history.some((shift) => shift.id === current.id)) return
-      void (async () => {
-        try {
-          const saved = await runWithFreshRevision((revision) =>
-            selfHealShiftRemote(
-              current.id,
-              {
-                eventId,
-                removedWorkerId: plan.removedWorkerId,
-                atMinutes: plan.atMinutes,
-                summary: plan.summary,
-                lines: plan.lines,
-                moves: plan.moves,
-                assignments: next.assignments,
-                rounds: next.rounds,
-                presentWorkerIds: next.presentWorkerIds,
-                gateManagerWorkerId: next.gateManagerWorkerId,
-                seatSegments: next.seatSegments,
-                seatSpan: next.seatSpan,
-                frozenLaneIds: next.frozenLaneIds,
-                explanations: next.explanations,
-              },
-              revision,
-            ),
-          )
-          skipNextSync.current = true
-          dataRef.current = saved
-          persistedDataRef.current = saved
-          setData(saved)
-          saveAppDataCache(saved)
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 404)) {
-            setError(userErrorMessage(error, 'שמירת השיקום נכשלה'))
-          }
-        }
-      })()
+      // Removals / self-heal stay on the local draft only. Writing seatSegments
+      // (e.g. "left at 20:42") to the server happens solely via Save — never from
+      // "ערוך ידנית" or "אשר שיקום אוטומטי", which previously bypassed Save.
     },
-    [draft, runWithFreshRevision],
+    [draft],
   )
 
   const beginRemoval = useCallback(
