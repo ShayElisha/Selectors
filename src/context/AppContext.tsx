@@ -4032,7 +4032,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           assignments = padded
         }
 
-        const windowPresets = [
+        const workerWindowPresets = [
           ...(d.workerWindowPresets ?? []),
           ...args.windowPresets.filter(
             (preset) =>
