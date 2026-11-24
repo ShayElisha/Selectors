@@ -107,6 +107,54 @@ describe('laneOccupancyRowsForShift', () => {
     )
   })
 
+  it('resolves duty times from window ids even without a preset catalog entry', () => {
+    const rows = laneOccupancyRowsForShift(
+      shift({
+        activeLaneIds: ['lane-1'],
+        assignments: [{ laneId: 'lane-1', workerIds: ['oriya'] }],
+        workerWindows: { oriya: '1430-1830' },
+        seatSegments: [
+          {
+            workerId: 'oriya',
+            laneId: 'lane-1',
+            fromMinutes: 870,
+            toMinutes: 1290,
+          },
+        ],
+        seatSpan: { startMinutes: 870, endMinutes: 1290 },
+      }),
+      new Map([['lane-1', lane('lane-1', 'נתיב 11-12')]]),
+      models,
+    )
+    expect(rows[0]?.occupants).toEqual([
+      expect.objectContaining({ workerId: 'oriya', label: '14:30–18:30' }),
+    ])
+  })
+
+  it('shows mid-shift start until personal/shift end', () => {
+    const rows = laneOccupancyRowsForShift(
+      shift({
+        activeLaneIds: ['lane-1'],
+        assignments: [{ laneId: 'lane-1', workerIds: ['rachel'] }],
+        workerWindows: { rachel: '1800-2130' },
+        seatSegments: [
+          {
+            workerId: 'rachel',
+            laneId: 'lane-1',
+            fromMinutes: 18 * 60,
+            toMinutes: 1290,
+          },
+        ],
+        seatSpan: { startMinutes: 870, endMinutes: 1290 },
+      }),
+      new Map([['lane-1', lane('lane-1', 'נתיב 13-14')]]),
+      models,
+    )
+    expect(rows[0]?.occupants).toEqual([
+      expect.objectContaining({ workerId: 'rachel', label: '18:00–21:30' }),
+    ])
+  })
+
   it('clips displayed ranges to personal worker windows', () => {
     const rows = laneOccupancyRowsForShift(
       shift({

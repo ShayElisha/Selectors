@@ -250,7 +250,44 @@ function wholeShiftOccupants(
     .filter(Boolean) as LaneOccupantSegment[]
 }
 
-/** Clip seat/operation segments to each worker's personal hours on this shift. */
+/**
+ * Intersect a station segment with personal hours:
+ * - start-of-shift + personal end → e.g. 14:30–18:30
+ * - mid-shift start → start–shift/personal end
+ * - mid start + mid end → exact from–to
+ */
+function clipSegmentToDutyWindow(
+  segment: LaneOccupantSegment,
+  shift: LaneOccupancyShift,
+  span: { startMinutes: number; endMinutes: number },
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
+): LaneOccupantSegment | null {
+  const window = workerShiftWindowMinutes(
+    shift,
+    segment.workerId,
+    models,
+    presets,
+  )
+  const fromMinutes = Math.max(
+    span.startMinutes,
+    segment.fromMinutes,
+    window?.startMinutes ?? span.startMinutes,
+  )
+  const toMinutes = Math.min(
+    span.endMinutes,
+    segment.toMinutes,
+    window?.endMinutes ?? span.endMinutes,
+  )
+  if (toMinutes <= fromMinutes) return null
+  return {
+    ...segment,
+    fromMinutes,
+    toMinutes,
+    label: segmentLabel(fromMinutes, toMinutes),
+  }
+}
+
 function clipOccupantsToPersonalWindows(
   occupants: LaneOccupantSegment[],
   shift: LaneOccupancyShift,
@@ -259,32 +296,39 @@ function clipOccupantsToPersonalWindows(
   presets: WorkerWindowPreset[],
 ): LaneOccupantSegment[] {
   return occupants
-    .map((segment) => {
-      const window = workerShiftWindowMinutes(
-        shift,
-        segment.workerId,
-        models,
-        presets,
-      )
-      const fromMinutes = Math.max(
-        span.startMinutes,
-        segment.fromMinutes,
-        window?.startMinutes ?? span.startMinutes,
-      )
-      const toMinutes = Math.min(
-        span.endMinutes,
-        segment.toMinutes,
-        window?.endMinutes ?? span.endMinutes,
-      )
-      if (toMinutes <= fromMinutes) return null
-      return {
-        ...segment,
-        fromMinutes,
-        toMinutes,
-        label: segmentLabel(fromMinutes, toMinutes),
-      }
-    })
+    .map((segment) =>
+      clipSegmentToDutyWindow(segment, shift, span, models, presets),
+    )
     .filter(Boolean) as LaneOccupantSegment[]
+}
+
+/** Public helper for home/history labels when a flat assignment has no segments. */
+export function workerDutyTimeLabel(
+  shift: LaneOccupancyShift,
+  workerId: string,
+  models: ShiftModel[] = [],
+  presets: WorkerWindowPreset[] = [],
+): string {
+  const span = shiftSpanMinutes(shift, models)
+  const catalog = [
+    ...presets,
+    ...(shift.workerWindowPresets ?? []).filter(
+      (local) => !presets.some((preset) => preset.id === local.id),
+    ),
+  ]
+  const clipped = clipSegmentToDutyWindow(
+    {
+      workerId,
+      fromMinutes: span.startMinutes,
+      toMinutes: span.endMinutes,
+      label: '',
+    },
+    shift,
+    span,
+    models,
+    catalog,
+  )
+  return clipped?.label ?? segmentLabel(span.startMinutes, span.endMinutes)
 }
 
 export function laneOccupancyRowsForShift(
@@ -329,6 +373,24 @@ export function laneOccupancyRowsForShift(
           span,
           models,
           catalog,
+        )
+        // Assignment members missing from seat/ops still get a personal duty row.
+        const seen = new Set(occupants.map((item) => item.workerId))
+        for (const extra of wholeShiftOccupants(
+          shift,
+          laneId,
+          span,
+          models,
+          catalog,
+        )) {
+          if (seen.has(extra.workerId)) continue
+          occupants.push(extra)
+          seen.add(extra.workerId)
+        }
+        occupants.sort(
+          (left, right) =>
+            left.fromMinutes - right.fromMinutes ||
+            left.workerId.localeCompare(right.workerId),
         )
       }
       return {

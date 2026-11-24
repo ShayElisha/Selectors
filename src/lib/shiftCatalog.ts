@@ -404,13 +404,40 @@ export function laneOpenDuring(
   })
 }
 
+function parseHhMm(raw: string): number | null {
+  if (!/^\d{4}$/.test(raw)) return null
+  const hours = Number(raw.slice(0, 2))
+  const minutes = Number(raw.slice(2))
+  if (hours > 23 || minutes > 59) return null
+  return hours * 60 + minutes
+}
+
+/** Resolve a stored window id (or label) to a preset; synthesize from `HHMM-HHMM` ids. */
 export function workerWindowById(
   id: string | undefined,
   catalog?: WorkerWindowPreset[] | null,
 ): WorkerWindowPreset | undefined {
   if (!id) return undefined
+  const ref = String(id).trim()
+  if (!ref) return undefined
   const list = catalog ?? []
-  return list.find((w) => w.id === id)
+  const found =
+    list.find((w) => w.id === ref) ||
+    list.find((w) => w.label === ref) ||
+    list.find((w) => w.name === ref)
+  if (found) return found
+  const match = /^(\d{4})-(\d{4})$/.exec(ref)
+  if (!match) return undefined
+  const start = parseHhMm(match[1]!)
+  const end = parseHhMm(match[2]!)
+  if (start == null || end == null || start === end) return undefined
+  return {
+    id: ref,
+    label: workerWindowLabelFromTimes(start, end),
+    start,
+    end,
+    order: 0,
+  }
 }
 
 /** Map a clock time onto a shift that may run past midnight. */

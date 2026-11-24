@@ -71,7 +71,10 @@ import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes } from '../lib/selectorRounds'
 import { workerWindowById } from '../lib/shiftCatalog'
 import { laneLiveStatus } from '../lib/laneLiveStatus'
-import { laneOccupancyRowsForShift } from '../lib/laneOccupancy'
+import {
+  laneOccupancyRowsForShift,
+  workerDutyTimeLabel,
+} from '../lib/laneOccupancy'
 import { nowMinutesLocal } from '../lib/managerNotifications'
 import { liveShiftHeadcountSnapshot } from '../lib/workerShiftStatus'
 import { pathForView } from '../routes'
@@ -978,25 +981,41 @@ export function HomePage() {
           }
         }
 
-        // Fallback when occupancy timeline is empty: live status only.
+        // Fallback when occupancy timeline is empty: live status + personal duty times.
         if (workers.length === 0 && endedWorkers.length === 0) {
           for (const { workerId } of status.activeWorkerSources) {
             const worker = data.workers.find((item) => item.id === workerId)
             const preset = workerWindowById(
               activeShift.workerWindows?.[workerId],
-              data.workerWindowPresets,
+              [
+                ...(data.workerWindowPresets ?? []),
+                ...(activeShift.workerWindowPresets ?? []),
+              ],
+            )
+            const timeLabel = workerDutyTimeLabel(
+              activeShift,
+              workerId,
+              shiftModels,
+              data.workerWindowPresets ?? [],
             )
             workers.push({
               id: workerId,
               name: worker?.fullName ?? workerId,
               trainingRole: worker?.trainingRole,
               windowLabel: preset?.label ?? personalWindowLabel(workerId),
+              timeLabel,
             })
           }
           for (const id of status.currentShiftEndedWorkerIds) {
             endedWorkers.push({
               id,
               name: data.workers.find((worker) => worker.id === id)?.fullName ?? id,
+              timeLabel: workerDutyTimeLabel(
+                activeShift,
+                id,
+                shiftModels,
+                data.workerWindowPresets ?? [],
+              ),
             })
           }
         }

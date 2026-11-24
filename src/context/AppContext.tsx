@@ -183,6 +183,7 @@ import {
   type AssignmentModes,
 } from '../lib/assignmentMode'
 import { currentShiftModel, resolveShiftModels, shiftModelAbsoluteEnd, shiftModelById } from '../lib/shiftModels'
+import { workerShiftWindowMinutes } from '../lib/workerShiftStatus'
 import {
   customBoundariesForShift,
   EMPTY_SELECTOR_ROUND_HOURS,
@@ -1008,16 +1009,35 @@ function withOccupancyPatch(
     startMinutes: model.startMinutes,
     endMinutes: shiftModelAbsoluteEnd(model),
   }
+  const presets = [
+    ...(draft.workerWindowPresets ?? []),
+  ]
   const seeded =
     draft.seatSegments?.length
       ? draft.seatSegments
       : draft.assignments.flatMap((row) =>
-          row.workerIds.filter(Boolean).map((workerId) => ({
-            workerId,
-            laneId: row.laneId,
-            fromMinutes: span.startMinutes,
-            toMinutes: span.endMinutes,
-          })),
+          row.workerIds.filter(Boolean).map((workerId) => {
+            const window = workerShiftWindowMinutes(
+              draft,
+              workerId,
+              models,
+              presets,
+            )
+            const fromMinutes = Math.max(
+              span.startMinutes,
+              window?.startMinutes ?? span.startMinutes,
+            )
+            const toMinutes = Math.min(
+              span.endMinutes,
+              window?.endMinutes ?? span.endMinutes,
+            )
+            return {
+              workerId,
+              laneId: row.laneId,
+              fromMinutes,
+              toMinutes: Math.max(fromMinutes + 1, toMinutes),
+            }
+          }),
         )
   return {
     seatSegments: applySeatOccupancyChange({
@@ -4535,8 +4555,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         const model = operationModels.find((item) => item.id === d.shiftType)
         const spanEnd = model ? shiftModelAbsoluteEnd(model) : undefined
+        const nextWindows = {
+          ...(d.workerWindows ?? {}),
+          [args.workerId]: args.windowPreset.id,
+        }
+        const dutyEnd =
+          model && spanEnd != null
+            ? workerShiftWindowMinutes(
+                {
+                  date: d.date,
+                  shiftType: d.shiftType,
+                  workerWindows: nextWindows,
+                  workerWindowPresets,
+                  windowAdjustments,
+                  earlyLeaveAt,
+                },
+                args.workerId,
+                operationModels,
+                workerWindowPresets,
+              )?.endMinutes ?? spanEnd
+            : undefined
         const seatSegments =
-          placedLaneId && model && spanEnd != null
+          placedLaneId && model && spanEnd != null && dutyEnd != null
             ? [
                 ...(d.seatSegments ?? []).filter(
                   (segment) =>
@@ -4548,8 +4588,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 {
                   workerId: args.workerId,
                   laneId: placedLaneId,
-                  fromMinutes: args.windowPreset.start,
-                  toMinutes: spanEnd,
+                  fromMinutes: Math.max(
+                    model.startMinutes,
+                    args.windowPreset.start,
+                  ),
+                  toMinutes: Math.min(spanEnd, dutyEnd),
                 },
               ]
             : d.seatSegments
@@ -4576,10 +4619,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...d,
             presentWorkerIds: [...d.presentWorkerIds, args.workerId],
             assignments,
-            workerWindows: {
-              ...(d.workerWindows ?? {}),
-              [args.workerId]: args.windowPreset.id,
-            },
+            workerWindows: nextWindows,
             workerWindowPresets,
             windowAdjustments,
             earlyLeaveAt,
