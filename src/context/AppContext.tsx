@@ -100,6 +100,8 @@ import {
   clearAppDataCache,
   clearClientAuthStorage,
   clearDraftStorage,
+  hydrateAppDataCache,
+  hydrateDraftStorage,
   loadAppDataCache,
   loadDraftJson,
   audienceForModule,
@@ -1715,7 +1717,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRefreshing(false)
       return
     }
-    void refreshFromServer()
+    let cancelled = false
+    void (async () => {
+      const hydrated = await hydrateAppDataCache()
+      if (cancelled) return
+      if (hydrated) {
+        const next = normalizeAppData(hydrated, activeModule(loadSession()))
+        skipNextSync.current = true
+        dataRef.current = next
+        persistedDataRef.current = next
+        setData(next)
+        setLoading(false)
+        setRefreshing(true)
+      }
+      const draftHydrated = await hydrateDraftStorage()
+      if (cancelled) return
+      if (draftHydrated.draftJson) {
+        setDraftState((current) => {
+          if (current) return current
+          return restoreDraft()
+        })
+        if (draftHydrated.shiftStep) {
+          setShiftStepState((current) => current || restoreStep())
+        }
+      }
+      await refreshFromServer()
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [user?.token, user?.role, user?.module, refreshFromServer])
 
   // Redirect unauthenticated users away from app routes. Unknown paths stay on the 404 page.
