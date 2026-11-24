@@ -23,6 +23,14 @@ const presets: WorkerWindowPreset[] = [
     end: 6 * 60 + 30,
     order: 0,
   },
+  {
+    id: '1830-2130',
+    label: '18:30–21:30',
+    name: 'משמרת אב קצרה',
+    start: 18 * 60 + 30,
+    end: 21 * 60 + 30,
+    order: 1,
+  },
 ]
 
 function lane(id: string, name: string): Lane {
@@ -89,7 +97,6 @@ describe('earlyShiftRecommendations', () => {
       lanes: [lane('lane-1', 'נתיב 1')],
       models,
       presets,
-      now: new Date(2026, 10, 24, 15, 0).getTime(),
     })
 
     expect(recommendations).toHaveLength(1)
@@ -100,10 +107,47 @@ describe('earlyShiftRecommendations', () => {
       startsAt: '18:30',
       laneId: 'lane-1',
     })
-    expect(recommendations[0]?.windowPreset.start).toBe(18 * 60 + 30)
   })
 
-  it('does not auto-include workers already present on the current shift', () => {
+  it('suggests when night uses a short afternoon-shaped window (משמרת אב קצרה)', () => {
+    const afternoon = shift({
+      id: 'afternoon-1',
+      date: '2026-11-24',
+      shiftType: 'afternoon',
+      presentWorkerIds: [],
+      activeLaneIds: ['lane-1'],
+      staffingOverrides: { 'lane-1': 1 },
+      assignments: [{ laneId: 'lane-1', workerIds: [''] }],
+    })
+    const night = shift({
+      id: 'night-1',
+      date: '2026-11-24',
+      shiftType: 'night',
+      presentWorkerIds: ['aryeh'],
+      activeLaneIds: ['lane-1'],
+      assignments: [{ laneId: 'lane-1', workerIds: ['aryeh'] }],
+      workerWindows: { aryeh: '1830-2130' },
+    })
+
+    const recommendations = earlyShiftRecommendations({
+      current: afternoon,
+      history: [night],
+      workers: [worker('aryeh', 'אריה כהן')],
+      lanes: [lane('lane-1', 'נתיב 1')],
+      models,
+      presets,
+    })
+
+    expect(recommendations).toHaveLength(1)
+    expect(recommendations[0]).toMatchObject({
+      workerId: 'aryeh',
+      workerName: 'אריה כהן',
+      startsAt: '18:30',
+      sourceShiftName: 'לילה',
+    })
+  })
+
+  it('does not suggest workers already present on the current shift', () => {
     const afternoon = shift({
       id: 'afternoon-1',
       date: '2026-11-24',
@@ -130,7 +174,28 @@ describe('earlyShiftRecommendations', () => {
         lanes: [lane('lane-1', 'נתיב 1')],
         models,
         presets,
-        now: new Date(2026, 10, 24, 15, 0).getTime(),
+      }),
+    ).toEqual([])
+  })
+
+  it('returns nothing when there is no later shift in history', () => {
+    const afternoon = shift({
+      id: 'afternoon-1',
+      date: '2026-11-24',
+      shiftType: 'afternoon',
+      presentWorkerIds: [],
+      activeLaneIds: ['lane-1'],
+      assignments: [{ laneId: 'lane-1', workerIds: [''] }],
+    })
+
+    expect(
+      earlyShiftRecommendations({
+        current: afternoon,
+        history: [afternoon],
+        workers: [worker('early', 'דני לילה')],
+        lanes: [lane('lane-1', 'נתיב 1')],
+        models,
+        presets,
       }),
     ).toEqual([])
   })

@@ -11,8 +11,10 @@ import {
   formatMinutes,
   shiftModelAbsoluteEnd,
 } from './shiftModels'
-import { workerWindowIdFromTimes } from './shiftCatalog'
-import { workerShiftInterval } from './workerShiftStatus'
+import {
+  workerWindowById,
+  workerWindowIdFromTimes,
+} from './shiftCatalog'
 
 type EarlyShiftSource = Pick<
   ShiftSchedule,
@@ -60,15 +62,37 @@ export type EarlyShiftRecommendation = {
   laneName?: string
 }
 
-function localDayStart(date: string): number | null {
-  const [year, month, day] = date.split('-').map(Number)
-  if (![year, month, day].every(Number.isFinite)) return null
-  const timestamp = new Date(year!, month! - 1, day!).getTime()
-  return Number.isFinite(timestamp) ? timestamp : null
-}
-
 function sameAudience(left: EarlyShiftSource, right: CurrentShift): boolean {
   return (left.audience ?? 'inspector') === (right.audience ?? 'inspector')
+}
+
+function catalogForShift(
+  shift: Pick<EarlyShiftSource, 'workerWindowPresets'>,
+  presets: WorkerWindowPreset[],
+): WorkerWindowPreset[] {
+  return [
+    ...(shift.workerWindowPresets ?? []),
+    ...presets.filter(
+      (preset) =>
+        !shift.workerWindowPresets?.some((local) => local.id === preset.id),
+    ),
+  ]
+}
+
+/** Clock-minute start of a personal window on the shift's calendar day. */
+function personalStartMinutes(
+  preset: WorkerWindowPreset,
+  currentStartMinutes: number,
+  sourceStartMinutes: number,
+): number {
+  let start = preset.start
+  // Night windows that begin before midnight stay on the same calendar day.
+  // If the preset start is after the later shift's official start, it does not
+  // overlap the current shift as an early arrival.
+  if (start < currentStartMinutes && sourceStartMinutes > currentStartMinutes) {
+    start += 24 * 60
+  }
+  return start
 }
 
 function availableLaneForWorker(args: {
@@ -112,7 +136,10 @@ function availableLaneForWorker(args: {
   return candidates[0]?.lane
 }
 
-/** Find workers scheduled for a later shift whose personal hours begin in this shift. */
+/**
+ * Suggest workers from a later same-day shift whose personal hours begin
+ * during the current shift. Never auto-adds — manager opts in from the board.
+ */
 export function earlyShiftRecommendations(args: {
   current: CurrentShift
   history: ShiftSchedule[]
@@ -122,17 +149,14 @@ export function earlyShiftRecommendations(args: {
   presets: WorkerWindowPreset[]
   now?: number
 }): EarlyShiftRecommendation[] {
-  const now = args.now ?? Date.now()
   if (args.current.signOff?.signedAt) return []
   const currentModel = args.models.find(
     (model) => model.id === args.current.shiftType,
   )
-  const dayStart = localDayStart(args.current.date)
-  if (!currentModel || dayStart == null) return []
+  if (!currentModel) return []
 
-  const currentStart = dayStart + currentModel.startMinutes * 60_000
-  const currentEnd =
-    dayStart + shiftModelAbsoluteEnd(currentModel) * 60_000
+  const currentStartMinutes = currentModel.startMinutes
+  const currentEndMinutes = shiftModelAbsoluteEnd(currentModel)
   const currentOrder = currentModel.order
   const sources = args.history
     .filter(
@@ -145,10 +169,13 @@ export function earlyShiftRecommendations(args: {
           currentOrder,
     )
     .sort((left, right) => {
-      const leftOrder = args.models.find((model) => model.id === left.shiftType)?.order ?? 0
-      const rightOrder = args.models.find((model) => model.id === right.shiftType)?.order ?? 0
+      const leftOrder =
+        args.models.find((model) => model.id === left.shiftType)?.order ?? 0
+      const rightOrder =
+        args.models.find((model) => model.id === right.shiftType)?.order ?? 0
       return leftOrder - rightOrder || left.updatedAt.localeCompare(right.updatedAt)
     }) as EarlyShiftSource[]
+
   const workersById = new Map(args.workers.map((worker) => [worker.id, worker]))
   const seen = new Set(args.current.presentWorkerIds)
   const recommendations: EarlyShiftRecommendation[] = []
@@ -156,13 +183,15 @@ export function earlyShiftRecommendations(args: {
   for (const source of sources) {
     const sourceModel = args.models.find((model) => model.id === source.shiftType)
     if (!sourceModel) continue
+
     let sourceStartMinutes = sourceModel.startMinutes
-    if (sourceStartMinutes <= currentModel.startMinutes) {
+    if (sourceStartMinutes <= currentStartMinutes) {
       sourceStartMinutes += 24 * 60
     }
-    const sourceStart = dayStart + sourceStartMinutes * 60_000
-    const handoffAt = Math.min(currentEnd, sourceStart)
-    if (handoffAt <= currentStart) continue
+    const handoffMinutes = Math.min(currentEndMinutes, sourceStartMinutes)
+    if (handoffMinutes <= currentStartMinutes) continue
+
+    const allPresets = catalogForShift(source, args.presets)
 
     for (const workerId of source.presentWorkerIds) {
       if (
@@ -176,48 +205,39 @@ export function earlyShiftRecommendations(args: {
       if (!worker || worker.status !== 'active' || !worker.isInspector || !windowId) {
         continue
       }
-      const interval = workerShiftInterval(
-        source,
-        workerId,
-        args.models,
-        args.presets,
+
+      const sourcePreset = workerWindowById(windowId, allPresets)
+      if (!sourcePreset) continue
+
+      const start = personalStartMinutes(
+        sourcePreset,
+        currentStartMinutes,
+        sourceStartMinutes,
       )
-      if (
-        !interval ||
-        interval.start < currentStart ||
-        interval.start >= handoffAt ||
-        interval.end <= sourceStart ||
-        interval.end <= now
-      ) {
-        continue
-      }
+      // Early arrival: personal start falls inside the current shift, before
+      // the later shift's official start (e.g. night at 18:30 during afternoon).
+      if (start < currentStartMinutes || start >= handoffMinutes) continue
 
-      const startDate = new Date(interval.start)
-      const endDate = new Date(handoffAt)
-      const start = startDate.getHours() * 60 + startDate.getMinutes()
-      const end = endDate.getHours() * 60 + endDate.getMinutes()
-      if (start === end) continue
+      const end = handoffMinutes % (24 * 60)
+      const startClock = start % (24 * 60)
+      if (startClock === end) continue
 
-      const presetId = workerWindowIdFromTimes(start, end)
-      const allPresets = [
-        ...(source.workerWindowPresets ?? []),
-        ...args.presets.filter(
-          (preset) =>
-            !source.workerWindowPresets?.some((local) => local.id === preset.id),
-        ),
-      ]
+      const overlapId = workerWindowIdFromTimes(startClock, end)
       const matchingPreset = allPresets.find(
-        (preset) => preset.id === presetId || (preset.start === start && preset.end === end),
+        (preset) =>
+          preset.id === overlapId ||
+          (preset.start === startClock && preset.end === end),
       )
       const windowPreset: WorkerWindowPreset =
         matchingPreset ?? {
-          id: presetId,
-          label: `${formatMinutes(start)}–${formatMinutes(end)} · חפיפה`,
+          id: overlapId,
+          label: `${formatMinutes(startClock)}–${formatMinutes(end)} · חפיפה`,
           name: 'השלמה למשמרת הבאה',
-          start,
+          start: startClock,
           end,
           order: allPresets.length,
         }
+
       const lane = availableLaneForWorker({
         current: args.current,
         source,
@@ -229,7 +249,7 @@ export function earlyShiftRecommendations(args: {
         workerName: worker.fullName,
         sourceShiftType: source.shiftType,
         sourceShiftName: sourceModel.name,
-        startsAt: formatMinutes(start),
+        startsAt: formatMinutes(startClock),
         windowPreset,
         windowPresets: allPresets,
         ...(lane ? { laneId: lane.id, laneName: lane.name } : {}),
