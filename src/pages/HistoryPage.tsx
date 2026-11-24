@@ -65,7 +65,6 @@ import {
   filterDayCards,
   groupHistoryDays,
   historyDayLabel,
-  laneRowsForShift,
   monthKey,
   monthSeparatorLabel,
   countPlaced,
@@ -75,6 +74,10 @@ import {
   todayISO,
   type HistoryDayCard,
 } from '../lib/historyList'
+import {
+  laneOccupancyRowsForShift,
+  type LaneOccupancyRow,
+} from '../lib/laneOccupancy'
 import { buildHistoryMatrix } from '../lib/historyMatrix'
 import { downloadHistoryExcel } from '../lib/historyExport'
 import { notify } from '../lib/notify'
@@ -530,15 +533,13 @@ function EndTimeGroups({ rows }: { rows: WorkerEndRow[] }) {
   )
 }
 
-type HistoryLaneRow = ReturnType<typeof laneRowsForShift>[number]
-
 function LaneTable({
   rows,
   groups,
   workersById,
   search,
 }: {
-  rows: HistoryLaneRow[]
+  rows: LaneOccupancyRow[]
   groups: ReturnType<typeof groupExplanations>
   workersById: Map<string, ReturnType<typeof useApp>['data']['workers'][number]>
   search: string
@@ -548,14 +549,14 @@ function LaneTable({
     <div className="max-h-[26rem] min-w-0 overflow-auto rounded-lg border border-line/70">
       <table className="w-full min-w-0 table-fixed border-collapse text-[12px]">
         <colgroup>
-          <col className="w-[25%]" />
-          <col className="w-[55%]" />
+          <col className="w-[22%]" />
+          <col className="w-[58%]" />
           <col className="w-[20%]" />
         </colgroup>
         <thead className="sticky top-0 z-10 bg-surface text-ink-soft">
           <tr className="border-b border-line text-start">
             <th scope="col" className="px-2 py-2 font-semibold">נתיב</th>
-            <th scope="col" className="px-2 py-2 font-semibold">עובד</th>
+            <th scope="col" className="px-2 py-2 font-semibold">מי היה ומתי</th>
             <th scope="col" className="px-2 py-2 font-semibold">קושי</th>
           </tr>
         </thead>
@@ -575,7 +576,7 @@ function LaneTable({
                     : { label: 'לא ידוע', dot: 'bg-ink-soft' }
             const hasStaffingException =
               row.staffingStandard != null &&
-              row.workerIds.length !== row.staffingStandard
+              row.peakConcurrent !== row.staffingStandard
             return (
               <tr
                 key={row.laneId}
@@ -589,39 +590,61 @@ function LaneTable({
                   {hasStaffingException ? (
                     <span
                       className={`mt-0.5 inline-flex rounded px-1 text-[10px] font-semibold tabular-nums ${
-                        row.workerIds.length > (row.staffingStandard ?? 0)
+                        row.peakConcurrent > (row.staffingStandard ?? 0)
                           ? 'bg-hard-soft text-hard'
                           : 'bg-warn-soft text-warn'
                       }`}
-                      title="משובצים / נדרשים"
-                      aria-label={`${row.workerIds.length} משובצים מתוך ${row.staffingStandard} נדרשים`}
+                      title="שיא מקבילי / תקן נתיב"
+                      aria-label={`שיא ${row.peakConcurrent} במקביל מתוך תקן ${row.staffingStandard}`}
                     >
-                      <Ltr>{row.workerIds.length}/{row.staffingStandard}</Ltr>
+                      <Ltr>
+                        {row.peakConcurrent}/{row.staffingStandard}
+                      </Ltr>
                     </span>
                   ) : null}
                 </td>
                 <td className="px-2 py-1.5">
-                  {row.workerIds.length > 0 ? (
-                    <div className="flex min-w-0 flex-wrap gap-1">
-                      {row.workerIds.map((workerId) => {
-                        const worker = workersById.get(workerId)
-                        const name = worker?.fullName ?? workerId
-                        const placement = placements.get(workerId)
+                  {row.occupants.length > 0 ? (
+                    <ul className="space-y-1">
+                      {row.occupants.map((occupant) => {
+                        const worker = workersById.get(occupant.workerId)
+                        const name = worker?.fullName ?? occupant.workerId
+                        const placement = placements.get(occupant.workerId)
                         const reason = visibleExplanationReasons(
                           placement?.reasons ?? [],
                         ).join(' · ')
-                        const hit = search.trim() ? workerMatchesSearch(name, search) : false
+                        const hit = search.trim()
+                          ? workerMatchesSearch(name, search)
+                          : false
                         return (
-                          <span
-                            key={workerId}
-                            title={reason ? `${name} · ${reason}` : name}
-                            className={hit ? 'rounded-full ring-2 ring-accent ring-offset-1' : undefined}
+                          <li
+                            key={`${occupant.workerId}-${occupant.fromMinutes}-${occupant.toMinutes}`}
+                            className="flex min-w-0 flex-wrap items-center gap-1.5"
+                            title={
+                              reason
+                                ? `${name} · ${occupant.label} · ${reason}`
+                                : `${name} · ${occupant.label}`
+                            }
                           >
-                            <PersonChip name={name} trainingRole={worker?.trainingRole} />
-                          </span>
+                            <span
+                              className={
+                                hit
+                                  ? 'rounded-full ring-2 ring-accent ring-offset-1'
+                                  : undefined
+                              }
+                            >
+                              <PersonChip
+                                name={name}
+                                trainingRole={worker?.trainingRole}
+                              />
+                            </span>
+                            <span className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-ink-soft">
+                              <Ltr>{occupant.label}</Ltr>
+                            </span>
+                          </li>
                         )
                       })}
-                    </div>
+                    </ul>
                   ) : (
                     <span className="text-ink-soft">לא שובץ</span>
                   )}
@@ -659,15 +682,15 @@ function ShiftDetails({
     () => new Map(data.workers.map((worker) => [worker.id, worker])),
     [data.workers],
   )
+  const models = resolveShiftModels(data.shiftModels, module)
   const rows = useMemo(
-    () => laneRowsForShift(shift, lanesById),
-    [shift, lanesById],
+    () => laneOccupancyRowsForShift(shift, lanesById, models),
+    [shift, lanesById, models],
   )
   const explanationGroups = useMemo(
     () => buildExplanationGroups(shift, data.lanes, data.workers, data.history),
     [shift, data.lanes, data.workers, data.history],
   )
-  const models = resolveShiftModels(data.shiftModels, module)
   const visibleOperationEvents = filterMidShiftOperationEvents(
     shift.shiftOperationEvents,
     shift.date,

@@ -59,6 +59,7 @@ import {
   isMidShiftOperationTime,
   shiftStartTimestamp,
 } from '../lib/shiftOperationTime'
+import { applySeatOccupancyChange } from '../lib/laneOccupancy'
 import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
@@ -963,6 +964,69 @@ function isRecordableShiftChange(
     effectiveAt,
     models,
   )
+}
+
+function occupancyMinutesFromEffectiveAt(
+  shift: Pick<ShiftSchedule, 'date' | 'shiftType'>,
+  effectiveAt: string | undefined,
+  models: ShiftModel[],
+): number | null {
+  if (!effectiveAt) return null
+  const model = models.find((item) => item.id === shift.shiftType)
+  if (!model) return null
+  const stamp = new Date(effectiveAt).getTime()
+  if (!Number.isFinite(stamp)) return null
+  const [year, month, day] = shift.date.split('-').map(Number)
+  if (![year, month, day].every(Number.isFinite)) return null
+  const dayStart = new Date(year!, month! - 1, day!).getTime()
+  if (!Number.isFinite(dayStart)) return null
+  let minutes = Math.round((stamp - dayStart) / 60_000)
+  if (minutes < model.startMinutes - 12 * 60) minutes += 24 * 60
+  return minutes
+}
+
+function withOccupancyPatch(
+  draft: ShiftDraft,
+  models: ShiftModel[],
+  effectiveAt: string | undefined,
+  change: {
+    removed?: { workerId: string; laneId: string }
+    added?: { workerId: string; laneId: string }
+  },
+): Pick<ShiftDraft, 'seatSegments' | 'seatSpan'> {
+  const model = models.find((item) => item.id === draft.shiftType)
+  const atMinutes = occupancyMinutesFromEffectiveAt(draft, effectiveAt, models)
+  if (!model || atMinutes == null) {
+    return {
+      seatSegments: draft.seatSegments,
+      seatSpan: draft.seatSpan,
+    }
+  }
+  const span = draft.seatSpan ?? {
+    startMinutes: model.startMinutes,
+    endMinutes: shiftModelAbsoluteEnd(model),
+  }
+  const seeded =
+    draft.seatSegments?.length
+      ? draft.seatSegments
+      : draft.assignments.flatMap((row) =>
+          row.workerIds.filter(Boolean).map((workerId) => ({
+            workerId,
+            laneId: row.laneId,
+            fromMinutes: span.startMinutes,
+            toMinutes: span.endMinutes,
+          })),
+        )
+  return {
+    seatSegments: applySeatOccupancyChange({
+      segments: seeded,
+      span,
+      atMinutes,
+      removed: change.removed,
+      added: change.added,
+    }),
+    seatSpan: span,
+  }
 }
 
 /** Stable snapshot used to detect whether the user changed the current shift. */
@@ -3896,6 +3960,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        let occupancy: Pick<ShiftDraft, 'seatSegments' | 'seatSpan'> | null = null
+        if (operationEvents.length > 0) {
+          let cursor: ShiftDraft = d
+          if (prevId) {
+            occupancy = withOccupancyPatch(cursor, operationModels, effectiveAt, {
+              removed: { workerId: prevId, laneId },
+            })
+            cursor = { ...cursor, ...occupancy }
+          }
+          if (workerId && fromLaneId) {
+            occupancy = withOccupancyPatch(cursor, operationModels, effectiveAt, {
+              removed: { workerId, laneId: fromLaneId },
+            })
+            cursor = { ...cursor, ...occupancy }
+          }
+          if (workerId) {
+            occupancy = withOccupancyPatch(cursor, operationModels, effectiveAt, {
+              added: { workerId, laneId },
+            })
+          }
+        }
+
         return withGateManagerSync(
           {
             ...d,
@@ -3906,6 +3992,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
                     ...(d.shiftOperationEvents ?? []),
                     ...operationEvents,
                   ],
+                }
+              : {}),
+            ...(occupancy?.seatSegments
+              ? {
+                  seatSegments: occupancy.seatSegments,
+                  seatSpan: occupancy.seatSpan,
                 }
               : {}),
             quality: undefined,
@@ -4074,6 +4166,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         trimTrailing(laneA)
         trimTrailing(laneB)
 
+        let occupancy: Pick<ShiftDraft, 'seatSegments' | 'seatSpan'> | null = null
+        if (operationEvents.length > 0 && a.laneId !== b.laneId) {
+          let cursor: ShiftDraft = d
+          if (idA) {
+            occupancy = withOccupancyPatch(cursor, operationModels, effectiveAt, {
+              removed: { workerId: idA, laneId: a.laneId },
+              ...(idB ? { added: { workerId: idA, laneId: b.laneId } } : {}),
+            })
+            cursor = { ...cursor, ...occupancy }
+          }
+          if (idB) {
+            occupancy = withOccupancyPatch(cursor, operationModels, effectiveAt, {
+              removed: { workerId: idB, laneId: b.laneId },
+              added: { workerId: idB, laneId: a.laneId },
+            })
+          }
+        }
+
         return withGateManagerSync(
           {
             ...d,
@@ -4084,6 +4194,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
                     ...(d.shiftOperationEvents ?? []),
                     ...operationEvents,
                   ],
+                }
+              : {}),
+            ...(occupancy?.seatSegments
+              ? {
+                  seatSegments: occupancy.seatSegments,
+                  seatSpan: occupancy.seatSpan,
                 }
               : {}),
             quality: undefined,
@@ -4195,6 +4311,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ),
           )
         }
+        const occupancy =
+          laneId && operationEvents.length > 0
+            ? withOccupancyPatch(d, operationModels, effectiveAt, {
+                removed: { workerId: leavingId, laneId },
+                added: { workerId: replacementId, laneId },
+              })
+            : null
         void postAuditEvent(
           'manual_assign',
           `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · החלפה באמצע משמרת · ${laneName}: ${leavingName} → ${nextName} · ${fixTagForSeats(
@@ -4215,6 +4338,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
                     ...(d.shiftOperationEvents ?? []),
                     ...operationEvents,
                   ],
+                }
+              : {}),
+            ...(occupancy?.seatSegments
+              ? {
+                  seatSegments: occupancy.seatSegments,
+                  seatSpan: occupancy.seatSpan,
                 }
               : {}),
             quality: undefined,
