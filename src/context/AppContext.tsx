@@ -55,7 +55,10 @@ import {
 } from '../api'
 import { notify } from '../lib/notify'
 import { allowLeaveUnsaved } from '../lib/unsavedLeaveRegistry'
-import { isMidShiftOperationTime } from '../lib/shiftOperationTime'
+import {
+  isMidShiftOperationTime,
+  shiftStartTimestamp,
+} from '../lib/shiftOperationTime'
 import {
   assessBoardQualityAlert,
   collectRecentQualityScores,
@@ -918,10 +921,9 @@ function createShiftOperationEvent(
   return {
     ...input,
     id: uuid(),
+    // Keep planned entry times (e.g. arrives at 18:30) for history even if still ahead.
     effectiveAt:
-      parsedEffectiveAt &&
-      Number.isFinite(parsedEffectiveAt.getTime()) &&
-      parsedEffectiveAt.getTime() <= Date.now()
+      parsedEffectiveAt && Number.isFinite(parsedEffectiveAt.getTime())
         ? parsedEffectiveAt.toISOString()
         : null,
     recordedAt: '',
@@ -3864,7 +3866,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         const operationEvents: ShiftOperationEvent[] = []
         if (
-          data.history.some((item) => item.id === d.id) &&
           prevId !== (workerId ?? '') &&
           isRecordableShiftChange(d, effectiveAt, operationModels)
         ) {
@@ -3913,7 +3914,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
     },
-    [data.history, data.lanes, data.shiftModels, data.workers, user],
+    [data.lanes, data.shiftModels, data.workers, user],
   )
 
   const updateSelectorCell = useCallback(
@@ -4016,7 +4017,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const operationEvents: ShiftOperationEvent[] = []
         if (
           a.laneId !== b.laneId &&
-          data.history.some((item) => item.id === d.id) &&
           isRecordableShiftChange(d, effectiveAt, operationModels)
         ) {
           if (idA) {
@@ -4173,7 +4173,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const operationEvents: ShiftOperationEvent[] = []
         if (
           laneId &&
-          data.history.some((item) => item.id === d.id) &&
           isRecordableShiftChange(d, effectiveAt, operationModels)
         ) {
           operationEvents.push(
@@ -4265,6 +4264,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       windowPreset: WorkerWindowPreset
       windowPresets: WorkerWindowPreset[]
     }) => {
+      const operationModels = resolveShiftModels(
+        data.shiftModels,
+        activeModule(user),
+      )
       setDraft((d) => {
         if (
           !d ||
@@ -4283,6 +4286,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!worker) return d
 
         let assignments = d.assignments
+        let placedLaneId: string | undefined
         if (args.laneId) {
           const lane = data.lanes.find((item) => item.id === args.laneId)
           if (
@@ -4305,6 +4309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (!target || emptySeat < 0) return d
           target.workerIds[emptySeat] = args.workerId
           assignments = padded
+          placedLaneId = lane.id
         }
 
         const workerWindowPresets = [
@@ -4325,6 +4330,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
         delete windowAdjustments[args.workerId]
         const earlyLeaveAt = { ...(d.earlyLeaveAt ?? {}) }
         delete earlyLeaveAt[args.workerId]
+
+        const entryAt =
+          shiftStartTimestamp(d.date, args.windowPreset.start) ?? undefined
+        const operationEvents: ShiftOperationEvent[] = placedLaneId
+          ? [
+              workerOperationEvent(
+                'worker_assigned',
+                args.workerId,
+                worker.fullName,
+                entryAt,
+                data.lanes,
+                undefined,
+                placedLaneId,
+              ),
+            ]
+          : []
+
+        const model = operationModels.find((item) => item.id === d.shiftType)
+        const spanEnd = model ? shiftModelAbsoluteEnd(model) : undefined
+        const seatSegments =
+          placedLaneId && model && spanEnd != null
+            ? [
+                ...(d.seatSegments ?? []).filter(
+                  (segment) =>
+                    !(
+                      segment.workerId === args.workerId &&
+                      segment.laneId === placedLaneId
+                    ),
+                ),
+                {
+                  workerId: args.workerId,
+                  laneId: placedLaneId,
+                  fromMinutes: args.windowPreset.start,
+                  toMinutes: spanEnd,
+                },
+              ]
+            : d.seatSegments
+        const seatSpan =
+          seatSegments?.length && model
+            ? {
+                startMinutes: model.startMinutes,
+                endMinutes: spanEnd!,
+              }
+            : d.seatSpan
+
+        if (placedLaneId) {
+          void postAuditEvent(
+            'manual_assign',
+            `${d.date} · ${SHIFT_TYPE_LABELS[d.shiftType]} · כניסה מוקדמת · ${worker.fullName} → ${
+              data.lanes.find((lane) => lane.id === placedLaneId)?.name ||
+              placedLaneId
+            } מ־${args.windowPreset.label || entryAt || ''}`,
+          )
+        }
+
         return withGateManagerSync(
           {
             ...d,
@@ -4337,13 +4397,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
             workerWindowPresets,
             windowAdjustments,
             earlyLeaveAt,
+            ...(operationEvents.length
+              ? {
+                  shiftOperationEvents: [
+                    ...(d.shiftOperationEvents ?? []),
+                    ...operationEvents,
+                  ],
+                }
+              : {}),
+            ...(seatSegments?.length
+              ? { seatSegments, seatSpan }
+              : {}),
             quality: undefined,
           },
           data.lanes,
         )
       })
     },
-    [data.lanes, data.workers],
+    [data.lanes, data.shiftModels, data.workers, user],
   )
 
   const addSlotToLane = useCallback(

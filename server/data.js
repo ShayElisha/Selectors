@@ -2411,10 +2411,9 @@ function appendShiftOperationEvents(previousEvents, submittedEvents, actor) {
       err.status = 400;
       throw err;
     }
+    // Keep planned mid-shift entry times (e.g. arrives at 18:30) even if still ahead.
     const effectiveAt =
-      submittedEffectiveAt &&
-      Number.isFinite(submittedEffectiveAt.getTime()) &&
-      submittedEffectiveAt.getTime() <= Date.now()
+      submittedEffectiveAt && Number.isFinite(submittedEffectiveAt.getTime())
         ? submittedEffectiveAt.toISOString()
         : null;
     const normalized = {

@@ -40,11 +40,14 @@ export function shiftStartTimestamp(
   return date.toISOString()
 }
 
+type ShiftClockModel = Pick<ShiftModel, 'id' | 'startMinutes'> &
+  Partial<Pick<ShiftModel, 'endMinutes'>>
+
 export function isMidShiftOperationTime(
   shiftDate: string,
   shiftType: string,
   effectiveAt: string | null | undefined,
-  models: readonly Pick<ShiftModel, 'id' | 'startMinutes'>[],
+  models: readonly ShiftClockModel[],
 ): boolean {
   if (!effectiveAt) return false
   const model = models.find((item) => item.id === shiftType)
@@ -61,16 +64,52 @@ export function isMidShiftOperationTime(
   )
 }
 
+/** Station changes that belong on the history timeline (including planned later entries). */
+export function isDocumentedStationChangeTime(
+  shiftDate: string,
+  shiftType: string,
+  effectiveAt: string | null | undefined,
+  models: readonly ShiftClockModel[],
+): boolean {
+  if (!effectiveAt) return false
+  const model = models.find((item) => item.id === shiftType)
+  if (!model) return false
+  const shiftStart = shiftStartTimestamp(shiftDate, model.startMinutes)
+  if (!shiftStart) return false
+  const effectiveTime = new Date(effectiveAt).getTime()
+  const shiftStartTime = new Date(shiftStart).getTime()
+  if (
+    !Number.isFinite(effectiveTime) ||
+    !Number.isFinite(shiftStartTime) ||
+    effectiveTime <= shiftStartTime
+  ) {
+    return false
+  }
+  if (model.endMinutes == null || !Number.isFinite(model.endMinutes)) {
+    return true
+  }
+  let endMinutes = model.endMinutes
+  if (endMinutes <= model.startMinutes) endMinutes += 24 * 60
+  const shiftEnd = shiftStartTimestamp(shiftDate, endMinutes)
+  const shiftEndTime = shiftEnd ? new Date(shiftEnd).getTime() : Number.NaN
+  return !Number.isFinite(shiftEndTime) || effectiveTime <= shiftEndTime
+}
+
 export function filterMidShiftOperationEvents<
   T extends { effectiveAt: string | null | undefined },
 >(
   events: readonly T[] | null | undefined,
   shiftDate: string,
   shiftType: string,
-  models: readonly Pick<ShiftModel, 'id' | 'startMinutes'>[],
+  models: readonly ShiftClockModel[],
 ): T[] {
   return (events ?? []).filter((event) =>
-    isMidShiftOperationTime(shiftDate, shiftType, event.effectiveAt, models),
+    isDocumentedStationChangeTime(
+      shiftDate,
+      shiftType,
+      event.effectiveAt,
+      models,
+    ),
   )
 }
 
