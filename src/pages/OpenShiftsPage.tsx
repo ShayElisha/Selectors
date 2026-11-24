@@ -129,8 +129,8 @@ export function OpenShiftsPage() {
         locked === 1 ? 'משמרת אחת ננעלה' : `${locked} משמרות ננעלו`,
         'לא ניתן יותר לערוך או למחוק אותן.',
       )
-    } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'נעילת המשמרות נכשלה')
+    } catch {
+      /* signOffShifts setError → Shell toast with classified title */
     }
   }
 

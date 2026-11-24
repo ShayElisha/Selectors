@@ -235,8 +235,8 @@ function ShiftVersionsDialog({
       notify.success('הגרסה שוחזרה', 'השחזור נשמר כגרסה חדשה ביומן.')
       setRestoreTarget(null)
       onClose()
-    } catch (error) {
-      notify.error(error instanceof Error ? error.message : 'שחזור הגרסה נכשל')
+    } catch {
+      /* restoreHistoryVersion setError → Shell toast with classified title */
     } finally {
       setRestoring(false)
     }
@@ -684,8 +684,14 @@ function ShiftDetails({
   )
   const models = resolveShiftModels(data.shiftModels, module)
   const rows = useMemo(
-    () => laneOccupancyRowsForShift(shift, lanesById, models),
-    [shift, lanesById, models],
+    () =>
+      laneOccupancyRowsForShift(
+        shift,
+        lanesById,
+        models,
+        data.workerWindowPresets ?? [],
+      ),
+    [shift, lanesById, models, data.workerWindowPresets],
   )
   const explanationGroups = useMemo(
     () => buildExplanationGroups(shift, data.lanes, data.workers, data.history),

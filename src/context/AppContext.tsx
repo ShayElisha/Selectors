@@ -54,6 +54,7 @@ import {
   type ShiftEditLockRequest,
 } from '../api'
 import { notify } from '../lib/notify'
+import { reportUserError, userErrorMessage } from '../lib/userError'
 import { allowLeaveUnsaved } from '../lib/unsavedLeaveRegistry'
 import {
   isMidShiftOperationTime,
@@ -1222,14 +1223,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return true
       } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
-          notify.error(
-            'מנהל אחר עורך עכשיו',
-            e.message || 'לא ניתן לערוך את אותה משמרת במקביל',
-          )
-          return false
-        }
-        notify.error('לא ניתן להתחיל עריכה', 'נסו שוב בעוד רגע')
+        reportUserError(e, {
+          title:
+            e instanceof ApiError && e.status === 409
+              ? 'מנהל אחר עורך עכשיו'
+              : 'לא ניתן להתחיל עריכה',
+          fallback: 'לא ניתן לערוך את המשמרת כרגע. נסו שוב בעוד רגע.',
+        })
         return false
       }
     },
@@ -1376,7 +1376,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               const conflictMessage =
                 'נתוני השרת השתנו שוב בזמן השמירה. השינוי המקומי נשמר במסך; נסה לשמור שוב בעוד רגע.'
               setError(conflictMessage)
-              toast.error(conflictMessage)
               ensureSaveConflictNotice({ message: conflictMessage })
               throw e
             }
@@ -1385,8 +1384,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             // Silent auto-merge retry — avoid alarming toasts on routine races.
             continue
           }
-          const msg = e instanceof Error ? e.message : 'שגיאת שמירה לשרת'
-          setError(msg)
+          setError(userErrorMessage(e, 'שמירה לשרת נכשלה'))
           // Avoid bell spam on transient network blips; conflict storm is handled above.
           throw e
         }
@@ -1508,7 +1506,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         handleAuthFailure()
         return
       }
-      setError(e instanceof Error ? e.message : 'לא ניתן להתחבר לשרת')
+      setError(userErrorMessage(e, 'לא ניתן להתחבר לשרת'))
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -1957,13 +1955,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.token, user?.role, user?.module, refreshFromServer])
 
-  // Live collaboration via Socket.IO — pull only when a revision push arrives
-  // (or on tab focus / reconnect). No timed polling.
+  // Live collaboration: Socket.IO where a long-lived API exists (local).
+  // On Vercel serverless there is no socket server — fall back to quiet HTTP poll.
   useEffect(() => {
     if (!user?.token || user.role !== 'org_manager' || !user.module) return
     let stop = false
     let inFlight = false
     let pending = false
+    let pollTimer: number | null = null
+    const POLL_MS = 5_000
 
     const pull = async () => {
       if (stop) return
@@ -1989,13 +1989,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    const startPoll = () => {
+      if (pollTimer != null || stop) return
+      void pull()
+      pollTimer = window.setInterval(() => void pull(), POLL_MS)
+    }
+    const stopPoll = () => {
+      if (pollTimer == null) return
+      window.clearInterval(pollTimer)
+      pollTimer = null
+    }
+
     const stopSocket = startLiveSync(user.module, {
       onRevision: (event) => {
         const known = dataRef.current.revision ?? 0
         if (event.revision > known) void pull()
       },
       onConnectionChange: (connected) => {
-        if (connected) void pull()
+        if (connected) {
+          stopPoll()
+          void pull()
+          return
+        }
+      },
+      onUnavailable: () => {
+        startPoll()
       },
     })
 
@@ -2008,6 +2026,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     return () => {
       stop = true
+      stopPoll()
       stopSocket()
       stopLiveSync()
       document.removeEventListener('visibilitychange', onVisible)
@@ -2040,8 +2059,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDraft(null)
       clearDraftStorage()
       notify.error(
-        'העריכה נחסמה',
-        'מנהל אחר עורך את המשמרת הזו כעת — לא ניתן לשנות במקביל',
+        'עריכה חסומה',
+        'מנהל אחר עורך את המשמרת הזו עכשיו — לא ניתן לשנות במקביל. חזרו אחרי שהוא ייצא מהעריכה.',
       )
       navigate('/', { replace: true })
     }
@@ -3654,7 +3673,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setShiftStep('board')
     } catch (err) {
       console.error('auto assign failed', err)
-      toast.error('השיבוץ האוטומטי נכשל — נסו שוב')
+      reportUserError(err, {
+        title: 'שיבוץ אוטומטי נכשל',
+        fallback: 'נסו שוב. אם זה חוזר — בדקו נתיבים, נוכחות ותקן.',
+      })
       ok = false
     } finally {
       // Keep the loader visible long enough that the result never feels instant.
@@ -4704,7 +4726,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           saveAppDataCache(saved)
         } catch (error) {
           if (!(error instanceof ApiError && error.status === 404)) {
-            setError(error instanceof Error ? error.message : 'שמירת השיקום נכשלה')
+            setError(userErrorMessage(error, 'שמירת השיקום נכשלה'))
           }
         }
       })()
@@ -5048,7 +5070,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
-        const message = e instanceof Error ? e.message : 'שמירת השיבוץ נכשלה'
+        const message = userErrorMessage(e, 'שמירת השיבוץ נכשלה')
         setError(message)
         ensureCrossModuleConflictFromMessage(message, { shiftId: synced.id })
         ensureSaveConflictNotice({ message, shiftId: synced.id })
@@ -5136,7 +5158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         clearDraftStorage()
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 401)) {
-          setError(e instanceof Error ? e.message : 'סגירת המשמרת נכשלה')
+          setError(userErrorMessage(e, 'סגירת המשמרת נכשלה'))
         }
         throw e
       } finally {
@@ -5190,7 +5212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return locked
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 401)) {
-          setError(e instanceof Error ? e.message : 'נעילת המשמרות נכשלה')
+          setError(userErrorMessage(e, 'נעילת המשמרות נכשלה'))
         }
         throw e
       } finally {
@@ -5223,7 +5245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setError(null)
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
-        setError(e instanceof Error ? e.message : 'מחיקה נכשלה')
+        setError(userErrorMessage(e, 'מחיקת השיבוץ נכשלה'))
       }
     } finally {
       setSyncing(false)
@@ -5244,7 +5266,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setError(null)
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
-        setError(e instanceof Error ? e.message : 'שחזור הגרסה נכשל')
+        setError(userErrorMessage(e, 'שחזור הגרסה נכשל'))
       }
       throw e
     } finally {
@@ -5287,10 +5309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (e instanceof ApiError && e.status === 401) return
           dataRef.current = previous
           setData(previous)
-          const message =
-            e instanceof Error ? e.message : 'שמירת העובד נכשלה'
-          setError(message)
-          notify.error(message)
+          setError(userErrorMessage(e, 'שמירת העובד נכשלה'))
           void refreshFromServer()
         }
       })()
@@ -5328,10 +5347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (e instanceof ApiError && e.status === 401) return
           dataRef.current = previous
           setData(previous)
-          const message =
-            e instanceof Error ? e.message : 'שמירת העובד נכשלה'
-          setError(message)
-          notify.error(message)
+          setError(userErrorMessage(e, 'שמירת העובד נכשלה'))
           void refreshFromServer()
         }
       })()
@@ -5358,10 +5374,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (e instanceof ApiError && e.status === 401) return
           dataRef.current = previous
           setData(previous)
-          const message =
-            e instanceof Error ? e.message : 'מחיקת העובד נכשלה'
-          setError(message)
-          notify.error(message)
+          setError(userErrorMessage(e, 'מחיקת העובד נכשלה'))
           void refreshFromServer()
         }
       })()
@@ -5933,7 +5946,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (e instanceof ApiError && e.status === 409 && e.current) {
         applyRemoteData(e.current)
       }
-      setError(e instanceof Error ? e.message : 'איפוס נכשל')
+      setError(userErrorMessage(e, 'איפוס הנתונים נכשל'))
       throw e
     } finally {
       setSyncing(false)

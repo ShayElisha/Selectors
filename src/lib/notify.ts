@@ -5,6 +5,7 @@ const DEFAULT_DURATION = 3200
 export const UNDO_TOAST_MS = 5000
 /** Longer undo for destructive / structure-changing board actions. */
 export const UNDO_TOAST_MAJOR_MS = 8000
+const ERROR_DURATION = 8000
 
 type UndoOptions = {
   /** Use the longer countdown (default for board-wide actions). */
@@ -23,7 +24,7 @@ export const notify = {
   error(message: string, description?: string) {
     return toast.error(message, {
       description,
-      duration: 5000,
+      duration: ERROR_DURATION,
     })
   },
   info(message: string, description?: string) {

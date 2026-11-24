@@ -3,10 +3,12 @@ import type {
   SeatSegment,
   ShiftModel,
   ShiftSchedule,
+  WorkerWindowPreset,
 } from '../types'
 import { effectiveStaffingStandard } from './shiftStaffing'
 import { formatMinutes, shiftModelAbsoluteEnd } from './shiftModels'
 import { MAIN_SHIFT_BOUNDS } from './shiftCatalog'
+import { workerShiftWindowMinutes } from './workerShiftStatus'
 
 export type LaneOccupantSegment = {
   workerId: string
@@ -39,6 +41,10 @@ export type LaneOccupancyShift = Pick<
   | 'seatSegments'
   | 'seatSpan'
   | 'shiftOperationEvents'
+  | 'workerWindows'
+  | 'workerWindowPresets'
+  | 'windowAdjustments'
+  | 'earlyLeaveAt'
 >
 
 function shiftSpanMinutes(
@@ -216,24 +222,84 @@ function wholeShiftOccupants(
   shift: LaneOccupancyShift,
   laneId: string,
   span: { startMinutes: number; endMinutes: number },
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
 ): LaneOccupantSegment[] {
   const ids = (
     shift.assignments.find((row) => row.laneId === laneId)?.workerIds ?? []
   ).filter(Boolean)
-  return ids.map((workerId) => ({
-    workerId,
-    fromMinutes: span.startMinutes,
-    toMinutes: span.endMinutes,
-    label: segmentLabel(span.startMinutes, span.endMinutes),
-  }))
+  return ids
+    .map((workerId) => {
+      const window = workerShiftWindowMinutes(shift, workerId, models, presets)
+      const fromMinutes = Math.max(
+        span.startMinutes,
+        window?.startMinutes ?? span.startMinutes,
+      )
+      const toMinutes = Math.min(
+        span.endMinutes,
+        window?.endMinutes ?? span.endMinutes,
+      )
+      if (toMinutes <= fromMinutes) return null
+      return {
+        workerId,
+        fromMinutes,
+        toMinutes,
+        label: segmentLabel(fromMinutes, toMinutes),
+      }
+    })
+    .filter(Boolean) as LaneOccupantSegment[]
+}
+
+/** Clip seat/operation segments to each worker's personal hours on this shift. */
+function clipOccupantsToPersonalWindows(
+  occupants: LaneOccupantSegment[],
+  shift: LaneOccupancyShift,
+  span: { startMinutes: number; endMinutes: number },
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
+): LaneOccupantSegment[] {
+  return occupants
+    .map((segment) => {
+      const window = workerShiftWindowMinutes(
+        shift,
+        segment.workerId,
+        models,
+        presets,
+      )
+      const fromMinutes = Math.max(
+        span.startMinutes,
+        segment.fromMinutes,
+        window?.startMinutes ?? span.startMinutes,
+      )
+      const toMinutes = Math.min(
+        span.endMinutes,
+        segment.toMinutes,
+        window?.endMinutes ?? span.endMinutes,
+      )
+      if (toMinutes <= fromMinutes) return null
+      return {
+        ...segment,
+        fromMinutes,
+        toMinutes,
+        label: segmentLabel(fromMinutes, toMinutes),
+      }
+    })
+    .filter(Boolean) as LaneOccupantSegment[]
 }
 
 export function laneOccupancyRowsForShift(
   shift: LaneOccupancyShift,
   lanesById: Map<string, Lane>,
   models: ShiftModel[] = [],
+  presets: WorkerWindowPreset[] = [],
 ): LaneOccupancyRow[] {
   const span = shiftSpanMinutes(shift, models)
+  const catalog = [
+    ...presets,
+    ...(shift.workerWindowPresets ?? []).filter(
+      (local) => !presets.some((preset) => preset.id === local.id),
+    ),
+  ]
   const laneIds = [
     ...new Set([
       ...shift.activeLaneIds,
@@ -255,7 +321,15 @@ export function laneOccupancyRowsForShift(
         occupants = segmentsFromOperations(shift, laneId, span)
       }
       if (occupants.length === 0) {
-        occupants = wholeShiftOccupants(shift, laneId, span)
+        occupants = wholeShiftOccupants(shift, laneId, span, models, catalog)
+      } else {
+        occupants = clipOccupantsToPersonalWindows(
+          occupants,
+          shift,
+          span,
+          models,
+          catalog,
+        )
       }
       return {
         laneId,

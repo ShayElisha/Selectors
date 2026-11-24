@@ -42,6 +42,10 @@ import type { ShiftType, View } from '../types'
 import { useApp } from '../context/AppContext'
 import { notify, toast } from '../lib/notify'
 import {
+  shouldOfferErrorRetry,
+  userErrorTitle,
+} from '../lib/userError'
+import {
   findShiftForSlot,
 } from '../constants'
 import { currentShiftModel, resolveShiftModels } from '../lib/shiftModels'
@@ -277,15 +281,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
     }
     if (lastErrorToast.current === error) return
     lastErrorToast.current = error
-    toast.error('שגיאת שרת', {
-      description: error,
+    const title = userErrorTitle(error)
+    const description = error === title ? undefined : error
+    toast.error(title, {
+      description,
       duration: 8000,
-      action: {
-        label: 'נסה שוב',
-        onClick: () => {
-          void refreshFromServer()
-        },
-      },
+      ...(shouldOfferErrorRetry(error)
+        ? {
+            action: {
+              label: 'נסה שוב',
+              onClick: () => {
+                void refreshFromServer()
+              },
+            },
+          }
+        : {}),
     })
   }, [error, refreshFromServer])
 

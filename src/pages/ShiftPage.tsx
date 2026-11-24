@@ -734,7 +734,7 @@ export function ShiftPage() {
       notify.success('השיבוץ נשמר')
       window.setTimeout(() => setSaveFlash(false), 2000)
     } catch {
-      /* error shown via context + toast */
+      /* AppContext setError → Shell toast with classified title */
     }
   }
 
@@ -761,7 +761,7 @@ export function ShiftPage() {
       setSignOpen(false)
       notify.success('המשמרת נסגרה', 'הלוח נעול לעריכה ולמחיקה.')
     } catch {
-      /* error shown via context + toast */
+      /* AppContext setError → Shell toast with classified title */
     } finally {
       setSignBusy(false)
     }

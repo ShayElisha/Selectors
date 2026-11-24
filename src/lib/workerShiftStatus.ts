@@ -48,20 +48,23 @@ export function officialShiftInterval(
   return { start, end }
 }
 
-function shiftInterval(
-  shift: Pick<
-    ShiftSchedule,
-    | 'date'
-    | 'shiftType'
-    | 'workerWindowPresets'
-    | 'workerWindows'
-    | 'windowAdjustments'
-    | 'earlyLeaveAt'
-  >,
+type WorkerShiftSource = Pick<
+  ShiftSchedule,
+  | 'date'
+  | 'shiftType'
+  | 'workerWindowPresets'
+  | 'workerWindows'
+  | 'windowAdjustments'
+  | 'earlyLeaveAt'
+>
+
+/** Personal on-duty window in clock minutes for this shift (may exceed 24h overnight). */
+export function workerShiftWindowMinutes(
+  shift: WorkerShiftSource,
   workerId: string,
   models: ShiftModel[],
   presets: WorkerWindowPreset[],
-): WorkerShiftInterval | null {
+): { startMinutes: number; endMinutes: number } | null {
   const model = models.find((item) => item.id === shift.shiftType)
   const fallback = MAIN_SHIFT_BOUNDS[shift.shiftType]
   if (!model && !fallback) return null
@@ -126,14 +129,25 @@ function shiftInterval(
   }
 
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
-  const startAt = dateAtShiftMinutes(shift.date, start)
-  const endAt = dateAtShiftMinutes(shift.date, end)
+  return { startMinutes: start, endMinutes: end }
+}
+
+function shiftInterval(
+  shift: WorkerShiftSource,
+  workerId: string,
+  models: ShiftModel[],
+  presets: WorkerWindowPreset[],
+): WorkerShiftInterval | null {
+  const window = workerShiftWindowMinutes(shift, workerId, models, presets)
+  if (!window) return null
+  const startAt = dateAtShiftMinutes(shift.date, window.startMinutes)
+  const endAt = dateAtShiftMinutes(shift.date, window.endMinutes)
   if (startAt == null || endAt == null) return null
   return { start: startAt, end: endAt }
 }
 
 export function workerShiftInterval(
-  shift: Parameters<typeof shiftInterval>[0],
+  shift: WorkerShiftSource,
   workerId: string,
   models: ShiftModel[],
   presets: WorkerWindowPreset[],

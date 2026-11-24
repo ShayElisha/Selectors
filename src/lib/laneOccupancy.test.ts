@@ -106,6 +106,48 @@ describe('laneOccupancyRowsForShift', () => {
       ]),
     )
   })
+
+  it('clips displayed ranges to personal worker windows', () => {
+    const rows = laneOccupancyRowsForShift(
+      shift({
+        activeLaneIds: ['lane-1', 'lane-2'],
+        assignments: [
+          { laneId: 'lane-1', workerIds: ['oriya'] },
+          { laneId: 'lane-2', workerIds: ['rachel'] },
+        ],
+        workerWindows: {
+          oriya: '1430-1830',
+          rachel: '1800-2130',
+        },
+        workerWindowPresets: [
+          {
+            id: '1430-1830',
+            label: 'עד 18:30',
+            start: 14 * 60 + 30,
+            end: 18 * 60 + 30,
+          },
+          {
+            id: '1800-2130',
+            label: 'מ-18:00',
+            start: 18 * 60,
+            end: 21 * 60 + 30,
+          },
+        ],
+      }),
+      new Map([
+        ['lane-1', lane('lane-1', 'נתיב 11-12')],
+        ['lane-2', lane('lane-2', 'נתיב 13-14')],
+      ]),
+      models,
+    )
+
+    expect(rows.find((row) => row.laneId === 'lane-1')?.occupants).toEqual([
+      expect.objectContaining({ workerId: 'oriya', label: '14:30–18:30' }),
+    ])
+    expect(rows.find((row) => row.laneId === 'lane-2')?.occupants).toEqual([
+      expect.objectContaining({ workerId: 'rachel', label: '18:00–21:30' }),
+    ])
+  })
 })
 
 describe('applySeatOccupancyChange', () => {

@@ -911,10 +911,12 @@ export function HomePage() {
     if (!activeShift) return []
     const lanesById = new Map(data.lanes.map((lane) => [lane.id, lane]))
     const occupancyByLane = new Map(
-      laneOccupancyRowsForShift(activeShift, lanesById, shiftModels).map((row) => [
-        row.laneId,
-        row,
-      ]),
+      laneOccupancyRowsForShift(
+        activeShift,
+        lanesById,
+        shiftModels,
+        data.workerWindowPresets ?? [],
+      ).map((row) => [row.laneId, row]),
     )
     const clockMinutes = nowMinutesLocal(new Date(nowTick))
     const rows = activeShift.activeLaneIds
@@ -1056,6 +1058,7 @@ export function HomePage() {
       displayedShift,
       lanesById,
       shiftModels,
+      data.workerWindowPresets ?? [],
     )
     const order = new Map(data.lanes.map((lane, index) => [lane.id, index]))
     return occupancyRows
