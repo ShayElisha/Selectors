@@ -384,6 +384,15 @@ export function BoardStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when parent bumps baselineKey
   }, [baselineKey])
 
+  // After a successful save the parent clears draftDirty — align board baseline
+  // so export is not blocked by a stale boardDirty flag.
+  useEffect(() => {
+    if (!draftDirty) {
+      setBoardBaseline(snapshotBoard(draft.assignments))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when save-clean flips
+  }, [draftDirty])
+
   useEffect(() => {
     if (!requestExplainModal) return
     if ((draft.explanations?.length ?? 0) > 0) {

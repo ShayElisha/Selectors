@@ -10,6 +10,7 @@ const SESSION_KEY = 'shibutzon-session'
 /** Legacy plaintext draft key — wiped on save/clear, never read as trusted data. */
 const DRAFT_KEY_LEGACY = 'shibutzon-draft'
 const DRAFT_KEY = 'shibutzon-draft-v3'
+const DRAFT_CLEAN_KEY = 'shibutzon-draft-clean'
 const SHIFT_STEP_KEY = 'shibutzon-shift-step'
 const APP_DATA_PREFIX_LEGACY = 'shibutzon-app-data-v2:'
 const APP_DATA_PREFIX = 'shibutzon-app-data-v3:'
@@ -17,6 +18,7 @@ const APP_DATA_PREFIX = 'shibutzon-app-data-v3:'
 /** In-memory AppData snapshots — primary cache for navigation / 304. */
 const memoryAppData = new Map<string, AppData>()
 let memoryDraftJson: string | null = null
+let memoryDraftClean = false
 let memoryShiftStep: string | null = null
 
 export type AppModule = 'selectors' | 'inspectors' | 'security'
@@ -330,10 +332,12 @@ export function loadDraftJson(): string | null {
   return memoryDraftJson
 }
 
-export function saveDraftJson(json: string): void {
+export function saveDraftJson(json: string, clean = false): void {
   memoryDraftJson = json
+  memoryDraftClean = clean
   try {
     localStorage.removeItem(DRAFT_KEY_LEGACY)
+    localStorage.setItem(DRAFT_CLEAN_KEY, clean ? '1' : '0')
   } catch {
     /* ignore */
   }
@@ -350,10 +354,12 @@ export function saveDraftJson(json: string): void {
 
 export function clearDraftStorage(): void {
   memoryDraftJson = null
+  memoryDraftClean = false
   memoryShiftStep = null
   try {
     localStorage.removeItem(DRAFT_KEY)
     localStorage.removeItem(DRAFT_KEY_LEGACY)
+    localStorage.removeItem(DRAFT_CLEAN_KEY)
     localStorage.removeItem(SHIFT_STEP_KEY)
   } catch {
     /* private mode */
@@ -382,9 +388,15 @@ export function saveShiftStep(step: string): void {
 export async function hydrateDraftStorage(): Promise<{
   draftJson: string | null
   shiftStep: string | null
+  /** True when the draft was last persisted after a clean save (export-ready). */
+  clean: boolean
 }> {
   if (memoryDraftJson) {
-    return { draftJson: memoryDraftJson, shiftStep: loadShiftStep() }
+    return {
+      draftJson: memoryDraftJson,
+      shiftStep: loadShiftStep(),
+      clean: memoryDraftClean,
+    }
   }
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
@@ -397,11 +409,16 @@ export async function hydrateDraftStorage(): Promise<{
       // Reject legacy plaintext drafts.
       localStorage.removeItem(DRAFT_KEY)
     }
+    memoryDraftClean = localStorage.getItem(DRAFT_CLEAN_KEY) === '1'
     localStorage.removeItem(DRAFT_KEY_LEGACY)
   } catch {
     /* private mode */
   }
-  return { draftJson: memoryDraftJson, shiftStep: loadShiftStep() }
+  return {
+    draftJson: memoryDraftJson,
+    shiftStep: loadShiftStep(),
+    clean: memoryDraftClean,
+  }
 }
 
 /** Sync read — in-memory only. Use hydrateAppDataCache() for encrypted disk. */

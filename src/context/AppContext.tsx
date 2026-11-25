@@ -1309,7 +1309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const baseline = draftBaselineRef.current
     const dirty = baseline === null || snapshotDraft(draft) !== baseline
     setDraftDirty(dirty)
-    saveDraftJson(JSON.stringify(draft))
+    saveDraftJson(JSON.stringify(draft), !dirty)
     saveShiftStep(shiftStep)
   }, [draft, shiftStep, draftStorageReady])
 
@@ -1968,12 +1968,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const draftHydrated = await hydrateDraftStorage()
         if (cancelled) return
         if (draftHydrated.draftJson) {
-          setDraftState((current) => {
-            if (current) return current
-            return restoreDraft()
-          })
-          setDraftDirty(true)
-          draftBaselineRef.current = null
+          const restored = restoreDraft()
+          setDraftState((current) => current ?? restored)
+          if (restored && draftHydrated.clean) {
+            // Last persist was after a clean save — export-ready without re-save.
+            draftBaselineRef.current = snapshotDraft(restored)
+            setDraftDirty(false)
+          } else {
+            draftBaselineRef.current = null
+            setDraftDirty(Boolean(restored))
+          }
           if (draftHydrated.shiftStep) {
             setShiftStepState((current) => current || restoreStep())
           }
@@ -5169,6 +5173,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       queueMicrotask(() => saveAppDataCache(next))
       draftBaselineRef.current = snapshotDraft(synced)
       setDraftDirty(false)
+      saveDraftJson(JSON.stringify(synced), true)
+      saveShiftStep(shiftStep)
       // Keep draft on disk while the board stays open so refresh restores it.
 
       const hardStreaks = findHardLaneStreaks({
@@ -5199,7 +5205,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false)
     }
-  }, [draft, toSchedule, runWithFreshRevision])
+  }, [draft, shiftStep, toSchedule, runWithFreshRevision])
 
   const signCurrentShift = useCallback(
     async (signature: string) => {
