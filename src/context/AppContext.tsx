@@ -1296,8 +1296,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setShiftStepState(s)
   }, [])
 
-  // Persist open draft so refresh restores it. Wait for hydrate so mount
-  // with draft=null does not wipe ciphertext before restore runs.
+  // Persist draft only after a real edit. Opening/viewing a saved shift stays
+  // in memory without creating a disk draft until something changes.
   useEffect(() => {
     if (!draftStorageReady) return
     if (!draft) {
@@ -1309,8 +1309,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const baseline = draftBaselineRef.current
     const dirty = baseline === null || snapshotDraft(draft) !== baseline
     setDraftDirty(dirty)
-    saveDraftJson(JSON.stringify(draft), !dirty)
-    saveShiftStep(shiftStep)
+    if (dirty) {
+      saveDraftJson(JSON.stringify(draft), false)
+      saveShiftStep(shiftStep)
+    } else {
+      clearDraftStorage()
+    }
   }, [draft, shiftStep, draftStorageReady])
 
   // Leaving the shift flow without edits should not keep a phantom draft in memory.
@@ -1968,18 +1972,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const draftHydrated = await hydrateDraftStorage()
         if (cancelled) return
         if (draftHydrated.draftJson) {
-          const restored = restoreDraft()
-          setDraftState((current) => current ?? restored)
-          if (restored && draftHydrated.clean) {
-            // Last persist was after a clean save — export-ready without re-save.
-            draftBaselineRef.current = snapshotDraft(restored)
-            setDraftDirty(false)
+          // Clean disk copies are phantoms (open with no edits) — drop them.
+          // Only restore drafts that had unsaved changes.
+          if (draftHydrated.clean) {
+            clearDraftStorage()
           } else {
+            const restored = restoreDraft()
+            setDraftState((current) => current ?? restored)
             draftBaselineRef.current = null
             setDraftDirty(Boolean(restored))
-          }
-          if (draftHydrated.shiftStep) {
-            setShiftStepState((current) => current || restoreStep())
+            if (draftHydrated.shiftStep) {
+              setShiftStepState((current) => current || restoreStep())
+            }
           }
         }
       } finally {
@@ -5173,9 +5177,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       queueMicrotask(() => saveAppDataCache(next))
       draftBaselineRef.current = snapshotDraft(synced)
       setDraftDirty(false)
-      saveDraftJson(JSON.stringify(synced), true)
-      saveShiftStep(shiftStep)
-      // Keep draft on disk while the board stays open so refresh restores it.
+      clearDraftStorage()
+      // No disk draft after a clean save — only unsaved edits create a draft.
 
       const hardStreaks = findHardLaneStreaks({
         history: nextHistory,
@@ -5205,7 +5208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false)
     }
-  }, [draft, shiftStep, toSchedule, runWithFreshRevision])
+  }, [draft, toSchedule, runWithFreshRevision])
 
   const signCurrentShift = useCallback(
     async (signature: string) => {
