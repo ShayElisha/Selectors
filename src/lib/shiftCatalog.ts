@@ -486,11 +486,14 @@ export function windowCoversRound(
   return roundStart >= span.start + late && roundEnd <= span.end - early
 }
 
+/** Personal start must leave more than this many minutes before official end. */
+export const MIN_PERSONAL_START_BEFORE_SHIFT_END = 60
+
 /**
  * Whether a personal window may be used on this official shift.
  * - No window → whole shift (eligible).
  * - Native window starts at/near the shift start (or earlier for morning).
- * - Mid-shift arrival: starts after official start, still overlaps meaningfully.
+ * - Mid-shift arrival: starts after official start, with >1h left until shift end.
  * - Long morning windows may continue into afternoon only via continuesIntoShift.
  */
 export function windowFitsShift(
@@ -519,11 +522,13 @@ export function windowFitsShift(
     )
   }
 
-  // Mid-shift arrival (e.g. 09:00–15:00 on morning). Require enough overlap so
-  // the next shift's native window (14:30–21:30) does not sneak onto morning.
+  // Mid-shift arrival (e.g. 09:00–15:00 on morning). Must start more than an
+  // hour before official end — same idea as not showing next-shift people too early.
   if (span.start > shift.start && span.start < shift.end) {
+    const remaining = shift.end - span.start
+    if (remaining <= MIN_PERSONAL_START_BEFORE_SHIFT_END) return false
     const overlap = Math.min(span.end, shift.end) - span.start
-    return overlap >= 60
+    return overlap >= MIN_PERSONAL_START_BEFORE_SHIFT_END
   }
   return false
 }
@@ -555,8 +560,9 @@ export function mergeWorkerWindowCatalog(
 }
 
 /**
- * Soft seat eligibility: personal hours touch this shift (or no hours set).
- * Unknown window ids do not block seating — only block truly non-overlapping ones.
+ * Seat / attendance eligibility for a personal window on this shift.
+ * Unknown window ids do not block; known windows use windowFitsShift
+ * (including the >1h-before-end rule for mid-shift starts).
  */
 export function windowEligibleForSeat(
   windowId: string | undefined,
@@ -566,10 +572,7 @@ export function windowEligibleForSeat(
   if (!windowId) return true
   const preset = workerWindowById(windowId, catalog)
   if (!preset) return true
-  const shift = MAIN_SHIFT_BOUNDS[shiftType]
-  if (!shift) return true
-  const span = windowInterval(preset, shiftType)
-  return span.start < shift.end && span.end > shift.start
+  return windowFitsShift(windowId, shiftType, catalog)
 }
 
 /**

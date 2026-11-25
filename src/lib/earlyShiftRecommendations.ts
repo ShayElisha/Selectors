@@ -11,7 +11,10 @@ import {
   formatMinutes,
   shiftModelAbsoluteEnd,
 } from './shiftModels'
-import { workerWindowById } from './shiftCatalog'
+import {
+  MIN_PERSONAL_START_BEFORE_SHIFT_END,
+  workerWindowById,
+} from './shiftCatalog'
 
 type EarlyShiftSource = Pick<
   ShiftSchedule,
@@ -214,7 +217,11 @@ export function earlyShiftRecommendations(args: {
       )
       // Early arrival: personal start falls inside the current shift, before
       // the later shift's official start (e.g. night at 18:30 during afternoon).
+      // Also require more than an hour remaining until current shift end.
       if (start < currentStartMinutes || start >= handoffMinutes) continue
+      if (currentEndMinutes - start <= MIN_PERSONAL_START_BEFORE_SHIFT_END) {
+        continue
+      }
 
       const startClock = start % (24 * 60)
 

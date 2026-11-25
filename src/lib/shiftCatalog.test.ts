@@ -329,6 +329,23 @@ describe('windowFitsShift', () => {
     ).toContain('0900-1500')
   })
 
+  it('blocks personal windows that start within the last hour of the shift', () => {
+    const lateMorning: WorkerWindowPreset = {
+      id: '1430-1500',
+      label: 'סוף בוקר',
+      name: 'סוף בוקר',
+      start: 14 * 60 + 30,
+      end: 15 * 60,
+      order: 21,
+    }
+    const withLate = [...catalog, lateMorning]
+    expect(windowFitsShift('1430-1500', 'morning', withLate)).toBe(false)
+    expect(windowEligibleForSeat('1430-1500', 'morning', withLate)).toBe(false)
+    expect(
+      presetsOverlappingShift('morning', withLate).map((p) => p.id),
+    ).not.toContain('1430-1500')
+  })
+
   it('keeps mid-morning workers seatable even if preset is missing from catalog', () => {
     expect(windowEligibleForSeat('0900-1500', 'morning', [])).toBe(true)
     expect(windowEligibleForSeat('1800-0630', 'morning', catalog)).toBe(false)

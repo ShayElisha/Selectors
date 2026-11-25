@@ -31,6 +31,14 @@ const presets: WorkerWindowPreset[] = [
     end: 21 * 60 + 30,
     order: 1,
   },
+  {
+    id: '2100-0630',
+    label: '21:00–06:30',
+    name: 'כמעט סוף צהריים',
+    start: 21 * 60,
+    end: 6 * 60 + 30,
+    order: 2,
+  },
 ]
 
 function lane(id: string, name: string): Lane {
@@ -176,6 +184,38 @@ describe('earlyShiftRecommendations', () => {
         current: afternoon,
         history: [afternoon, night],
         workers: [worker('early', 'דני לילה')],
+        lanes: [lane('lane-1', 'נתיב 1')],
+        models,
+        presets,
+      }),
+    ).toEqual([])
+  })
+
+  it('does not suggest arrivals within the last hour of the current shift', () => {
+    const afternoon = shift({
+      id: 'afternoon-1',
+      date: '2026-11-24',
+      shiftType: 'afternoon',
+      presentWorkerIds: [],
+      activeLaneIds: ['lane-1'],
+      staffingOverrides: { 'lane-1': 1 },
+      assignments: [{ laneId: 'lane-1', workerIds: [''] }],
+    })
+    const night = shift({
+      id: 'night-1',
+      date: '2026-11-24',
+      shiftType: 'night',
+      presentWorkerIds: ['late'],
+      activeLaneIds: ['lane-1'],
+      assignments: [{ laneId: 'lane-1', workerIds: ['late'] }],
+      workerWindows: { late: '2100-0630' },
+    })
+
+    expect(
+      earlyShiftRecommendations({
+        current: afternoon,
+        history: [night],
+        workers: [worker('late', 'מגיע מאוחר')],
         lanes: [lane('lane-1', 'נתיב 1')],
         models,
         presets,
