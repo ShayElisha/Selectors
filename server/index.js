@@ -131,10 +131,16 @@ app.use(
           "'self'",
           'https://fonts.googleapis.com',
           'https://fonts.gstatic.com',
+          'https://vercel.live',
           'ws:',
           'wss:',
         ],
-        fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        fontSrc: [
+          "'self'",
+          'data:',
+          'https://fonts.gstatic.com',
+          'https://vercel.live',
+        ],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
         frameSrc:
