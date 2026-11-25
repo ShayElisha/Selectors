@@ -104,6 +104,11 @@ export function laneLiveStatus(args: {
   models: ShiftModel[]
   presets: WorkerWindowPreset[]
   now?: number
+  /**
+   * When false (history / non-current slot), never flag mid-shift leavers —
+   * show the roster as a normal saved board.
+   */
+  trackLiveEnds?: boolean
 }): LaneLiveStatus {
   const { shift, history, lane, models, presets } = args
   const now = args.now ?? Date.now()
@@ -128,7 +133,8 @@ export function laneLiveStatus(args: {
   // finished roster — do not treat everyone as "ended mid-shift".
   const shiftHasStarted = official != null && now >= official.start
   const shiftStillOpen = official != null && now < official.end
-  const trackLiveEnds = shiftHasStarted && shiftStillOpen
+  const trackLiveEnds =
+    args.trackLiveEnds !== false && shiftHasStarted && shiftStillOpen
 
   const activeIds = new Set<string>()
   const endedIds = new Set<string>()
@@ -180,9 +186,9 @@ export function laneLiveStatus(args: {
     }
   }
 
-  // After the official shift ends, keep seated people looking active so the
-  // finished board stays a normal roster (edits/swaps still allowed).
-  if (!shiftStillOpen) {
+  // History / non-current slots, and boards after the official end, stay a
+  // normal roster — seated people look active (edits/swaps still allowed).
+  if (args.trackLiveEnds === false || !shiftStillOpen) {
     currentShiftEndedIds.clear()
     for (const workerId of allLaneWorkerIds(shift, lane.id)) {
       if (

@@ -192,6 +192,30 @@ describe('laneLiveStatus', () => {
     })
   })
 
+  it('does not flag mid-shift ends when live tracking is disabled (history view)', () => {
+    const afternoon = shift('history-view', ['early', 'late'], {
+      date: '2026-11-25',
+      shiftType: 'afternoon',
+      workerWindows: { early: 'until-15', late: 'until-22' },
+    })
+
+    expect(
+      laneLiveStatus({
+        shift: afternoon,
+        history: [afternoon],
+        lane,
+        models,
+        presets,
+        now: new Date(2026, 10, 25, 16, 0).getTime(),
+        trackLiveEnds: false,
+      }),
+    ).toMatchObject({
+      currentShiftEndedWorkerIds: [],
+      autoClosed: false,
+      activeWorkerIds: expect.arrayContaining(['early', 'late']),
+    })
+  })
+
   it('does not auto-close tomorrow from today\'s ended workers', () => {
     const tomorrow = shift('tomorrow', ['tomorrow-worker'], {
       date: '2026-11-19',

@@ -54,7 +54,11 @@ import {
   windowEligibleForSeat,
 } from '../lib/shiftCatalog'
 import { workerShiftEnd } from '../lib/workerShiftStatus'
-import { formatMinutes, resolveShiftModels } from '../lib/shiftModels'
+import {
+  currentShiftModel,
+  formatMinutes,
+  resolveShiftModels,
+} from '../lib/shiftModels'
 import { explainWhyNotSelected } from '../lib/whyNotSelected'
 import { SHIFT_TYPE_LABELS, shiftSlotConflictMessage } from '../constants'
 import type { PeopleLabels } from '../auth'
@@ -258,6 +262,21 @@ export function BoardStep({
     laneStatusModels,
     laneStatusNow,
   ])
+  // Ended/auto-close markers are only for the live current clock shift —
+  // history / other slots stay a normal roster view.
+  const trackLiveEnds = useMemo(() => {
+    if (draft.signOff?.signedAt) return false
+    const clock = currentShiftModel(laneStatusModels, new Date(laneStatusNow))
+    return (
+      draft.date === clock.date && draft.shiftType === clock.model.id
+    )
+  }, [
+    draft.date,
+    draft.shiftType,
+    draft.signOff?.signedAt,
+    laneStatusModels,
+    laneStatusNow,
+  ])
   const liveLaneStatuses = useMemo(
     () =>
       new Map(
@@ -274,6 +293,7 @@ export function BoardStep({
                     models: laneStatusModels,
                     presets: data.workerWindowPresets ?? [],
                     now: laneStatusNow,
+                    trackLiveEnds,
                   }),
                 ] as const,
               ]
@@ -287,6 +307,7 @@ export function BoardStep({
       draft,
       laneStatusModels,
       laneStatusNow,
+      trackLiveEnds,
     ],
   )
   const endedNowWorkerIds = new Set(
