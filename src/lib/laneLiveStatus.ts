@@ -123,6 +123,13 @@ export function laneLiveStatus(args: {
       list.findIndex((candidate) => candidate.id === item.id) === index,
   )
 
+  const official = officialShiftInterval(shift, models)
+  // Future shifts are not live yet; after the official end the board is a
+  // finished roster — do not treat everyone as "ended mid-shift".
+  const shiftHasStarted = official != null && now >= official.start
+  const shiftStillOpen = official != null && now < official.end
+  const trackLiveEnds = shiftHasStarted && shiftStillOpen
+
   const activeIds = new Set<string>()
   const endedIds = new Set<string>()
   const currentShiftEndedIds = new Set<string>()
@@ -154,14 +161,46 @@ export function laneLiveStatus(args: {
       )
       if (!interval || interval.start > now) continue
       if (interval.end <= now) {
+        // Neighboring/history coverage still tracks ended people; the open
+        // board only flags mid-shift leavers while THIS shift is live.
         endedIds.add(workerId)
-        if (candidate.id === shift.id) currentShiftEndedIds.add(workerId)
+        if (
+          trackLiveEnds &&
+          candidate.id === shift.id &&
+          (official == null || interval.end < official.end)
+        ) {
+          currentShiftEndedIds.add(workerId)
+        }
       } else if (activeAssignedIds.has(workerId)) {
         activeIds.add(workerId)
         if (!activeSources.has(workerId)) {
           activeSources.set(workerId, candidate.id)
         }
       }
+    }
+  }
+
+  // After the official shift ends, keep seated people looking active so the
+  // finished board stays a normal roster (edits/swaps still allowed).
+  if (!shiftStillOpen) {
+    currentShiftEndedIds.clear()
+    for (const workerId of allLaneWorkerIds(shift, lane.id)) {
+      if (
+        !shift.presentWorkerIds.includes(workerId) ||
+        (shift.gateManagerWorkerId === workerId && !isGateManagerLane(lane)) ||
+        shift.shiftDrops?.some(
+          (drop) =>
+            drop.workerId === workerId &&
+            (drop.kind === 'cancel' || drop.kind === 'noshow'),
+        )
+      ) {
+        continue
+      }
+      activeIds.add(workerId)
+      if (!activeSources.has(workerId)) {
+        activeSources.set(workerId, shift.id)
+      }
+      endedIds.delete(workerId)
     }
   }
 
@@ -183,17 +222,9 @@ export function laneLiveStatus(args: {
     latestCurrentEndedAt > 0 &&
     reopenedTimestamp >= latestCurrentEndedAt
   const missing = Math.max(0, required - activeIds.size)
-  const official = officialShiftInterval(shift, models)
-  // Future shifts (tomorrow morning opened tonight, etc.) are not "live" yet —
-  // assigned people are scheduled, not ended. Never show auto-freeze before
-  // the official shift window starts.
-  const shiftHasStarted = official != null && now >= official.start
-  // Auto-close is a live status for the open shift only: someone on this
-  // shift finished their hours and staffing dropped. Ends from yesterday /
-  // overlapping neighbors still count toward coverage (activeIds), but must
-  // not mark a future/next shift as frozen.
+  // Auto-close is live-only: someone finished mid-shift and staffing dropped.
   const autoClosed =
-    shiftHasStarted &&
+    trackLiveEnds &&
     currentShiftEndedIds.size > 0 &&
     missing > 0 &&
     !manuallyReopened

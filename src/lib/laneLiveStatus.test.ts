@@ -128,6 +128,29 @@ describe('laneLiveStatus', () => {
       workerWindows: { 'yesterday-worker': 'until-15' },
     })
 
+    // 11:00 — morning (04:00–12:00) still open; worker ended early at 15:00 window
+    // is not on morning. Use afternoon at 16:00 with early leaver instead.
+    const afternoon = shift('afternoon-live', ['early', 'late'], {
+      date: '2026-11-19',
+      shiftType: 'afternoon',
+      workerWindows: { early: 'until-15', late: 'until-22' },
+    })
+
+    expect(
+      laneLiveStatus({
+        shift: afternoon,
+        history: [afternoon, yesterday],
+        lane,
+        models,
+        presets,
+        now: new Date(2026, 10, 19, 16, 0).getTime(),
+      }),
+    ).toMatchObject({
+      currentShiftEndedWorkerIds: ['early'],
+      activeWorkerIds: ['late'],
+    })
+
+    // After the official morning ends, do not flag finished workers as mid-shift ends.
     expect(
       laneLiveStatus({
         shift: current,
@@ -138,8 +161,34 @@ describe('laneLiveStatus', () => {
         now: new Date(2026, 10, 19, 16, 0).getTime(),
       }),
     ).toMatchObject({
-      endedWorkerIds: ['today-worker', 'yesterday-worker'],
-      currentShiftEndedWorkerIds: ['today-worker'],
+      currentShiftEndedWorkerIds: [],
+      autoClosed: false,
+      activeWorkerIds: ['today-worker'],
+    })
+  })
+
+  it('hides ended markers after the official shift ends', () => {
+    const morning = shift('morning-done', ['full-shift'], {
+      date: '2026-11-25',
+      shiftType: 'morning',
+      workerWindows: { 'full-shift': 'morning-hours' },
+      staffingOverrides: { 'lane-a': 1 },
+    })
+
+    expect(
+      laneLiveStatus({
+        shift: morning,
+        history: [morning],
+        lane: { ...lane, staffingStandard: 1 },
+        models,
+        presets,
+        now: new Date(2026, 10, 25, 17, 8).getTime(),
+      }),
+    ).toMatchObject({
+      currentShiftEndedWorkerIds: [],
+      autoClosed: false,
+      activeWorkerIds: ['full-shift'],
+      missing: 0,
     })
   })
 
