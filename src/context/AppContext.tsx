@@ -172,6 +172,8 @@ import {
 import {
   collectContinuingAttendance,
   roundCutsForWindows,
+  mergeWorkerWindowCatalog,
+  windowEligibleForSeat,
   windowFitsShift,
 } from '../lib/shiftCatalog'
 import {
@@ -3215,13 +3217,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setWorkerWindow = useCallback(
     (workerId: string, windowId: string | null) => {
+      const current = draft
+      if (!current) return
+      const catalog = mergeWorkerWindowCatalog(
+        data.workerWindowPresets,
+        current.workerWindowPresets,
+      )
+      if (
+        windowId &&
+        !windowFitsShift(windowId, current.shiftType, catalog)
+      ) {
+        toast.error('השעות האלה לא מתאימות למשמרת הנוכחית')
+        return
+      }
       setDraft((d) => {
         if (!d) return d
-        if (
-          windowId &&
-          !windowFitsShift(windowId, d.shiftType, data.workerWindowPresets)
-        )
-          return d
         const workerWindows = { ...(d.workerWindows ?? {}) }
         if (!windowId) delete workerWindows[workerId]
         else workerWindows[workerId] = windowId
@@ -3274,6 +3284,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       data.shiftModels,
       data.workerWindowPresets,
       data.workers,
+      draft,
       user?.module,
     ],
   )
@@ -3522,6 +3533,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const staffingStandard = Math.min(5, remaining) as StaffingStandard
             return [{ ...lane, staffingStandard }]
           })
+        const windowCatalog = mergeWorkerWindowCatalog(
+          data.workerWindowPresets,
+          d.workerWindowPresets,
+        )
         const presentWorkers = data.workers.filter(
           (worker) =>
             d.presentWorkerIds.includes(worker.id) &&
@@ -3530,10 +3545,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             !guestIds.has(worker.id) &&
             !lockedIds.has(worker.id) &&
             !manualIds.has(worker.id) &&
-            windowFitsShift(
+            windowEligibleForSeat(
               d.workerWindows?.[worker.id],
               d.shiftType,
-              data.workerWindowPresets,
+              windowCatalog,
             ),
         )
         // Multi-start search with real progress: thousands of board checks,

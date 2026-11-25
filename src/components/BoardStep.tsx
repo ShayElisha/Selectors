@@ -48,7 +48,11 @@ import { LaneStaffingControl } from './LaneStaffingControl'
 import {
   timingBadgesForWorker,
 } from '../lib/shiftTimingBadges'
-import { windowFitsShift, resolveWorkerWindows } from '../lib/shiftCatalog'
+import {
+  mergeWorkerWindowCatalog,
+  presetsOverlappingShift,
+  windowEligibleForSeat,
+} from '../lib/shiftCatalog'
 import { workerShiftEnd } from '../lib/workerShiftStatus'
 import { formatMinutes, resolveShiftModels } from '../lib/shiftModels'
 import { explainWhyNotSelected } from '../lib/whyNotSelected'
@@ -184,8 +188,16 @@ export function BoardStep({
     [data.workers, extraWorkers],
   )
   const workerWindowPresets = useMemo(
-    () => resolveWorkerWindows(data.workerWindowPresets),
-    [data.workerWindowPresets],
+    () =>
+      mergeWorkerWindowCatalog(
+        data.workerWindowPresets,
+        draft.workerWindowPresets,
+      ),
+    [data.workerWindowPresets, draft.workerWindowPresets],
+  )
+  const assignableWindowPresets = useMemo(
+    () => presetsOverlappingShift(draft.shiftType, workerWindowPresets),
+    [draft.shiftType, workerWindowPresets],
   )
   const [laneStatusNow, setLaneStatusNow] = useState(() => Date.now())
   const [dismissedEarlyIds, setDismissedEarlyIds] = useState<Set<string>>(
@@ -692,7 +704,9 @@ export function BoardStep({
     }
     if (workerId) {
       const windowId = draft.workerWindows?.[workerId]
-      if (!windowFitsShift(windowId, draft.shiftType, workerWindowPresets)) {
+      if (
+        !windowEligibleForSeat(windowId, draft.shiftType, workerWindowPresets)
+      ) {
         const name =
           data.workers.find((w) => w.id === workerId)?.fullName ?? workerId
         notify.error('מחוץ לשעות', `${name} לא זמין/ה במשמרת הזו לפי השעות שנבחרו`)
@@ -868,7 +882,7 @@ export function BoardStep({
         !endedNowWorkerIds.has(w.id) &&
         w.isInspector &&
         (w.id === workerId ||
-          windowFitsShift(
+          windowEligibleForSeat(
             draft.workerWindows?.[w.id],
             draft.shiftType,
             workerWindowPresets,
@@ -1034,7 +1048,7 @@ export function BoardStep({
           <div className="flex flex-wrap items-center gap-1.5">
             <WorkerHoursChip
               value={draft.workerWindows?.[workerId]}
-              presets={workerWindowPresets}
+              presets={assignableWindowPresets}
               onChange={(windowId) => setWorkerWindow(workerId, windowId)}
               label="שעות משמרת"
             />
@@ -1123,7 +1137,7 @@ export function BoardStep({
                   ) : (
                     <WorkerHoursChip
                       value={draft.workerWindows?.[workerId]}
-                      presets={workerWindowPresets}
+                      presets={assignableWindowPresets}
                       onChange={(windowId) => setWorkerWindow(workerId, windowId)}
                       label="עדכון שעות המשמרת"
                     />
@@ -2104,7 +2118,7 @@ export function BoardStep({
                             <div className="flex flex-wrap items-center gap-1.5">
                               <WorkerHoursChip
                                 value={draft.workerWindows?.[gateId]}
-                                presets={workerWindowPresets}
+                                presets={assignableWindowPresets}
                                 onChange={(windowId) => setWorkerWindow(gateId, windowId)}
                                 label="שעות משמרת מנהל שער"
                               />

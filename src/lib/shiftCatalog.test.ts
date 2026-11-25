@@ -6,6 +6,7 @@ import {
   laneOpenDuring,
   presetsOverlappingShift,
   workerWindowLabelFromTimes,
+  windowEligibleForSeat,
   windowFitsShift,
   type WorkerWindowPreset,
 } from './shiftCatalog'
@@ -322,9 +323,15 @@ describe('windowFitsShift', () => {
 
   it('allows personal windows that start mid-morning', () => {
     expect(windowFitsShift('0900-1500', 'morning', catalog)).toBe(true)
+    expect(windowEligibleForSeat('0900-1500', 'morning', catalog)).toBe(true)
     expect(
       presetsOverlappingShift('morning', catalog).map((p) => p.id),
     ).toContain('0900-1500')
+  })
+
+  it('keeps mid-morning workers seatable even if preset is missing from catalog', () => {
+    expect(windowEligibleForSeat('0900-1500', 'morning', [])).toBe(true)
+    expect(windowEligibleForSeat('1800-0630', 'morning', catalog)).toBe(false)
   })
 
   it('allows afternoon-native and continuing morning windows only', () => {

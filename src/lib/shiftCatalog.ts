@@ -539,6 +539,40 @@ export function presetsOverlappingShift(
 }
 
 /**
+ * Merge org catalog with shift-local presets (e.g. early-add copies).
+ * Later entries with the same id are skipped.
+ */
+export function mergeWorkerWindowCatalog(
+  ...catalogs: Array<WorkerWindowPreset[] | null | undefined>
+): WorkerWindowPreset[] {
+  const merged: WorkerWindowPreset[] = []
+  for (const catalog of catalogs) {
+    for (const preset of catalog ?? []) {
+      if (!merged.some((item) => item.id === preset.id)) merged.push(preset)
+    }
+  }
+  return merged.length > 0 ? resolveWorkerWindows(merged) : resolveWorkerWindows()
+}
+
+/**
+ * Soft seat eligibility: personal hours touch this shift (or no hours set).
+ * Unknown window ids do not block seating — only block truly non-overlapping ones.
+ */
+export function windowEligibleForSeat(
+  windowId: string | undefined,
+  shiftType: ShiftType,
+  catalog?: WorkerWindowPreset[] | null,
+): boolean {
+  if (!windowId) return true
+  const preset = workerWindowById(windowId, catalog)
+  if (!preset) return true
+  const shift = MAIN_SHIFT_BOUNDS[shiftType]
+  if (!shift) return true
+  const span = windowInterval(preset, shiftType)
+  return span.start < shift.end && span.end > shift.start
+}
+
+/**
  * Share of one official shift covered by a worker's personal hours
  * (window + late/early). Full overlap → 1; partial hours → fraction.
  * Used for single-board (inspector) load / statistics weighting.

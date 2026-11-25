@@ -61,6 +61,7 @@ import { usesRounds } from '../lib/assignmentMode'
 import { selectorLanes, selectorRoundsHavePlacements } from '../lib/selectorRounds'
 import {
   collectContinuingAttendance,
+  mergeWorkerWindowCatalog,
   presetsOverlappingShift,
   shiftFollowsMorning,
 } from '../lib/shiftCatalog'
@@ -1614,7 +1615,10 @@ export function ShiftPage() {
                                 windowId={draft.workerWindows?.[w.id] ?? ''}
                                 windowPresets={presetsOverlappingShift(
                                   draft.shiftType,
-                                  data.workerWindowPresets,
+                                  mergeWorkerWindowCatalog(
+                                    data.workerWindowPresets,
+                                    draft.workerWindowPresets,
+                                  ),
                                 )}
                                 onWindowChange={(windowId) =>
                                   setWorkerWindow(w.id, windowId)
