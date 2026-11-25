@@ -303,26 +303,44 @@ describe('boardHoursWeight', () => {
 })
 
 describe('windowFitsShift', () => {
+  const midMorning: WorkerWindowPreset = {
+    id: '0900-1500',
+    label: 'בוקר מאמצע',
+    name: 'בוקר מאמצע',
+    start: 9 * 60,
+    end: 15 * 60,
+    order: 20,
+  }
+  const catalog = [...testWindowPresets, midMorning]
+
   it('allows morning windows on morning and blocks afternoon-only windows', () => {
-    expect(windowFitsShift(undefined, 'morning', testWindowPresets)).toBe(true)
-    expect(windowFitsShift('0600-1500', 'morning', testWindowPresets)).toBe(true)
-    expect(windowFitsShift('0445-1500', 'morning', testWindowPresets)).toBe(true)
-    expect(windowFitsShift('1430-2130', 'morning', testWindowPresets)).toBe(false)
+    expect(windowFitsShift(undefined, 'morning', catalog)).toBe(true)
+    expect(windowFitsShift('0600-1500', 'morning', catalog)).toBe(true)
+    expect(windowFitsShift('0445-1500', 'morning', catalog)).toBe(true)
+    expect(windowFitsShift('1430-2130', 'morning', catalog)).toBe(false)
+  })
+
+  it('allows personal windows that start mid-morning', () => {
+    expect(windowFitsShift('0900-1500', 'morning', catalog)).toBe(true)
+    expect(
+      presetsOverlappingShift('morning', catalog).map((p) => p.id),
+    ).toContain('0900-1500')
   })
 
   it('allows afternoon-native and continuing morning windows only', () => {
-    expect(windowFitsShift('1430-2130', 'afternoon', testWindowPresets)).toBe(true)
-    expect(windowFitsShift('0600-1730', 'afternoon', testWindowPresets)).toBe(true)
-    expect(windowFitsShift('0600-1830', 'afternoon', testWindowPresets)).toBe(true)
-    expect(windowFitsShift('0600-1500', 'afternoon', testWindowPresets)).toBe(false)
-    expect(windowFitsShift('0445-1500', 'afternoon', testWindowPresets)).toBe(false)
+    expect(windowFitsShift('1430-2130', 'afternoon', catalog)).toBe(true)
+    expect(windowFitsShift('0600-1730', 'afternoon', catalog)).toBe(true)
+    expect(windowFitsShift('0600-1830', 'afternoon', catalog)).toBe(true)
+    expect(windowFitsShift('0600-1500', 'afternoon', catalog)).toBe(false)
+    expect(windowFitsShift('0445-1500', 'afternoon', catalog)).toBe(false)
   })
 
   it('lists matching presets only', () => {
-    const morningIds = presetsOverlappingShift('morning', testWindowPresets).map((p) => p.id)
+    const morningIds = presetsOverlappingShift('morning', catalog).map((p) => p.id)
     expect(morningIds).toContain('0600-1500')
+    expect(morningIds).toContain('0900-1500')
     expect(morningIds).not.toContain('1430-2130')
-    const afternoonIds = presetsOverlappingShift('afternoon', testWindowPresets).map((p) => p.id)
+    const afternoonIds = presetsOverlappingShift('afternoon', catalog).map((p) => p.id)
     expect(afternoonIds).toContain('1430-2130')
     expect(afternoonIds).toContain('0600-1730')
     expect(afternoonIds).not.toContain('0600-1500')

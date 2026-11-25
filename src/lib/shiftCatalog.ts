@@ -490,6 +490,7 @@ export function windowCoversRound(
  * Whether a personal window may be used on this official shift.
  * - No window → whole shift (eligible).
  * - Native window starts at/near the shift start (or earlier for morning).
+ * - Mid-shift arrival: starts after official start, still overlaps meaningfully.
  * - Long morning windows may continue into afternoon only via continuesIntoShift.
  */
 export function windowFitsShift(
@@ -516,6 +517,13 @@ export function windowFitsShift(
     return earlier.some((source) =>
       continuesIntoShift(source, windowId, shiftType, catalog),
     )
+  }
+
+  // Mid-shift arrival (e.g. 09:00–15:00 on morning). Require enough overlap so
+  // the next shift's native window (14:30–21:30) does not sneak onto morning.
+  if (span.start > shift.start && span.start < shift.end) {
+    const overlap = Math.min(span.end, shift.end) - span.start
+    return overlap >= 60
   }
   return false
 }
