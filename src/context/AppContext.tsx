@@ -1144,6 +1144,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const view = viewFromPath(location.pathname)
   const [shiftStep, setShiftStepState] = useState<ShiftStep>(() => restoreStep())
   const [draft, setDraftState] = useState<ShiftDraft | null>(() => restoreDraft())
+  /** Block clearDraftStorage until encrypted draft hydrate finishes (avoids wipe-on-refresh). */
+  const [draftStorageReady, setDraftStorageReady] = useState(
+    () => restoreDraft() != null,
+  )
   const setDraft = useCallback<Dispatch<SetStateAction<ShiftDraft | null>>>((action) => {
     setDraftState((current) => {
       const next = typeof action === 'function' ? action(current) : action
@@ -1292,8 +1296,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setShiftStepState(s)
   }, [])
 
-  // Persist draft only after a real edit vs. the clean baseline.
+  // Persist open draft so refresh restores it. Wait for hydrate so mount
+  // with draft=null does not wipe ciphertext before restore runs.
   useEffect(() => {
+    if (!draftStorageReady) return
     if (!draft) {
       setDraftDirty(false)
       draftBaselineRef.current = null
@@ -1303,13 +1309,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const baseline = draftBaselineRef.current
     const dirty = baseline === null || snapshotDraft(draft) !== baseline
     setDraftDirty(dirty)
-    if (dirty) {
-      saveDraftJson(JSON.stringify(draft))
-      saveShiftStep(shiftStep)
-    } else {
-      clearDraftStorage()
-    }
-  }, [draft, shiftStep])
+    saveDraftJson(JSON.stringify(draft))
+    saveShiftStep(shiftStep)
+  }, [draft, shiftStep, draftStorageReady])
 
   // Leaving the shift flow without edits should not keep a phantom draft in memory.
   useEffect(() => {
@@ -1951,28 +1953,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false
     void (async () => {
-      const hydrated = await hydrateAppDataCache()
-      if (cancelled) return
-      if (hydrated) {
-        const next = normalizeAppData(hydrated, activeModule(loadSession()))
-        skipNextSync.current = true
-        dataRef.current = next
-        persistedDataRef.current = next
-        setData(next)
-        setLoading(false)
-        setRefreshing(true)
-      }
-      const draftHydrated = await hydrateDraftStorage()
-      if (cancelled) return
-      if (draftHydrated.draftJson) {
-        setDraftState((current) => {
-          if (current) return current
-          return restoreDraft()
-        })
-        if (draftHydrated.shiftStep) {
-          setShiftStepState((current) => current || restoreStep())
+      try {
+        const hydrated = await hydrateAppDataCache()
+        if (cancelled) return
+        if (hydrated) {
+          const next = normalizeAppData(hydrated, activeModule(loadSession()))
+          skipNextSync.current = true
+          dataRef.current = next
+          persistedDataRef.current = next
+          setData(next)
+          setLoading(false)
+          setRefreshing(true)
         }
+        const draftHydrated = await hydrateDraftStorage()
+        if (cancelled) return
+        if (draftHydrated.draftJson) {
+          setDraftState((current) => {
+            if (current) return current
+            return restoreDraft()
+          })
+          setDraftDirty(true)
+          draftBaselineRef.current = null
+          if (draftHydrated.shiftStep) {
+            setShiftStepState((current) => current || restoreStep())
+          }
+        }
+      } finally {
+        if (!cancelled) setDraftStorageReady(true)
       }
+      if (cancelled) return
       await refreshFromServer()
     })()
     return () => {
@@ -5160,7 +5169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       queueMicrotask(() => saveAppDataCache(next))
       draftBaselineRef.current = snapshotDraft(synced)
       setDraftDirty(false)
-      clearDraftStorage()
+      // Keep draft on disk while the board stays open so refresh restores it.
 
       const hardStreaks = findHardLaneStreaks({
         history: nextHistory,
